@@ -1,0 +1,168 @@
+{{#IF_MONOREPO}}# CLAUDE.md - Traqr Monorepo Intelligence
+{{/IF_MONOREPO}}{{^IF_MONOREPO}}# CLAUDE.md - {{PROJECT_DISPLAY_NAME}} Project Intelligence
+{{/IF_MONOREPO}}
+## Project Overview
+{{PROJECT_DESCRIPTION}}
+
+{{#IF_MONOREPO}}
+## Monorepo: App Routing (READ FIRST)
+
+This is a multi-app monorepo. Before starting ANY task, determine the target app.
+
+{{MONOREPO_APP_TABLE}}
+
+### Routing Rules
+1. **Ticket prefix determines the app**: extract prefix from ticket ID (e.g., PKT from PKT-146 -> apps/pokotraqr)
+2. **Scope investigation to the correct apps/ directory** — don't read NookTraqr code for a PKT ticket
+3. **Auth differs by app** — never apply one app's auth patterns to another
+4. **Read the app's CLAUDE.md** (`apps/<name>/CLAUDE.md`) for app-specific conventions
+5. **Use the correct Linear team** when querying tickets: `list_issues(team: "<PREFIX>", ...)`
+
+{{/IF_MONOREPO}}
+---
+
+{{#IF_TIER_1+}}## Memory Feedback Loop (MANDATORY)
+
+Every agent, every session must participate. The vector DB is the portable asset — skip one session and the compound effect breaks.
+
+### The Three Gates
+
+| Gate | Skill | What It Does | If Skipped |
+|------|-------|-------------|------------|
+| **Entry** | `/startup` | Sync + session marker | `/ship` BLOCKS |
+| **Context** | `/context` | Task-targeted memory search | Flying blind |
+| **Exit** | `/ship` | Capture learnings, create PR | No PR |
+
+### Rules
+
+1. `/startup` before any work — writes the marker `/ship` requires
+2. `/context "<task>"` when you know your task — targeted memory search
+3. `/ship` blocks without marker, warns without `/context`
+4. Reference learnings explicitly: "Based on [MEM-xxx], doing Y"
+5. Every PR includes `## Memory Loop` section
+
+### Execution Slot Flow
+
+`/startup` → finds ticket? auto `/context` : user describes task → `/context` → implement → build → `/ship`
+
+{{#IF_TIER_2+}}### Getting Plans from Tickets
+
+Slot agents: fetch ticket (`mcp__linear__get_issue`), IMMEDIATELY fetch comments (`mcp__linear__list_comments`), parse `## Full Implementation Details` comment.
+{{/IF_TIER_2+}}
+{{/IF_TIER_1+}}## Development Workflow
+
+This project uses a **multi-slot worktree system**. NEVER push directly to main.
+
+### Quick Start
+
+```bash
+z1 && c1          # Jump to slot, open Claude
+/ship "Title"     # Ship when ready
+/sync             # Sync after merge
+```
+
+### Slot Configuration
+
+{{SLOT_TABLE}}
+
+### Key Commands
+
+| Command | What it does |
+|---------|--------------|
+| `/ship "Title"` | Commit, push, create PR |
+| `/sync` | Sync all slots with main |
+| `/worktrees` | Show status dashboard of all slots |
+| `/pr list` | List open PRs |
+{{#IF_MEMORY_FULL}}| `/startup` | Load memories, claim tickets |
+| `/learn` | Capture learnings to vector DB |
+{{/IF_MEMORY_FULL}}{{#IF_ISSUES}}| `/advisor` | Generate implementation plans |
+| `/dispatch` | Send plan to execution slot |
+{{/IF_ISSUES}}
+
+### Golden Rules
+
+1. **Always work in slots** — never directly on main
+2. **Use `/ship` to deploy** — creates PR automatically
+3. **Run `/sync` after merging** — keeps all slots current
+4. **Never push to main** — pre-push hook blocks it. Emergency: `{{SHIP_ENV_VAR}}=true git push`
+{{#IF_MEMORY_FULL}}5. **Memory auto-loads** — hooks handle context loading and learning capture
+{{/IF_MEMORY_FULL}}
+---
+
+{{#IF_ISSUES}}## Two Workflows, Same Outcome
+
+```
+Slack "Fix This" → Linear ticket (agent-ready) → Slot implements → /ship → PR → Merge
+/advisor plan    → /dispatch → Linear ticket    → Slot implements → /ship → PR → Merge
+```
+
+Both converge on Linear tickets. `agent-ready` label is the universal dispatch mechanism.
+
+{{/IF_ISSUES}}## Code Conventions
+
+### File Structure
+- API routes: `src/app/api/[endpoint]/route.ts`
+- Components: `src/components/[category]/[ComponentName].tsx`
+- Utilities: `src/lib/[name].ts`
+
+### Commit Format
+```
+<type>: <subject>
+<body>
+Co-authored-by: {{CO_AUTHOR}} <noreply@anthropic.com>
+```
+
+Types: `feat:` | `fix:` | `docs:` | `refactor:` | `chore:`
+Rules: imperative mood, lowercase first letter, max 72 char subject
+
+---
+
+## Slot Locations
+
+```
+Main repo:  {{REPO_PATH}} (main branch - don't work here)
+Worktrees:  {{WORKTREES_PATH}}/
+{{SLOT_PATHS}}
+```
+
+### Port Assignments
+
+{{PORT_TABLE}}
+
+{{#IF_MONOREPO}}## Ticket Investigation
+
+When the user gives specific ticket identifiers (e.g., NTQ-794 or PKT-146):
+1. **Extract the prefix** — the letters before the dash determine the app and Linear team
+2. **Fetch tickets FIRST** — get all referenced tickets before touching code
+3. **Use `list_issues` with the correct team** — e.g., `list_issues(team: "PKT", filter: {identifier: {eq: "PKT-146"}})` for PokoTraqr
+4. **Read before you run** — understand the ticket content before spawning Explore agents or grepping code
+5. **Don't parallelize fetch + investigation** — tickets inform what code to look at
+6. **Scope code search to the right app** — PKT tickets -> `apps/pokotraqr/`, NTQ tickets -> `apps/nooktraqr/`
+{{/IF_MONOREPO}}{{^IF_MONOREPO}}## Ticket Investigation
+
+When the user gives specific ticket identifiers (e.g., {{TICKET_PREFIX}}-123):
+1. **Fetch tickets FIRST** — get all referenced tickets before touching code
+2. **Use `list_issues` with identifier filter** — `get_issue` needs UUID, not identifier.
+   Call `list_issues(team: "{{TICKET_PREFIX}}", filter: {identifier: {eq: "{{TICKET_PREFIX}}-123"}})` to get the full issue with UUID
+3. **Read before you run** — understand the ticket content before spawning Explore agents or grepping code
+4. **Don't parallelize fetch + investigation** — tickets inform what code to look at
+{{/IF_MONOREPO}}
+## Common Gotchas
+
+1. **Never update a merged PR**: When shipping, ALWAYS verify any existing PR is `OPEN` before editing. If the branch has a merged/closed PR, create a NEW PR. Slot branches persist across PR cycles — a merged PR does NOT mean new commits belong on that PR.
+2. **Vercel Cron Limits**: Check deployment tier before adding crons
+3. **PostHog**: Use `distinct_id` NOT `person_id` in HogQL
+{{#IF_SLACK}}4. **Slack**: Channel name without `#` prefix
+{{/IF_SLACK}}5. **Linear API**: Auth header is just the key, no "Bearer"
+{{#IF_MONOREPO}}6. **Linear `get_issue`**: Takes UUID, not identifier. Use `list_issues` with identifier filter to resolve ticket IDs ({{MONOREPO_TICKET_PREFIXES}}) to UUID
+{{/IF_MONOREPO}}{{^IF_MONOREPO}}6. **Linear `get_issue`**: Takes UUID, not identifier. Use `list_issues` with identifier filter to resolve {{TICKET_PREFIX}}-XXX to UUID
+{{/IF_MONOREPO}}
+
+## Reference Docs (read on demand)
+
+- `docs/claude/features.md` — Dev Inbox, Vibe Chat, Visual Verification, Agent Mesh
+- `docs/claude/devops.md` — DevOps workflow, testing commands, environment variables
+- `docs/claude/reference.md` — Worktree lifecycle, Slack channels, ports, quick reference
+
+---
+*Generated by Traqr CLI — Automation Score: {{AUTOMATION_SCORE}}/100*

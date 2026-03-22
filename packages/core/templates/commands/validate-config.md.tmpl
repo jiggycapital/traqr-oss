@@ -1,0 +1,306 @@
+---
+allowed-tools: Bash, Read
+name: doctor
+description: Validate all environment variables, API connections, and integrations
+tier: 1
+category: verification
+autoInvoked: false
+dependencies: []
+relatedSkills: [status, traqr-init]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /doctor - Configuration Health Check
+
+Validate all environment variables, API connections, and integrations for {{PROJECT_DISPLAY_NAME}}.
+
+## Arguments
+- (none) -- Full validation (env vars + API pings)
+- `quick` -- Env var existence check only (no API pings)
+- `fix` -- Auto-fix common issues
+- `generate` -- Generate/update .env.local.example
+
+---
+
+## Instructions
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_CURIOUS}}
+{{RAQR_FRAME_END}}
+
+Raqr · /doctor                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Let me check your setup...
+```
+
+### 1. Read Config
+
+```bash
+CONFIG=$(cat "$(git rev-parse --show-toplevel)/.traqr/config.json" 2>/dev/null || echo '{}')
+TIER=$(echo "$CONFIG" | jq -r '.tier // 0')
+echo "Tier: $TIER"
+```
+
+If no config found, STOP:
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_ALERT}}
+{{RAQR_FRAME_END}}
+
+Raqr · /doctor                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+No .traqr/config.json found. This project hasn't been initialized.
+
+Run /traqr-init first to set up your project.
+
+{{RAQR_HR}}
+```
+
+### 2. Read Environment
+
+```bash
+ENV_FILE="$(git rev-parse --show-toplevel)/.env.local"
+if [ -f "$ENV_FILE" ]; then
+  echo "ENV_FILE: found"
+  # List all defined vars (names only, no values for security)
+  grep -E '^[A-Z_]+=.' "$ENV_FILE" | cut -d= -f1 | sort
+else
+  echo "ENV_FILE: missing"
+fi
+```
+
+### 3. Validate Environment Variables
+
+Check each required var exists and is non-empty. Group by tier/feature.
+
+#### Core (All Tiers)
+
+| Var | Required | How to Get |
+|-----|----------|-----------|
+| `CRON_SECRET` | Yes | Generate: `openssl rand -hex 32` |
+
+{{#IF_MEMORY}}
+#### Memory (Tier 1+)
+
+| Var | Required | How to Get |
+|-----|----------|-----------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase Dashboard -> Settings -> API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Same page as above |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Same page, service_role key |
+| `OPENAI_API_KEY` | Yes | platform.openai.com/api-keys |
+{{/IF_MEMORY}}
+
+{{#IF_SLACK}}
+#### Slack (Tier 3+)
+
+| Var | Required | How to Get |
+|-----|----------|-----------|
+| `SLACK_BOT_TOKEN` | Yes | api.slack.com/apps -> OAuth & Permissions |
+| `SLACK_SIGNING_SECRET` | Yes | api.slack.com/apps -> Basic Information |
+{{/IF_SLACK}}
+
+{{#IF_LINEAR}}
+#### Linear
+
+| Var | Required | How to Get |
+|-----|----------|-----------|
+| `LINEAR_API_KEY` | Yes | linear.app/settings/api |
+{{/IF_LINEAR}}
+
+{{#IF_POSTHOG}}
+#### PostHog (Tier 4)
+
+| Var | Required | How to Get |
+|-----|----------|-----------|
+| `NEXT_PUBLIC_POSTHOG_KEY` | Yes | PostHog -> Project Settings |
+| `POSTHOG_PERSONAL_API_KEY` | For crons | PostHog -> Personal API Keys |
+{{/IF_POSTHOG}}
+
+For each var, check:
+```bash
+grep -q "^VAR_NAME=." "$ENV_FILE" 2>/dev/null && echo "VAR_NAME: ok" || echo "VAR_NAME: MISSING"
+```
+
+Collect results into a status table.
+
+### 4. API Connectivity (skip if `quick`)
+
+Ping each configured integration to verify the credentials actually work.
+
+{{#IF_MEMORY}}
+#### Memory API
+
+```bash
+curl -s --max-time 5 "{{MEMORY_API_BASE}}/memory/search?q=health+check&limit=1" | head -c 200
+```
+
+- 200 response with results: PASS
+- 401/403: credentials invalid
+- Connection refused: server not running
+{{/IF_MEMORY}}
+
+{{#IF_SLACK}}
+#### Slack
+
+```bash
+curl -s --max-time 5 -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+  "https://slack.com/api/auth.test" | jq '{ok, team, user}'
+```
+
+- `ok: true`: PASS
+- `ok: false`: token invalid or expired
+{{/IF_SLACK}}
+
+{{#IF_LINEAR}}
+#### Linear
+
+Use the `list_teams` MCP tool. If it returns teams, Linear is connected.
+If it errors, the API key is invalid.
+{{/IF_LINEAR}}
+
+#### GitHub
+
+```bash
+curl -s --max-time 5 -H "Authorization: token $GITHUB_TOKEN" \
+  "https://api.github.com/repos/{{GH_ORG_REPO}}" | jq '{full_name, private}'
+```
+
+- Returns repo info: PASS
+- 401: token expired
+- 404: wrong repo or insufficient permissions
+
+### 5. Report
+
+Compile all results into a status table.
+
+{{#IF_ALL_PASS}}
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_CELEBRATE}}
+{{RAQR_FRAME_END}}
+
+Raqr · /doctor                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+All systems configured and connected!
+
+| # | Integration | Env Vars | API | Status |
+|---|-------------|----------|-----|--------|
+<numbered rows with green checkmarks>
+
+{{RAQR_HR}}
+You're all set. Run /ship when ready.
+```
+{{/IF_ALL_PASS}}
+
+{{#IF_ISSUES}}
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_ALERT}}
+{{RAQR_FRAME_END}}
+
+Raqr · /doctor                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+<N> issues found.
+
+| # | Integration | Issue | Fix |
+|---|-------------|-------|-----|
+<numbered rows with issues and fix instructions>
+
+{{RAQR_HR}}
+Fix the issues above, then run /doctor again to verify.
+```
+{{/IF_ISSUES}}
+
+### 6. Auto-Fix (if `fix` argument)
+
+For issues that can be fixed automatically:
+
+```bash
+# Generate missing CRON_SECRET
+if ! grep -q "^CRON_SECRET=" .env.local 2>/dev/null; then
+  echo "CRON_SECRET=$(openssl rand -hex 32)" >> .env.local
+  echo "Generated CRON_SECRET"
+fi
+```
+
+For issues that need manual action, show the exact step:
+```
+Can't auto-fix:
+  SLACK_BOT_TOKEN -- Get from api.slack.com/apps -> OAuth & Permissions
+                     Then add to .env.local: SLACK_BOT_TOKEN=xoxb-...
+```
+
+### 7. Generate .env.example (if `generate` argument)
+
+Read `.traqr/config.json` to determine tier and features, then generate a `.env.local.example` with all required vars (values replaced with descriptions):
+
+```bash
+cat > .env.local.example << 'ENVEOF'
+# Generated by /doctor — Tier <N> (<pack name>)
+# Copy to .env.local and fill in values
+
+# === Core ===
+CRON_SECRET=          # openssl rand -hex 32
+
+# === Supabase ===
+NEXT_PUBLIC_SUPABASE_URL=     # Dashboard -> Settings -> API
+NEXT_PUBLIC_SUPABASE_ANON_KEY= # Same page
+SUPABASE_SERVICE_ROLE_KEY=     # Same page, service_role
+
+# === Memory (Tier 1+) ===
+OPENAI_API_KEY=       # platform.openai.com/api-keys
+
+# ... (continue for all tier/feature vars)
+ENVEOF
+```
+
+Report:
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_CELEBRATE}}
+{{RAQR_FRAME_END}}
+
+Raqr · /doctor                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Generated .env.local.example with <N> variables for Tier <tier>.
+
+Copy it: cp .env.local.example .env.local
+Then fill in your API keys.
+
+{{RAQR_HR}}
+```
+
+### Error Handling
+
+If the doctor itself fails to run:
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_SAD}}
+{{RAQR_FRAME_END}}
+
+Raqr · /doctor                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Doctor couldn't complete the checkup.
+
+<translate the raw error to plain English using the table below>
+
+{{RAQR_HR}}
+```
+
+| Raw Error | Plain English | Fix |
+|-----------|--------------|-----|
+| `jq: command not found` | jq isn't installed | Install with: brew install jq |
+| `ENOENT .env.local` | No environment file exists | Run /doctor generate to create a template |
+| `Permission denied` | Can't read or write config files | Check file permissions on .traqr/ and .env.local |
+| `curl: command not found` | curl isn't installed | Install curl for your platform |

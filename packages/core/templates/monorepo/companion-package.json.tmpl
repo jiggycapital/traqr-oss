@@ -1,0 +1,27 @@
+{
+  "name": "{{COMPANION_PACKAGE}}",
+  "version": "0.0.1",
+  "description": "Shared data layer for {{APP_DISPLAY_NAME}}",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@supabase/supabase-js": "^2.93.3"
+  },
+  "engines": { "node": ">=18.0.0" },
+  "license": "MIT"
+}

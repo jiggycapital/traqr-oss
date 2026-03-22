@@ -1,0 +1,286 @@
+#!/bin/bash
+# =============================================================================
+# VESTIGIAL — This template is superseded by alias-generator.ts
+# =============================================================================
+#
+# The real alias files are generated dynamically by:
+#   packages/core/src/alias-generator.ts → ~/.traqr/aliases/{project}.sh
+#
+# To source aliases, add this to your ~/.zshrc or ~/.bashrc:
+#   source ~/.traqr/shell-init.sh
+#
+# This file is kept for reference only and is NOT sourced by shell-init.sh.
+# =============================================================================
+#
+# Original: {{PROJECT_DISPLAY_NAME}} Multi-Slot Worktree System
+# =============================================================================
+
+# Base paths
+export {{PREFIX_UPPER}}_MAIN="{{REPO_PATH}}"
+export {{PREFIX_UPPER}}_WORKTREES="{{WORKTREES_PATH}}"
+{{#IF_TIER_1+}}export {{PREFIX_UPPER}}_API="{{MEMORY_API_BASE}}"{{/IF_TIER_1+}}
+
+# Port assignments
+{{SLOT_PORT_EXPORTS}}
+
+# =============================================================================
+# Quick Jump Aliases (z = jump to directory)
+# =============================================================================
+
+alias zm='cd "${{PREFIX_UPPER}}_MAIN" && pwd'
+{{SLOT_ALIASES_JUMP}}
+
+# =============================================================================
+# Claude Aliases (c = cd + open Claude)
+# =============================================================================
+# Tab labels use emoji + descriptive name for at-a-glance identification.
+# _{{PREFIX}}_claude sets the terminal tab title and prevents Claude from overwriting it.
+
+_{{PREFIX}}_claude() {
+    local label="$1"
+    local dir="$2"
+    cd "$dir"
+    printf '\e]1;%s\a' "$label"
+    CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 claude
+    printf '\e]1;%s - done\a' "$label"
+}
+
+cm() { _{{PREFIX}}_claude "📌 Main" "${{PREFIX_UPPER}}_MAIN"; }
+{{SLOT_ALIASES_CLAUDE}}
+
+# =============================================================================
+# Slot Management Functions
+# =============================================================================
+
+# Show status of all slots
+{{PREFIX}}-slots() {
+    echo "{{PROJECT_DISPLAY_NAME}} Slot Status"
+    echo ""
+    printf "%-10s %-20s %-8s %-8s %-10s\n" "Slot" "Branch" "Ahead" "Changes" "PR"
+    printf "%-10s %-20s %-8s %-8s %-10s\n" "--------" "------------------" "------" "------" "--------"
+
+    # Check main
+    local main_changes=$(git -C "${{PREFIX_UPPER}}_MAIN" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+    printf "%-10s %-20s %-8s %-8s %-10s\n" "main" "main" "-" "$main_changes" "-"
+
+    local slots=({{SLOT_STATUS_ROWS}})
+
+    for slot_info in "${slots[@]}"; do
+        local slot="${slot_info%%:*}"
+        local expected_branch="${slot_info##*:}"
+        local path="${{PREFIX_UPPER}}_WORKTREES/$slot"
+
+        if [ -d "$path" ]; then
+            local branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
+            local ahead=$(git -C "$path" log origin/main..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
+            local changes=$(git -C "$path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+            local pr=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // "-"' 2>/dev/null || echo "-")
+
+            printf "%-10s %-20s %-8s %-8s %-10s\n" "$slot" "$branch" "$ahead" "$changes" "${pr:-"-"}"
+        else
+            printf "%-10s %-20s %-8s %-8s %-10s\n" "$slot" "(not created)" "-" "-" "-"
+        fi
+    done
+
+    echo ""
+    echo "{{SLOT_HELP_SUMMARY}}"
+}
+
+# Reset a slot to fresh state from main
+{{PREFIX}}-reset() {
+    local slot="$1"
+
+    if [ -z "$slot" ]; then
+        echo "Usage: {{PREFIX}}-reset <slot>"
+        echo ""
+        echo "This resets the slot to match main (discards all local work!)"
+        return 1
+    fi
+
+    local path="${{PREFIX_UPPER}}_WORKTREES/$slot"
+
+    local branch
+    case "$slot" in
+{{SLOT_RESET_CASES}}
+        *)
+            echo "Unknown slot: $slot"
+            return 1
+            ;;
+    esac
+
+    if [ ! -d "$path" ]; then
+        echo "Slot $slot doesn't exist at $path"
+        echo "   Run {{PREFIX}}-setup to create all slots"
+        return 1
+    fi
+
+    echo "This will DISCARD all uncommitted changes and unmerged commits in $slot"
+    echo "    Path: $path"
+    echo "    Branch: $branch"
+    echo ""
+    read -p "Are you sure? (y/N) " confirm
+
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo "Cancelled"
+        return 0
+    fi
+
+    echo ""
+    echo "Resetting $slot to main..."
+
+    cd "$path"
+    git fetch origin main
+    git reset --hard origin/main
+
+    echo "$slot is now synced with main"
+}
+
+# List open PRs
+{{PREFIX}}-prs() {
+    echo "Open PRs for {{PROJECT_DISPLAY_NAME}}:"
+    echo ""
+    gh pr list --state open --json number,title,headRefName --jq '.[] | "#\(.number) [\(.headRefName)] \(.title)"'
+}
+
+# Sync all slots with main
+{{PREFIX}}-sync() {
+    echo "Syncing all slots with main..."
+    echo ""
+
+    cd "${{PREFIX_UPPER}}_MAIN"
+    git pull origin main
+    local main_sha=$(git rev-parse HEAD)
+    echo "  main updated ($main_sha)"
+    echo ""
+
+    local skipped_slots=()
+    local stashed_slots=()
+
+    local slots=({{SLOT_STATUS_ROWS}})
+
+    for slot_info in "${slots[@]}"; do
+        local slot="${slot_info%%:*}"
+        local path="${{PREFIX_UPPER}}_WORKTREES/$slot"
+
+        if [ ! -d "$path" ]; then
+            echo "  $slot (not created, skipping)"
+            continue
+        fi
+
+        echo "  $slot"
+
+        git -C "$path" fetch origin main 2>/dev/null
+
+        local uncommitted=$(git -C "$path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+        local ahead=$(git -C "$path" log origin/main..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
+
+        if [ "$uncommitted" -gt 0 ]; then
+            local uncommitted_files=$(git -C "$path" status --porcelain 2>/dev/null | awk '{print $NF}')
+            local main_changed=$(git -C "$path" diff --name-only HEAD origin/main 2>/dev/null)
+
+            local overlap=""
+            if [ -n "$main_changed" ]; then
+                overlap=$(comm -12 <(echo "$uncommitted_files" | sort 2>/dev/null) <(echo "$main_changed" | sort 2>/dev/null) 2>/dev/null)
+            fi
+
+            if [ -n "$overlap" ]; then
+                echo "    CONFLICT: Main changed files you're also editing"
+                echo "    SKIPPED - commit or stash your changes first"
+                skipped_slots+=("$slot")
+            else
+                echo "    Stashing $uncommitted uncommitted changes..."
+                local stash_msg="auto-stash-sync-$(date +%s)"
+                if git -C "$path" stash push -u -m "$stash_msg" 2>/dev/null; then
+                    git -C "$path" reset --hard origin/main 2>/dev/null
+                    echo "    Synced (run 'cd $path && git stash pop' to restore work)"
+                    stashed_slots+=("$slot")
+                else
+                    echo "    Stash failed - skipping"
+                    skipped_slots+=("$slot")
+                fi
+            fi
+        elif [ "$ahead" -gt 0 ]; then
+            echo "    $ahead commits ahead - rebasing..."
+            if git -C "$path" rebase origin/main 2>/dev/null; then
+                echo "    Rebased"
+            else
+                echo "    Rebase failed - resolve manually"
+                git -C "$path" rebase --abort 2>/dev/null
+                skipped_slots+=("$slot")
+            fi
+        else
+            git -C "$path" reset --hard origin/main 2>/dev/null
+            echo "    Reset to main"
+        fi
+    done
+
+    echo ""
+
+    if [ ${#skipped_slots[@]} -gt 0 ]; then
+        echo "Skipped slots with conflicts: ${skipped_slots[*]}"
+    fi
+
+    if [ ${#stashed_slots[@]} -gt 0 ]; then
+        echo "Stashed work in: ${stashed_slots[*]}"
+        echo "   Run 'git stash pop' in those slots to restore"
+    fi
+
+    if [ ${#skipped_slots[@]} -eq 0 ] && [ ${#stashed_slots[@]} -eq 0 ]; then
+        echo "Sync complete! All slots are current with main."
+    fi
+}
+
+# =============================================================================
+# Dev Server Management
+# =============================================================================
+
+{{PREFIX}}-dev() {
+    local current_dir=$(pwd)
+    local port=${{PREFIX_UPPER}}_PORT_MAIN
+    local slot="main"
+
+    case "$current_dir" in
+{{SLOT_PORT_CASES}}
+    esac
+
+    echo "Starting dev server for $slot on port $port"
+    echo "   URL: http://localhost:$port"
+    echo ""
+    PORT=$port npm run dev
+}
+
+{{PREFIX}}-ports() {
+    echo "{{PROJECT_DISPLAY_NAME}} Port Assignments:"
+    echo ""
+    echo "  Slot       Port   URL"
+    echo "  --------   ----   ------------------------"
+    echo "  main       ${{PREFIX_UPPER}}_PORT_MAIN    http://localhost:${{PREFIX_UPPER}}_PORT_MAIN"
+
+    local slots=({{SLOT_STATUS_ROWS}})
+    for slot_info in "${slots[@]}"; do
+        local slot="${slot_info%%:*}"
+        local var_name="{{PREFIX_UPPER}}_PORT_${slot^^}"
+        local port="${!var_name}"
+        echo "  $slot   $port    http://localhost:$port"
+    done
+    echo ""
+    echo "Usage: Run '{{PREFIX}}-dev' in any slot to auto-start on correct port"
+}
+
+# =============================================================================
+# Setup (one-time)
+# =============================================================================
+
+{{PREFIX}}-setup() {
+    echo "Setting up {{PROJECT_DISPLAY_NAME}} multi-slot worktree system..."
+    echo ""
+    bash "{{REPO_PATH}}/scripts/setup-worktrees.sh"
+}
+
+# =============================================================================
+# Startup Message
+# =============================================================================
+
+echo "{{PROJECT_DISPLAY_NAME}} multi-slot system loaded!"
+echo "   {{SLOT_HELP_SUMMARY}}"
+echo "   Commands: {{PREFIX}}-slots, {{PREFIX}}-sync, {{PREFIX}}-reset, {{PREFIX}}-setup"

@@ -1,0 +1,46 @@
+{
+  "name": "@traqr/core",
+  "version": "0.1.0",
+  "description": "Config schema, template engine, and skill templates for the Traqr CLI",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jiggycapital/traqr-oss.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://traqr.dev",
+  "bugs": "https://github.com/jiggycapital/traqr-oss/issues",
+  "keywords": [
+    "claude-code",
+    "ai",
+    "developer-tools",
+    "cli",
+    "memory",
+    "mcp",
+    "automation",
+    "monorepo",
+    "worktree",
+    "traqr"
+  ],
+  "author": "Traqr Enterprises LLC <sean@traqr.dev>",
+  "engines": { "node": ">=18.0.0" },
+  "license": "MIT"
+}

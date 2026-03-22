@@ -1,0 +1,156 @@
+# /status - Check All Systems
+
+Run a complete health check of the {{PROJECT_DISPLAY_NAME}} DevOps stack.
+
+---
+## Metadata
+- **Agent Compatibility**: Both (Claude Code + Daemon)
+- **Related Skills**: `/worktrees`{{#IF_TIER_3+}}, `/analytics`{{/IF_TIER_3+}}
+- **Slack Channel**: N/A (local output)
+---
+
+## Instructions
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_THINKING}}
+{{RAQR_FRAME_END}}
+
+Raqr · /status                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Checking all systems...
+```
+
+Check the status of all integrated systems:
+
+### 1. Git Status
+
+Check for uncommitted changes and branch status:
+```bash
+git status
+git log --oneline -5
+```
+
+### 2. Worktree Status
+
+Check all slots:
+```bash
+# Show slot status
+{{PREFIX}}-slots 2>/dev/null || echo "No slot status command configured"
+```
+
+{{#IF_MEMORY}}
+### 3. Memory System
+
+```bash
+curl -s "{{MEMORY_API_BASE}}/memory/search?q=status+check&limit=1"
+```
+
+Verify the memory API is responding.
+{{/IF_MEMORY}}
+
+{{#IF_SENTRY}}
+### 4. Error Tracking (Sentry)
+
+```bash
+curl -s "{{MEMORY_API_BASE}}/webhooks/sentry"
+```
+{{/IF_SENTRY}}
+
+{{#IF_POSTHOG}}
+### 5. Analytics (PostHog)
+
+```bash
+curl -s "{{MEMORY_API_BASE}}/webhooks/posthog"
+```
+{{/IF_POSTHOG}}
+
+{{#IF_CHECKLY}}
+### 6. Uptime Monitoring (Checkly)
+
+```bash
+curl -s "{{MEMORY_API_BASE}}/webhooks/checkly"
+```
+{{/IF_CHECKLY}}
+
+{{#IF_SLACK}}
+### 7. Slack Integration
+
+Verify Slack bot is connected and channels are accessible:
+- #{{SLACK_DEPLOY_CHANNEL}} - Deployments
+- #{{SLACK_TRIAGE_CHANNEL}} - Triage
+{{#IF_TIER_3+}}- #{{SLACK_ANALYTICS_CHANNEL}} - Analytics{{/IF_TIER_3+}}
+{{#IF_TIER_4+}}- #{{SLACK_FEEDBACK_CHANNEL}} - Feedback{{/IF_TIER_4+}}
+{{/IF_SLACK}}
+
+{{#IF_CRONS}}
+### 8. Cron Jobs
+
+Test cron endpoints with dry_run:
+```bash
+curl -s "{{MEMORY_API_BASE}}/cron/engagement-report?dry_run=true"
+```
+{{/IF_CRONS}}
+
+### Summary
+
+{{#IF_ALL_GREEN}}
+{{RAQR_FRAME_START}}
+{{RAQR_ART_CELEBRATE}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /status                           Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+All systems green.
+
+<status-table>
+
+{{RAQR_HR}}
+Next: you're clear to build. Run `/ship` when ready to deploy.
+{{/IF_ALL_GREEN}}
+
+{{#IF_ISSUES_FOUND}}
+{{RAQR_FRAME_START}}
+{{RAQR_ART_ALERT}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /status                           Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Some systems need attention.
+
+<status-table>
+
+{{RAQR_HR}}
+Next: address the issues above before shipping. For deeper config validation, run `/doctor`.
+{{/IF_ISSUES_FOUND}}
+
+### Error Handling
+
+If any health check fails to run (not a failed check, but the check itself errors):
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_SAD}}
+{{RAQR_FRAME_END}}
+
+Raqr · /status                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Couldn't complete the health check.
+
+<translate the raw error to plain English using the table below>
+
+{{RAQR_HR}}
+```
+
+| Raw Error | Plain English | Fix |
+|-----------|--------------|-----|
+| `ECONNREFUSED` | Can't reach the API server | Start the dev server or check if the platform is deployed |
+| `401 Unauthorized` | API key is missing or expired | Check your .env.local for the relevant token |
+| `ETIMEDOUT` | Server took too long to respond | The service may be down — try again in a minute |
+| `command not found` | A required tool isn't installed | Check that git, curl, and jq are available |
+
+For deeper config validation (env vars, API keys, integration health), run `/doctor`.

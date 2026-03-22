@@ -1,0 +1,395 @@
+# /ship - Ship Changes via PR
+
+Ship the current slot's changes. Commits, pushes, creates PR, and handles Traqr-specific lifecycle.
+
+## Arguments
+- `[title]` — Optional PR title. If omitted, uses last commit message.
+
+---
+
+## Instructions
+
+### 1. Gather State (2 parallel calls)
+
+Show progress: `{{RAQR_PROGRESS_1}}`
+
+**Call A — Git state:**
+```bash
+git fetch origin main && \
+echo "=== BRANCH ===" && git rev-parse --abbrev-ref HEAD && \
+echo "=== STATUS ===" && git status --porcelain && \
+echo "=== LOG ===" && git log origin/main..HEAD --oneline && \
+echo "=== DIFF_STAT ===" && git diff --stat origin/main..HEAD && \
+echo "=== UNCOMMITTED ===" && git diff --stat HEAD
+```
+
+**Checks:** On main? → Stop. Nothing to ship? → Stop. Uncommitted? → Commit next step.
+
+**First-time detection:** If this appears to be the user's first session for this slot (no prior session markers detected), show this boxed explanation before proceeding with Step 1.5:
+
+```
+╭─── FIRST TIME? ────────────────────────────────────────────╮
+│                                                             │
+│  /ship creates a Pull Request and notifies                  │
+│  {{#IF_SLACK}}Slack{{/IF_SLACK}}{{^IF_SLACK}}the team{{/IF_SLACK}}.                                          │
+│  Think of it like packaging a gift and dropping it          │
+│  at the post office.                                        │
+│                                                             │
+│  Steps: commit → build → push → create PR → notify          │
+│                                                             │
+│  (You won't see this message again.)                        │
+╰─────────────────────────────────────────────────────────────╯
+```
+
+**Complexity assessment:**
+```
+STANDARD: files <= 10 AND lines <= 200
+COMPLEX:  everything else
+```
+
+| Level | Staleness | Memory Capture | PR Body |
+|-------|-----------|----------------|---------|
+| STANDARD | Run | Run | Standard |
+| COMPLEX | Run + deps | Run | Full |
+
+### 1.5. Staleness Gate
+
+Show progress: `{{RAQR_PROGRESS_2}}`
+
+```bash
+behind=$(git log HEAD..origin/main --oneline | wc -l | tr -d ' ')
+echo "Behind main: $behind"
+```
+
+If behind > 0, check file overlap inline:
+
+| Behind | Overlap? | Action |
+|--------|----------|--------|
+| 0 | N/A | **PROCEED** — fully current |
+| 1+ | None | **PROCEED** — rebase handles it |
+| 1+ | Different regions | **WARN + PROCEED** — rebase will likely auto-merge |
+| 1+ | Same regions | **HARD STOP** — run `/resync` for semantic analysis |
+
+Only defer to `/resync` for genuine same-region overlap. Everything else, `/ship` handles.
+
+### 2. Commit + Rebase
+
+Show progress: `{{RAQR_PROGRESS_3}}`
+
+If uncommitted: stage, commit with `{{CO_AUTHOR}}` co-author, then rebase.
+If committed: just rebase.
+
+If rebase conflicts → Show DIZZY mood and **STOP**:
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_DIZZY}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /ship                             Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+{{RAQR_PROGRESS_FAIL}}
+
+Rebase stopped — <N> files need untangling:
+  - <file1>
+  - <file2>
+
+To resolve:
+  1. Edit the conflicting files to resolve conflicts
+  2. git add <resolved-files>
+  3. git rebase --continue
+  4. Run /ship again
+
+Or abort and analyze first:
+  git rebase --abort
+  /resync check    (diagnostic only)
+  /resync           (full analysis + rebase)
+
+{{RAQR_HR}}
+```
+
+### 3. Build
+
+Show progress: `{{RAQR_PROGRESS_4}}`
+
+```bash
+{{BUILD_COMMAND}} 2>&1 | tail -30
+```
+
+If fails → Show SAD mood and retry ONCE:
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_SAD}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /ship                             Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+{{RAQR_PROGRESS_FAIL}}
+
+Build failed... But I can see what's wrong:
+<focused error output>
+
+Attempting fix...
+```
+
+Still fails → STOP with SAD mood and error details.
+
+### 4. Push
+
+Show progress: `{{RAQR_PROGRESS_5}}`
+
+{{#IF_CONTROL_CENTER}}**Set "shipping" phase** (fire-and-forget):
+```bash
+SLOT_NAME=$(basename $(pwd))
+BODY=$(jq -nc --arg s "$SLOT_NAME" '{slot:$s, phase:"shipping", meta:"Pushing + creating PR"}')
+curl -s --max-time 3 -X POST "{{PROJECT_API_BASE}}/control-center/state" \
+  -H "Content-Type: application/json" -d "$BODY" > /dev/null &
+```
+{{/IF_CONTROL_CENTER}}
+
+{{#IF_DAEMON}}**Clear active plan** (so Guardian's pre-merge check doesn't block):
+```bash
+SLOT_NAME=$(basename $(pwd))
+BODY=$(jq -nc --arg s "$SLOT_NAME" '{slotName:$s}')
+curl -s --max-time 5 -X POST "{{PROJECT_API_BASE}}/orchestrate/complete-plan" \
+  -H "Content-Type: application/json" -d "$BODY" > /dev/null &
+```
+{{/IF_DAEMON}}
+
+**Push:**
+```bash
+{{SHIP_ENV_VAR}}=true git push --force-with-lease -u origin <branch> 2>&1 && \
+echo "=== VERIFY ===" && git log origin/<branch> -1 --oneline
+```
+
+If push fails → retry once:
+```bash
+git fetch origin && \
+{{SHIP_ENV_VAR}}=true git push --force-with-lease -u origin <branch> 2>&1 && \
+echo "=== VERIFY ===" && git log origin/<branch> -1 --oneline
+```
+If still failing → STOP: report error. Common causes: auth expired, branch protection, network.
+
+### 5. Create PR
+
+Show progress: `{{RAQR_PROGRESS_6}}`
+
+```bash
+existing=$(gh pr list --head "<branch>" --json number --jq '.[0].number' 2>/dev/null)
+if [ -n "$existing" ]; then
+  echo "EXISTING:$existing"
+  {{#IF_GUARDIAN}}# Ensure Guardian label is present
+  gh pr edit "$existing" --add-label "{{GUARDIAN_PR_LABEL}}" 2>/dev/null || true
+  labels=$(gh pr view "$existing" --json labels --jq '.labels[].name' 2>/dev/null)
+  echo "LABELS:$labels"{{/IF_GUARDIAN}}
+else gh pr create --title "<title>" --base main --body "$(cat <<'EOF'
+## Summary
+<what changed and why>
+
+## Slot
+Shipped from: <slot> | Branch: <branch>
+
+## Files Changed
+<file list with +/- counts>
+{{#IF_TIER_1+}}
+## Memory Loop
+<if memoryLoaded>
+- Context loaded: Yes (task: "<query>")
+- Searched: <N> | Cited: <N> | Captured: <N>
+<else>
+- Context loaded: No (quick session)
+- Captured: <N> new learnings
+</if>
+{{/IF_TIER_1+}}
+
+## Test Plan
+- [ ] Verify changes work as expected
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+fi
+```
+
+{{#IF_GUARDIAN}}**If existing PR found:** If `{{GUARDIAN_PR_LABEL}}` is NOT in the labels output, warn: "{{GUARDIAN_PR_LABEL}} label missing — Guardian won't process this PR. Run `gh pr edit <N> --add-label {{GUARDIAN_PR_LABEL}}` manually."
+
+**Add Guardian label** so Guardian can manage this PR's lifecycle:
+```bash
+gh pr edit <NUMBER> --add-label "{{GUARDIAN_PR_LABEL}}"
+labels=$(gh pr view <NUMBER> --json labels --jq '.labels[].name')
+echo "Labels: $labels"
+```
+{{/IF_GUARDIAN}}
+
+{{#IF_GUARDIAN}}**Signal Guardian — pre-validated by /ship** (fire-and-forget):
+```bash
+BODY=$(jq -nc --arg k "guardian:ship-validated:<NUMBER>" --argjson v 'true' '{key:$k, value:$v}')
+curl -s --max-time 3 -X POST "{{PROJECT_API_BASE}}/daemon/kv-set" \
+  -H "Content-Type: application/json" -d "$BODY" > /dev/null &
+```
+Agent fills in `<NUMBER>` from the PR number obtained above.
+{{/IF_GUARDIAN}}
+
+{{#IF_CONTROL_CENTER}}**Set "ready-to-ship" phase:**
+```bash
+SLOT_NAME=$(basename $(pwd))
+BODY=$(jq -nc --arg s "$SLOT_NAME" --arg m "PR #<NUMBER> created — ready for merge" '{slot:$s, phase:"ready-to-ship", meta:$m}')
+curl -s --max-time 3 -X POST "{{PROJECT_API_BASE}}/control-center/state" \
+  -H "Content-Type: application/json" -d "$BODY" > /dev/null &
+```
+{{/IF_CONTROL_CENTER}}
+
+{{#IF_TIER_1+}}### 6. Capture Learnings
+
+```bash
+BODY=$(jq -nc \
+  --arg slot "<slot>" --arg branch "<branch>" --arg diff "<stat>" \
+  --arg src "{{TRAQR_PROJECT_SLUG}}" \
+  --argjson files '[<files>]' --argjson msgs '[<msgs>]' \
+  '{slot:$slot, branch:$branch, diffSummary:$diff, filesChanged:$files, commitMessages:$msgs, sourceProject:$src}')
+curl -s --max-time 20 -X POST "{{MEMORY_API_BASE}}/memory/capture-session" \
+  -H "Content-Type: application/json" -d "$BODY"
+```
+
+If fails, proceed — learnings captured on merge.
+{{/IF_TIER_1+}}
+
+{{#IF_CONTROL_CENTER}}### 6.5. Session Summary to Control Center
+
+```bash
+SLOT_NAME=$(basename $(pwd))
+SESSION_FILE="/tmp/{{SESSION_PREFIX}}-session-${SLOT_NAME}.json"
+START_TIME=$(jq -r '.startedAt // empty' "$SESSION_FILE" 2>/dev/null)
+TICKET_ID=$(jq -r '.linearTicket // empty' "$SESSION_FILE" 2>/dev/null)
+TASK_DESC=$(jq -r '.task // empty' "$SESSION_FILE" 2>/dev/null)
+if [ -n "$START_TIME" ]; then
+  START_EPOCH=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$START_TIME" "+%s" 2>/dev/null || echo "0")
+  ELAPSED_MIN=$(( ($(date "+%s") - START_EPOCH) / 60 ))
+  [ "$ELAPSED_MIN" -lt 60 ] && DURATION="${ELAPSED_MIN}m" || DURATION="$((ELAPSED_MIN / 60))h $((ELAPSED_MIN % 60))m"
+else DURATION="unknown"; fi
+
+CC_BODY=$(jq -nc \
+  --arg slot "$SLOT_NAME" \
+  --arg phase "shipped" \
+  --arg meta "PR #<PR_NUMBER>" \
+  --arg duration "$DURATION" \
+  --arg ticketId "$TICKET_ID" \
+  --arg task "$TASK_DESC" \
+  --argjson filesChanged <FILES_CHANGED> \
+  --argjson insertions <INSERTIONS> \
+  --argjson deletions <DELETIONS> \
+  --argjson prNumber <PR_NUMBER> \
+  --arg prUrl "<PR_URL>" \
+  '{slot:$slot, phase:$phase, meta:$meta, sessionSummary:{
+    filesChanged:$filesChanged, insertions:$insertions, deletions:$deletions,
+    prNumber:$prNumber, prUrl:$prUrl, learningsCaptured:0, duration:$duration,
+    ticketId:(if $ticketId == "" then null else $ticketId end),
+    task:(if $task == "" then null else $task end)
+  }}')
+
+curl -s --max-time 5 -X POST "{{PROJECT_API_BASE}}/control-center/state" \
+  -H "Content-Type: application/json" -d "$CC_BODY" > /dev/null &
+```
+
+Agent fills in `<FILES_CHANGED>`, `<INSERTIONS>`, `<DELETIONS>`, `<PR_NUMBER>`, `<PR_URL>` from earlier steps.
+
+If fails, proceed — cosmetic only.
+{{/IF_CONTROL_CENTER}}
+
+{{#IF_TIER_3+}}### 7. Notify Slack
+
+```bash
+curl -s -X POST "{{PROJECT_API_BASE}}/github/pr?action=notify&pr=<number>"
+```
+{{/IF_TIER_3+}}
+
+{{#IF_TIER_2+}}### 8. Update Ticket
+
+If ticket linked:
+{{#IF_LINEAR}}- Linear: `mcp__linear__update_issue` → Done{{/IF_LINEAR}}
+{{#IF_GITHUB_ISSUES}}- GitHub: `gh issue close`{{/IF_GITHUB_ISSUES}}
+{{/IF_TIER_2+}}
+
+### Report
+
+Show progress: `{{RAQR_PROGRESS_7}}`
+
+Calculate session duration from marker `startedAt` to now.
+
+**Session duration lines:**
+- <15 min: "<Xm> speedrun! Quick and clean."
+- 15min-2h: "<Xh Ym> session. Solid work."
+- 2h-4h: "<Xh Ym> session. You've been in the zone — go stretch."
+- >4h: "<Xh Ym> session. Raqr's impressed, but maybe take a break?"
+
+**Milestone celebrations** (check PR count via `gh pr list --state merged --author @me --limit 100 --json number | jq length`):
+- 10th PR: Use GREEDY mood `{{RAQR_ART_GREEDY}}` — "Double digits! 10 PRs shipped — you're on a roll."
+- 25th PR: Use GREEDY mood — "25 PRs! Quarter-century mark."
+- 50th PR: Use EXCITED mood `{{RAQR_ART_EXCITED}}` — "50 PRs shipped! That's serious velocity."
+- 100th PR: Use EXCITED mood — "100 PRs! This is what momentum looks like."
+
+**First rebase survived**: If rebase ran in this session and succeeded, and this appears to be the first rebase: Use RELIEVED mood `{{RAQR_ART_RELIEVED}}` — "First rebase! That wasn't so bad, right?"
+
+**Success:**
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_CELEBRATE}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /ship                             Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+{{RAQR_PROGRESS_7}}
+
+PR #<number>: <title>
+URL: https://github.com/{{GH_ORG_REPO}}/pull/<number>
+{{#IF_TIER_3+}}
+Notification sent to #{{SLACK_DEPLOY_CHANNEL}}
+  Click "Merge (Squash)" when ready
+{{/IF_TIER_3+}}
+
+<session duration personality line — see rules below>
+
+<if any post-ship operations returned errors>
+──────────────────────────────────────────────────────────────
+Post-ship notes:
+  - <Capture failed>: Learnings will be captured on merge (no action needed)
+  - <Slack failed>: Run `/pr notify <N>` to retry
+  - <Control center failed>: Dashboard may be stale (cosmetic only)
+</if>
+
+{{RAQR_HR}}
+What's next? → /sync after merge | /compact to free context for next task
+```
+
+**Session duration lines:**
+- <15 min: "<Xm> speedrun! Quick and clean."
+- 15min-2h: "<Xh Ym> session. Solid work."
+- 2h-4h: "<Xh Ym> session. You've been in the zone — go stretch."
+- >4h: "<Xh Ym> session. Raqr's impressed, but maybe take a break?"
+
+**Failure (general):**
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_ALERT}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /ship                             Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+<failure details + options>
+
+{{RAQR_HR}}
+```
+
+## Commit Conventions
+
+- Types: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`
+- Imperative mood, lowercase first letter, max 72 char subject
+- HEREDOC format, always include co-author line
+- Co-author: `{{CO_AUTHOR}} <noreply@anthropic.com>`
+
+## Slot Reference
+
+{{SLOT_TABLE}}

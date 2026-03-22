@@ -1,0 +1,2837 @@
+---
+allowed-tools: Bash, Read, Write, AskUserQuestion
+name: traqr-init
+description: Initialize Traqr for Any Project
+tier: any
+category: infrastructure
+autoInvoked: false
+dependencies: []
+relatedSkills: [traqr-upgrade]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /traqr-init - Initialize Traqr for Any Project
+
+Set up the Traqr portable development automation framework. This wizard detects your global profile and adapts — from a ~5-minute lightweight setup (when services are already connected) to a full 10-step onboarding experience.
+
+---
+## Metadata
+- **Agent Compatibility**: Claude Code (any session)
+- **Related Skills**: `/ship`, `/sync`, `/worktrees`, `/traqr-upgrade`, `/traqr-test`
+- **Phase**: 2 (Starter Packs + Full Surface Area)
+---
+
+## Overview
+
+Traqr is infrastructure for how code gets shipped when AI agents do the work. This wizard configures:
+
+- **Multi-slot worktrees** for parallel development
+- **Pre-push guardrails** to enforce PR workflow
+- **Slash commands** for shipping, syncing, and verification
+- **Memory system** for compounding AI learnings across sessions
+- **Issue tracking** for plan-driven development
+- **Slack integration** for team notifications and AI chat
+- **Monitoring** for error tracking, analytics, and uptime
+- **Email automation** for user feedback loops
+- **Cron jobs** for automations that run while you sleep
+
+## The Flow
+
+In **lightweight mode** (global profile detected), Steps 4-9 are inherited automatically — only project-specific steps run (~5 min). In **full mode**, all 10 steps run.
+
+```
+STEP 1:   Meet Raqr          WHO you are + WHAT your project is
+STEP 2:   Choose Your Path    Starter Packs or custom build
+STEP 2b:  Design DNA          Visual flavor, palette, fonts, animations
+STEP 3:   Workspaces          Slots, ports, shell aliases
+STEP 4:   Communication Hub   Slack depth (0 to 6 channels)          [lightweight: inherited]
+STEP 5:   Intelligence Layer  Memory system + cross-project learning  [lightweight: inherited]
+STEP 6:   Mission Control     Issue tracking + plan-dispatch-execute  [lightweight: inherited]
+STEP 7:   Monitoring Tower    Error tracking, analytics, uptime       [lightweight: inherited]
+STEP 8:   Marketing Engine    Email automation, feedback loops         [lightweight: inherited]
+STEP 9:   Automation Grid     Cron jobs grouped by category           [lightweight: inherited]
+STEP 10:  Launch!             Generate → Validate → Celebrate
+```
+
+---
+
+## Instructions
+
+Run this wizard conversationally. Each step uses `AskUserQuestion` for structured choices and conversational prompts for free-text input. Track an **automation score** throughout — it builds as features are enabled.
+
+Initialize a running config object in your context:
+```
+config = {} (empty, filled step by step)
+score = 0
+```
+
+---
+
+### Beginner Detection (run before Step 1)
+
+Run these checks silently:
+```bash
+git config user.name 2>/dev/null || echo "NO_GIT_USER"
+which claude 2>/dev/null || echo "NO_CLAUDE"
+which node 2>/dev/null || echo "NO_NODE"
+```
+
+If ANY check returns negative, set `beginnerMode = true`. In beginner mode, insert context-help blocks before relevant steps (marked with `[BEGINNER]` below). Each block uses the friendly Raqr voice `(^ ^)` and references `docs/traqr/beginners-guide.md` for details.
+
+---
+
+### Lightweight Mode Detection (run before Step 1)
+
+Read the global profile:
+```bash
+cat ~/.traqr/config.json 2>/dev/null || echo "NO_ORG_CONFIG"
+```
+
+**If `~/.traqr/config.json` exists AND has at least one service with `connected: true`:**
+
+Set `lightweightMode = true`. Count connected services. Determine which steps can be inherited.
+
+Display detection notice:
+```
+(^ ^) Global profile detected!
+
+   Connected services found:
+   - Slack: [connected/not found]
+   - Linear: [connected/not found]
+   - Supabase: [connected/not found]
+   - coAuthor: [value or not set]
+
+   Lightweight mode: Steps 4-9 will inherit from your global
+   profile. Only project-specific setup needed (~5 min).
+```
+
+Then ask:
+```
+AskUserQuestion: "How do you want to handle inherited services?"
+  - "Accept all — use my global profile defaults" (Recommended)
+  - "Customize — let me review each inherited step"
+  - "Full wizard — I want to configure everything from scratch"
+```
+
+- If "Accept all": `lightweightMode = true`, `lightweightOverride = false`
+- If "Customize": `lightweightMode = true`, `lightweightOverride = true`
+- If "Full wizard": `lightweightMode = false` — run all steps normally
+
+**If no OrgConfig or no connected services:** `lightweightMode = false`. Continue normally (full wizard). No message displayed.
+
+**Step counter in lightweight mode:**
+When `lightweightMode = true` and `lightweightOverride = false`, the active steps are:
+- Step 1 (Meet Raqr), Step 2 (Choose Your Path), Step 2b (Design DNA, if applicable), Step 3 (Workspaces), Step 10 (Launch!)
+- Display as "STEP 1 of 5", "STEP 2 of 5", etc. with renumbered sequence
+- If Design DNA is skipped, use "of 4"
+
+When `lightweightOverride = true`, keep normal "STEP X of 10" numbering since any step might be shown.
+
+---
+
+### Monorepo Detection (run before Step 1)
+
+Check if this is a monorepo with workspace support:
+```bash
+# Check for workspaces in package.json and apps/ directory
+cat package.json 2>/dev/null | grep -q '"workspaces"' && ls -d apps/ 2>/dev/null && echo "MONOREPO=true" || echo "MONOREPO=false"
+ls apps/*/package.json 2>/dev/null | head -20
+ls packages/*/package.json 2>/dev/null | head -20
+```
+
+**If `MONOREPO=true`:**
+
+Set `monorepoMode = true`. Count existing apps and packages.
+
+Display detection notice:
+```
+(^ ^) Monorepo detected!
+
+   Existing apps: [list from apps/]
+   Existing packages: [list from packages/]
+   Workspace globs: [from package.json workspaces field]
+
+   You can add a new app to this monorepo, or configure
+   the monorepo root as a standalone Traqr project.
+```
+
+Then ask:
+```
+AskUserQuestion: "What would you like to do?"
+  - "Add a new app to this monorepo" → sub-app mode
+  - "Configure this monorepo as standalone" → standard init
+```
+
+**Sub-app mode** — When selected, the wizard shifts to a **discovery-first conversational flow**. The key insight: in a monorepo, most infrastructure is shared at the org level. New apps only need per-app slices of existing services. Claude discovers what already exists, asks the user about current state, wires discovered resources into config, and only creates what's genuinely missing.
+
+**Every checklist item follows this lifecycle:**
+1. **Scan** — Claude checks via MCP/config if the resource exists
+2. **Probe User** — Report findings, ask user to confirm/correct/add context
+3. **Update** — Wire discovered info into Traqr config (IDs, prefixes, channels)
+4. **Execute** — Create anything confirmed missing via MCP
+5. **Handhold** — For things only the user can do (create Slack channels, paste API keys), guide them step by step and wait for confirmation
+6. **Complete** — Mark item done, move to next
+
+### Sub-App Provisioning Checklist
+
+When sub-app mode is selected, Claude works through this checklist. Display each item with status as you work:
+
+```
+  [ ] Discovery — Read parent config
+  [ ] Identity — App name + display name
+  [ ] Linear — Discover or create team
+  [ ] Slack — Discover or create channels
+  [ ] Memory — Register domain
+  [ ] PostHog — Share or create project
+  [ ] Auth — Configure provider
+  [ ] Vercel — Import project
+  [ ] Scaffold — Render templates
+  [ ] Config — Update .traqr/config.json
+  [ ] Validate — Check all resources
+```
+
+---
+
+#### PHASE 1: SCAN (Claude investigates silently)
+
+Read all available context before asking the user anything:
+
+```bash
+# Read parent project config
+cat .traqr/config.json 2>/dev/null
+
+# Read parent env vars (to know what keys exist)
+cat .env.local 2>/dev/null | grep -E '^[A-Z_]+=' | cut -d= -f1
+
+# Read org config
+cat ~/.traqr/config.json 2>/dev/null
+```
+
+From the parent config, extract:
+- `issues.provider` — is Linear being used?
+- `issues.linearTeamId` — parent's Linear team
+- `issues.ticketPrefix` — parent's ticket prefix (e.g. "NTQ")
+- `issues.linearTeamMap` — existing team mappings
+- `notifications.slackLevel` — how many channels?
+- `notifications.slackChannelPrefix` — parent's prefix (e.g. "nk")
+- `memory.provider` — is Supabase pgvector being used?
+- `memory.crossProject` — cross-project learning enabled?
+- `monitoring.analytics` — is PostHog being used?
+- `monorepo.apps` — existing apps and their port offsets
+
+Display what you found:
+```
+(~ ~) Scanning your existing setup...
+
+   Parent: <display name> (Tier <tier>, Score <score>/100)
+   Shared infra: <list of shared services>
+   Port offset: +<offset> (feature1 -> <port>)
+```
+
+#### PHASE 2: IDENTITY
+
+Ask for the new app's identity:
+```
+AskUserQuestion: "App name (slug, e.g. 'pokotraqr')"
+AskUserQuestion: "Display name" (default: app name)
+AskUserQuestion: "Slack channel prefix (2-3 chars)" (default: first 2 chars of slug)
+```
+
+#### PHASE 3: PER-SERVICE DISCOVERY (Conversational)
+
+Work through each service that the parent uses. For each one, follow the scan→probe→update→execute→handhold→complete lifecycle.
+
+---
+
+##### LINEAR (Scan → Probe → Update → Execute → Complete)
+
+**Scan**: Use MCP to discover if a Linear team already exists for this app.
+
+```
+ToolSearch query: "+linear list teams"
+```
+
+If MCP available:
+```
+mcp__linear__list_teams   (or mcp__claude_ai_Linear__list_teams)
+```
+
+Look through all teams for one that matches the app name or derived ticket prefix.
+
+**Probe User**:
+- If team found: `"Found Linear team '<key>' (<name>) with <n> tickets. Wire this into Traqr? [Y/n]"`
+- If not found: `"No Linear team found for <app>. Want me to help create one? (You'll need to create the team in Linear — I can set up the labels)"`
+
+**Update**: Store the team info in config:
+```json
+{
+  "monorepo": {
+    "apps": {
+      "<slug>": {
+        "linearTeamId": "<team UUID>",
+        "ticketPrefix": "<PREFIX>"
+      }
+    }
+  },
+  "issues": {
+    "linearTeamMap": {
+      "<PARENT_PREFIX>": "<parent UUID>",
+      "<APP_PREFIX>": "<app UUID>"
+    }
+  }
+}
+```
+
+**Execute**: Check that all 5 workflow labels exist on the team. Create missing ones:
+```
+mcp__linear__create_issue_label  (or mcp__claude_ai_Linear__create_issue_label)
+  teamId: <teamId>
+  name: "agent-ready"
+  color: "#27AE60"
+```
+Required labels: `agent-ready`, `agent-claimed`, `has-plan`, `stale-pr`, `daemon-pr`
+
+**Complete**: `"Linear wired: team <PREFIX> (<id>), 5 labels confirmed"`
+
+---
+
+##### SLACK (Scan → Probe → Update → Handhold → Complete)
+
+**Scan**: Search for channels matching the app's prefix.
+
+```
+ToolSearch query: "+slack search channels"
+```
+
+If MCP available:
+```
+mcp__slack__slack_list_channels   (or mcp__claude_ai_Slack__slack_search_channels)
+```
+
+Filter results for channels starting with the app's channel prefix (e.g. "pk-").
+
+**Probe User**: Report what was found:
+```
+"Found: <list of existing channels>
+ Missing: <list of expected but not found>
+ Which channels do you actually need? Parent (<parent name>) has <n> channels."
+```
+
+Offer choices:
+- "All of them (match parent)"
+- "Just the essentials (deploy + triage)"
+- "Let me pick"
+- "Skip Slack for now"
+
+**Update**: Store confirmed channel names in config:
+```json
+{
+  "monorepo": {
+    "apps": {
+      "<slug>": {
+        "slackChannelPrefix": "<prefix>",
+        "slackChannels": {
+          "deploy": "<prefix>-deployments",
+          "triage": "<prefix>-dev-triage",
+          "analytics": "<prefix>-analytics"
+        }
+      }
+    }
+  }
+}
+```
+
+**Handhold**: For missing channels the user wants:
+```
+"Create these channels in Slack, then tell me when done:
+  1. <prefix>-analytics
+  2. <prefix>-control-center
+ I'll verify they exist."
+```
+
+Wait for user confirmation, then verify:
+```
+mcp__slack__slack_list_channels  (or mcp__claude_ai_Slack__slack_search_channels)
+  query: "<prefix>"
+```
+
+**Complete**: `"Slack wired: <n> channels confirmed"`
+
+---
+
+##### MEMORY (Scan → Probe → Update → Execute → Complete)
+
+**Scan**: Read parent config → `memory.provider`, `memory.projectSlug`, `memory.crossProject`.
+
+**Probe User**:
+```
+"Parent uses Supabase pgvector with crossProject=<value>.
+ New app will share the memory system with domain '<app-slug>'."
+```
+
+**Update**: The memory domain for the new app uses the same Supabase project. No separate config needed — the app slug becomes the domain name.
+
+**Execute**: If Supabase MCP is available, register the new domain:
+```
+ToolSearch query: "+supabase execute sql"
+```
+
+```
+mcp__claude_ai_Supabase__execute_sql
+  project_id: <parent project ref>
+  query: "
+    INSERT INTO memory_domains (id, user_id, name, description, is_shareable)
+    VALUES (gen_random_uuid(),
+      (SELECT id FROM memory_users LIMIT 1),
+      '<app-slug>', '<app display name>', TRUE)
+    ON CONFLICT (user_id, name) DO NOTHING;
+  "
+```
+
+**Complete**: `"Memory wired: domain '<slug>' registered, crossProject sharing enabled"`
+
+---
+
+##### POSTHOG (Scan → Probe → Update → Complete)
+
+**Scan**: Check existing PostHog projects.
+
+```
+ToolSearch query: "+posthog projects"
+```
+
+If MCP available:
+```
+mcp__posthog__projects-get  (or mcp__claude_ai_PostHog__projects-get)
+```
+
+**Probe User**:
+```
+"Found PostHog project '<parent project>'.
+ Share it for <app name> or create a separate project?"
+  - "Share (recommended for monorepos)"
+  - "Create separate"
+```
+
+**Update**: If shared, same project ID and API keys. If separate, ask user for new project's API key.
+
+**Complete**: `"PostHog wired: sharing <parent project> project"` or `"PostHog wired: separate project configured"`
+
+---
+
+##### AUTH (Probe → Handhold → Complete)
+
+**Probe User**:
+```
+AskUserQuestion: "Which auth provider for <app name>?"
+  - "Clerk"
+  - "Firebase"
+  - "Supabase Auth"
+  - "None (add later)"
+  - "Custom"
+```
+
+**Handhold**: Based on choice, guide through key setup:
+- **Clerk**: `"Paste your NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:"` then `"Paste your CLERK_SECRET_KEY:"`
+- **Firebase**: `"Paste your Firebase config (API key, auth domain, project ID):"`
+- **Supabase Auth**: Uses shared Supabase project — no new keys needed.
+- **None/Custom**: Skip.
+
+**Update**: Store auth provider in config and note env vars to add.
+
+**Complete**: `"Auth wired: <provider> configured"` or `"Auth skipped"`
+
+---
+
+##### VERCEL (Scan → Probe → Handhold → Complete)
+
+**Scan**: Check if Vercel MCP is available.
+
+**Probe User**:
+```
+"Is <app name> already imported in Vercel?"
+  - "Yes"
+  - "Not yet"
+  - "Skip Vercel"
+```
+
+**Handhold**: If not imported:
+```
+"Import your monorepo at vercel.com/new.
+ Set root directory to apps/<slug>.
+ Tell me when done."
+```
+
+Wait for confirmation.
+
+**Complete**: `"Vercel wired: project confirmed"` or `"Vercel skipped"`
+
+---
+
+##### SUPABASE SCHEMA (Scan → Probe → Execute → Complete)
+
+**Scan**: Check if app-specific tables already exist in the shared Supabase project.
+
+**Probe User**:
+```
+"The shared Supabase project has <parent> tables.
+ Need any app-specific tables for <app name>?"
+  - "No, shared tables are fine for now"
+  - "Yes, I'll need some app-specific tables"
+```
+
+**Execute**: If yes, ask what tables are needed and create via MCP.
+
+**Complete**: `"Database wired: shared Supabase, no new tables needed"` or `"<n> tables created"`
+
+---
+
+#### PHASE 4: SCAFFOLD & WIRE
+
+After all services are discovered/wired:
+
+1. Run the CLI's `runSubAppInit()` function (the CLI handles file scaffolding):
+   - Render monorepo templates to `apps/<name>/`
+   - Create companion data package if requested
+   - Update `tsconfig.json` references
+   - Update `.traqr/config.json` with the new app config
+
+2. Show port allocation table for all apps.
+
+#### PHASE 5: VALIDATE & SUMMARY
+
+Display final summary with status for each service:
+
+```
+(^ ^) <App Name> is fully wired into Traqr!
+
+Summary:
+  [x] Linear — <PREFIX> team (<n> tickets), 5 labels confirmed
+  [x] Slack — <n> channels wired
+  [x] Memory — domain registered, crossProject enabled
+  [x] PostHog — sharing <parent> project
+  [x] Auth — <provider> configured
+  [x] Vercel — project imported
+  [x] Scaffold — <n> files in apps/<slug>/
+  [x] Config — .traqr/config.json updated
+
+Port allocation:
+  Slot          | <parent>       | <new app>
+  --------------|----------------|----------------
+  main          | 3000           | 4000
+  feature1      | 3001           | 4001
+  feature2      | 3002           | 4002
+  bugfix1       | 3011           | 4011
+
+Run "npm install" to wire workspace dependencies.
+Worktrees are shared — no new slots needed.
+```
+
+**If `MONOREPO=false`:** Continue with standard init flow (no message displayed).
+
+---
+
+### Step 1: Meet Raqr — "Let's figure out what we're working with"
+
+**[BEGINNER] Context Help — What is Git? What is a Repository?**
+If `beginnerMode`, display before the auto-detect:
+```
+(^ ^) Quick context before we start:
+
+Git is a version history system. Every change you save gets remembered
+forever, like unlimited undo. A "repository" is just a project folder
+that Git is tracking.
+
+I'm about to check if your project is set up with Git. If not, I'll
+help you get it ready.
+
+Want the full story? See docs/traqr/beginners-guide.md, Part 2.
+```
+
+**Auto-detect** the project (run silently):
+
+```bash
+# All in one shot — gather project intelligence
+git rev-parse --show-toplevel 2>/dev/null && echo "GIT_REPO=true" || echo "GIT_REPO=false"
+basename "$(pwd)"
+git remote get-url origin 2>/dev/null || echo "NO_REMOTE"
+ls package.json pyproject.toml Cargo.toml go.mod 2>/dev/null
+ls .claude/ .traqr/ CLAUDE.md 2>/dev/null
+```
+
+**From results, detect:**
+- Git repo status
+- Project name (from directory or package.json `name` field)
+- GitHub org/repo (parse from remote URL)
+- Framework: check for `next.config.*` (Next.js), `package.json` (Node.js), `pyproject.toml` (Python), `Cargo.toml` (Rust), `go.mod` (Go)
+- Package manager: check for `bun.lockb` (bun), `pnpm-lock.yaml` (pnpm), `yarn.lock` (yarn), `package-lock.json` (npm)
+- Build/deploy platform: check for `vercel.json` (Vercel), `netlify.toml` (Netlify), `fly.toml` (Fly.io), `railway.json` (Railway)
+- Existing Traqr: `.traqr/config.json` present → offer `/traqr-upgrade`
+
+**Present findings as text output:**
+```
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 1 of 10 — Meet Raqr
+
+   "Let's figure out what we're working with."
+
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ Here's what I detected:
+
+   Project:    <detected-name>
+   Path:       <pwd>
+   Git:        ✓ (or ✗ — needs init)
+   GitHub:     <org/repo or "not detected">
+   Framework:  <Next.js / Node.js / Python / etc.>
+   Pkg Mgr:    <npm / yarn / pnpm / bun>
+   Deploy:     <Vercel / Netlify / etc. or "not detected">
+```
+
+**Project confirmation** ("Does this look right?") stays **conversational** — dynamic values can't go in static options.
+
+**Demo Mode Detection:** Check if the user passed `--demo` as an argument to this skill. If so, set `config.demo = true` immediately and display the demo banner:
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( *   * )   DEMO MODE                                   │
+│     (  =^=  )   No real keys needed -- just vibes           │
+│      (______)   and templates.                              │
+╰─────────────────────────────────────────────────────────────╯
+```
+
+**Then ask identity via AskUserQuestion** (single-select, 4 options):
+
+```
+AskUserQuestion:
+  question: "Who are you?"
+  header: "Who are you?"
+  multiSelect: false
+  options:
+    - label: "First project"
+      description: "Starting your first Traqr project — full guided setup"
+    - label: "Existing user"
+      description: "Already have a Memory API or Traqr setup elsewhere"
+    - label: "Upgrading"
+      description: "This project already has Traqr — redirects to /traqr-upgrade"
+    - label: "Just exploring"
+      description: "Demo mode — generates everything with mock credentials, no API keys needed"
+```
+
+- If "Upgrading" → redirect to `/traqr-upgrade`
+- If "Just exploring" → set `config.demo = true`, display demo banner (if not already shown from `--demo`)
+- If "Other" → handle conversationally
+
+**Then ask conversationally (free-text):**
+- `config.project.description` (1-2 sentences)
+- `config.prefix` (short shell prefix, auto-suggest from name)
+
+**Set:**
+- `config.project.name` = confirmed slug
+- `config.project.displayName` = title-cased name
+- `config.project.repoPath` = absolute path
+- `config.project.worktreesPath` = `repoPath`-parent + `/<name>-worktrees`
+- `config.project.ghOrgRepo` = detected or user-provided
+- `config.project.framework` = detected
+- `config.project.packageManager` = detected
+- `config.project.deployPlatform` = detected
+
+---
+
+**[BEGINNER] Context Help — Service Overview**
+If `beginnerMode`, display before Step 2:
+```
+(^ ^) You're about to pick a starter pack. Each one includes different
+services — tools that help your project run better.
+
+Quick cheat sheet:
+  Supabase = your database (stores data + AI memory)
+  Slack    = team messaging (notifications + AI chat)
+  Linear   = task tracking (bugs, features, plans)
+  PostHog  = analytics (who uses your app and how)
+
+Don't worry about choosing perfectly — you can upgrade anytime
+with /traqr-upgrade.
+```
+
+### Step 2: Choose Your Path — "Pick your starting point"
+
+Print the step header with Raqr voice:
+```
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 2 of 10 — Choose Your Path
+
+   "Every project starts somewhere. Pick the pack
+    that matches where you are — you can always
+    add more in Steps 3-9."
+
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Use AskUserQuestion with markdown previews** (single-select, 4 options + auto "Other" = Custom):
+
+```
+AskUserQuestion:
+  question: "Which starter pack matches your project?"
+  header: "Starter Pack"
+  multiSelect: false
+  options:
+    - label: "Solo Dev (~25 pts)"
+      description: "3 feature + 1 bugfix slots. No external services needed. ~2 min setup."
+      markdown: |
+        ## Solo Dev — Score: ~25/100
+
+        **Slots:** 3 feature + 1 bugfix = 4 total
+        **Commands:** /ship, /sync, /verify, /browser, /draft, /notes
+        **External Services:** None required
+
+        ### What you get:
+        - Multi-slot worktree development
+        - Pre-push guardrails (no direct push to main)
+        - Shell aliases for quick navigation
+        - Visual verification with Playwright
+
+        ### What you skip:
+        - Memory system (sessions start fresh)
+        - Issue tracking (no formal tickets)
+        - Slack notifications
+        - Monitoring & analytics
+        - Email automation
+
+        **Setup time:** ~2 minutes
+    - label: "Smart Solo (~50 pts)"
+      description: "3F + 2B + 1D slots + Memory (Supabase) + GitHub Issues. ~10 min setup."
+      markdown: |
+        ## Smart Solo — Score: ~50/100
+
+        **Slots:** 3 feature + 2 bugfix + 1 devops = 6 total
+        **Commands:** Everything in Solo PLUS /startup, /learn, /context, /think, /dispatch
+        **External Services:** Supabase, OpenAI API
+
+        ### What you get:
+        - Everything in Solo Dev
+        - **Memory system** — learnings compound across sessions
+        - **GitHub Issues** — plan-dispatch workflow
+        - Auto-created labels (agent-ready, has-plan)
+        - Dev health & issue tracking crons
+
+        ### What you skip:
+        - Slack notifications
+        - Monitoring & analytics
+        - Email automation
+
+        **Setup time:** ~10 minutes
+    - label: "Production (~75 pts)"
+      description: "3F + 2B + 2D + Analysis + Slack (3ch) + Sentry + PostHog. ~20 min setup."
+      markdown: |
+        ## Production Ready — Score: ~75/100
+
+        **Slots:** 3 feature + 2 bugfix + 2 devops + analysis = 8 total
+        **Commands:** Everything in Smart Solo PLUS /slack, /analytics, /inbox
+        **External Services:** Supabase, OpenAI, Linear, Slack, Sentry, PostHog
+
+        ### What you get:
+        - Everything in Smart Solo
+        - **Linear** issue tracking (replaces GitHub Issues)
+        - **Slack** (3 channels: deployments, dev-triage, analytics)
+        - **Sentry** error tracking with "Fix This" buttons
+        - **PostHog** analytics (DAU/WAU/MAU, retention)
+        - **Feedback widget** for user bug reports
+        - Cross-project memory learning
+        - All monitoring & analytics crons
+
+        ### What you skip:
+        - Email automation
+        - Full Slack orchestration (6ch)
+        - Uptime monitoring
+
+        **Setup time:** ~20 minutes
+    - label: "Full Traqr (100 pts)"
+      description: "Everything above PLUS 6 Slack channels, Resend email, uptime monitoring, all crons. ~45 min setup."
+      markdown: |
+        ## Full Traqr — Score: 100/100
+
+        **Slots:** 3 feature + 2 bugfix + 2 devops + analysis = 8 total
+        **Commands:** 38+ slash commands — the full arsenal
+        **External Services:** Supabase, OpenAI, Linear, Slack, Sentry, PostHog, Checkly, Better Stack, Resend
+
+        ### What you get:
+        - Everything in Production Ready
+        - **6 Slack channels** + Dev Inbox + Vibe Chat
+        - **Resend email** — bug fixed, feature shipped, welcome, feedback
+        - **Full feedback loop** — bug report → fix → auto-email user
+        - **Checkly + Better Stack** uptime monitoring
+        - **Voice profiles** — learns your writing style
+        - **All cron categories** enabled
+        - **Agent system** — daemon health, session analysis
+
+        **Setup time:** ~45 minutes
+```
+
+- If user selects "Other" → Custom mode: all Steps 3-9 start with nothing selected
+- Otherwise: load defaults from `STARTER_PACK_DEFAULTS` in `config-schema.ts`
+
+**Set:**
+- `config.starterPack` = selected pack
+- `config.tier` = derived from pack (solo=0, smart=2, production=3, full=4, custom=user-picks)
+- Pre-fill all config sections from pack defaults
+
+---
+
+### Step 2b: Design DNA — "Give your app a visual identity"
+
+**This step is optional.** If skipped, no design templates are generated (the project keeps its existing CSS).
+
+Print the step header:
+```
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 2b — Design DNA
+
+   "Design is orthogonal to automation tier.
+    A Solo Dev can look like Vercel. Pick a flavor
+    or skip — you can always add this later."
+
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Use AskUserQuestion with markdown previews** (single-select, 4 options + auto "Other" = skip/custom):
+
+```
+AskUserQuestion:
+  question: "What visual flavor should your app have?"
+  header: "Design DNA"
+  multiSelect: false
+  options:
+    - label: "Terminal"
+      description: "Dark data dashboard (Koyfin-inspired). Cyan-green + indigo on dark slate. Sharp corners, crisp transitions. No extra deps."
+      markdown: |
+        ## Terminal — Dark Data Dashboard
+
+        **Colors:**
+        - Primary: `#00D4AA` (cyan-green)
+        - Secondary: `#6366F1` (indigo)
+        - Accent: `#F59E0B` (amber)
+        - Background: `#0F172A` (dark slate)
+
+        **Fonts:** JetBrains Mono + Inter
+        **Corners:** Sharp (rounded-md max)
+        **Animations:** Subtle (150ms, no bounce)
+        **Shadows:** None — crisp edges
+        **Dark mode:** N/A (already dark)
+        **Extra deps:** None (CSS-only)
+
+        **Best for:** Financial dashboards, analytics,
+        developer tools, admin panels
+    - label: "Playful"
+      description: "Warm & approachable. Mint + sky + coral on cream. Bouncy spring animations. Requires framer-motion."
+      markdown: |
+        ## Playful — Warm & Approachable
+
+        **Colors:**
+        - Primary: `#7FDBB6` (mint)
+        - Secondary: `#A8D8EA` (sky)
+        - Accent: `#FFB4A2` (coral)
+        - Background: `#FEF9E7` (cream)
+
+        **Fonts:** Nunito + Fira Code
+        **Corners:** Rounded (rounded-xl+)
+        **Animations:** Bouncy (spring physics)
+        **Shadows:** Medium warm
+        **Dark mode:** Warm teal-sage bg
+        **Extra deps:** framer-motion (~30kb)
+
+        **Best for:** Consumer apps, gamified experiences,
+        portfolio sites
+    - label: "Minimal"
+      description: "Clean & professional (Notion/Linear-inspired). Blue accent on white/black. Fade-only animations. No extra deps."
+      markdown: |
+        ## Minimal — Clean & Professional
+
+        **Colors:**
+        - Primary: `#2563EB` (blue)
+        - Secondary: `#6B7280` (gray)
+        - Accent: `#059669` (emerald)
+        - Background: `#FFFFFF` / `#0A0A0A`
+
+        **Fonts:** Inter + Geist Mono
+        **Corners:** Medium (rounded-md/lg)
+        **Animations:** Subtle (fade-only)
+        **Shadows:** Soft, barely-there
+        **Dark mode:** True black
+        **Extra deps:** None (CSS-only)
+
+        **Best for:** SaaS products, business tools,
+        documentation sites
+    - label: "Bold"
+      description: "Dramatic & modern (Vercel-inspired). Violet + pink + amber on dark zinc. Scale transitions, colored-glow shadows. Requires framer-motion."
+      markdown: |
+        ## Bold — Dramatic & Modern
+
+        **Colors:**
+        - Primary: `#7C3AED` (violet)
+        - Secondary: `#EC4899` (pink)
+        - Accent: `#F59E0B` (amber)
+        - Background: `#18181B` (dark zinc)
+
+        **Fonts:** Space Grotesk + JetBrains Mono
+        **Corners:** Medium (rounded-md/lg)
+        **Animations:** Smooth (scale+opacity)
+        **Shadows:** Dramatic colored-glow
+        **Dark mode:** N/A (already dark)
+        **Extra deps:** framer-motion (~30kb)
+
+        **Best for:** Landing pages, modern SaaS,
+        apps that want to make a statement
+```
+
+- If user selects a flavor → load defaults from `DESIGN_FLAVOR_DEFAULTS` in `config-schema.ts`
+- If user selects "Other":
+  - Ask "Skip design templates entirely, or enter a custom palette?"
+  - If skip → `config.design` stays undefined (no design templates generated)
+  - If custom → conversational palette entry (ask for primary, secondary, accent, bg colors; default the rest)
+
+**Optional follow-up** (only if a flavor was selected):
+
+```
+AskUserQuestion:
+  question: "Want to customize anything about the flavor?"
+  header: "Customize"
+  multiSelect: false
+  options:
+    - label: "Use as-is"
+      description: "Ship the defaults — you can tweak generated CSS later"
+    - label: "Change colors"
+      description: "Keep the flavor's fonts/animations but pick different colors"
+    - label: "Tweak settings"
+      description: "Adjust border radius, animation level, or shadows"
+```
+
+- If "Change colors" → conversational prompts for primary, secondary, accent (hex values)
+- If "Tweak settings" → conversational prompts for borderRadius, animations, shadows levels
+
+**Set:**
+- `config.design` = full DesignConfig object (from defaults + any customizations)
+- Or `config.design` = undefined (if skipped)
+
+---
+
+**[BEGINNER] Context Help — What is a Worktree? What is a Branch?**
+If `beginnerMode`, display before Step 3:
+```
+(^ ^) Now we're setting up "worktrees" — this is one of Traqr's
+most powerful features.
+
+A worktree is a linked copy of your project. Imagine having multiple
+desks, each with a copy of your manuscript. You can write chapter 5
+at one desk while someone else writes chapter 8 at another desk.
+Neither person's changes affect the other.
+
+A branch is like a timeline. Your "main" branch is the official
+version. Each worktree gets its own branch — a "what if" timeline
+that you merge back when you're ready.
+
+Want the full explanation? See docs/traqr/beginners-guide.md, Part 2.
+```
+
+### Step 3: Workspaces — "Set up your parallel development lanes"
+
+Print the step header with current score:
+```
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 3 of 10 — Workspaces          Score: <current>/100
+
+   "Slots are parallel lanes for development.
+    Each gets its own branch, port, and shell alias."
+
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Display pack defaults as text BEFORE the question:**
+```
+ Your pack defaults:
+   Feature slots:  <N>  (z1, z2 → feature/slot-1, slot-2)
+   Bugfix slots:   <N>  (zb1, zb2 → bugfix/slot-1, slot-2)
+   DevOps slots:   <N>  (zd1, zd2 → devops/slot-1, slot-2)
+   Analysis slot:  <Yes/No>  (za → analysis/active, read-only)
+   Total:          <N> slots
+
+   Base port:      3000
+   Shell prefix:   <prefix> (→ <prefix>-slots, <prefix>-sync, etc.)
+```
+
+**Use AskUserQuestion** (single-select, 3 options):
+
+```
+AskUserQuestion:
+  question: "How would you like to configure your workspaces?"
+  header: "Workspaces"
+  multiSelect: false
+  options:
+    - label: "Use defaults"
+      description: "Keep the pack defaults shown above"
+    - label: "Customize counts"
+      description: "Choose your own slot counts for each category"
+    - label: "Minimal (3 slots)"
+      description: "2 feature + 1 bugfix — lightweight setup"
+```
+
+- If "Customize counts" → follow-up conversational prompts for each slot type count
+- If "Other" → conversational customization
+- If port 3000 is occupied, suggest alternative base
+
+**Monorepo sub-app mode:**
+When in sub-app mode, skip slot creation and show shared slot info:
+```
+ Workspaces are shared across all apps in this monorepo.
+ Existing slots will serve all apps. Each app gets a port
+ offset to avoid conflicts.
+
+ Port allocation:
+   Slot         | <app1>       | <app2>       | ...
+   -------------|-------------|-------------|----
+   main         | 3000        | 4000        | ...
+   feature1     | 3001        | 4001        | ...
+   feature2     | 3002        | 4002        | ...
+   bugfix1      | 3011        | 4011        | ...
+```
+
+**Score adjustment:**
+- +2 per slot (up to +15)
+- +5 if analysis slot enabled
+
+**Set:**
+- `config.slots.*`
+- `config.ports.*`
+
+---
+
+### Step 4: Communication Hub — "Connect your team's nervous system"
+
+**Lightweight Mode: If `lightweightMode = true` and `lightweightOverride = false`, skip this step entirely.**
+Display inheritance notice as text:
+```
+   STEP 4 — Communication Hub [inherited from global profile]
+   Using: Slack <orgConfig.services.slack.connected ? orgConfig.notifications.slackLevel : "not connected">
+```
+Populate config from OrgConfig values:
+- `config.notifications` = OrgConfig.notifications (Slack settings)
+- `config.notifications.slackLevel` = OrgConfig.notifications.slackLevel
+- `config.notifications.channels` = OrgConfig.notifications.channels
+Update score from inherited values using existing `calculateAutomationScore()` logic.
+Then continue to next step.
+
+**If `lightweightOverride = true`:** Show this step with OrgConfig values pre-filled as defaults, but let the user modify. Input fields show inherited values instead of empty defaults.
+
+**Skip this step entirely if the pack has no Slack (solo, custom with no Slack).**
+**If pack has Slack pre-selected, show current level and offer to adjust.**
+
+Print the step header:
+```
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 4 of 10 — Communication Hub   Score: <current>/100
+
+   "Slack turns your bot into a team member.
+    Start basic, go deep — your call."
+
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Use AskUserQuestion** (single-select, 4 options):
+
+```
+AskUserQuestion:
+  question: "How deep should Slack integration go?"
+  header: "Slack Depth"
+  multiSelect: false
+  options:
+    - label: "Skip Slack"
+      description: "No Slack — add later with /traqr-upgrade"
+    - label: "Basic (1 channel)"
+      description: "#deployments — PR notifications, merge buttons. +5 pts. ~5 min setup."
+    - label: "Standard (3 channels)"
+      description: "#deployments + #dev-triage + #analytics. +10 pts. ~10 min setup."
+    - label: "Full (6 channels)"
+      description: "All Standard + #feedback + #marketing + #dev-archive + Dev Inbox + Vibe Chat. +15 pts. ~15 min setup."
+```
+
+- If "Other" → conversational customization
+
+**After selection, if any level > 0, show guided Slack setup as text output (unchanged):**
+
+```
+ SLACK SETUP GUIDE:
+
+ 1. Create a Slack App:
+    → Go to: https://api.slack.com/apps
+    → Click "Create New App" → "From scratch"
+    → App name: "<ProjectName> Bot"
+    → Workspace: <your workspace>
+
+ 2. Add Bot Scopes (OAuth & Permissions → Scopes → Bot Token Scopes):
+    → chat:write
+    → channels:history
+    → channels:read
+    → groups:read
+    → reactions:write
+    → users:read
+```
+
+**For Standard+, add:**
+```
+ 3. Enable Event Subscriptions:
+    → Event Subscriptions → On
+    → Request URL: https://<your-domain>/api/slack/events
+    → Subscribe to bot events: message.channels
+
+ 4. Enable Interactivity:
+    → Interactivity & Shortcuts → On
+    → Request URL: https://<your-domain>/api/webhooks/slack
+```
+
+**For Full, add:**
+```
+ 5. Additional events for Dev Inbox:
+    → Subscribe to: app_mention, message.groups
+
+ 6. Create all 6 channels (or confirm custom names):
+    → #deployments (or: ________)
+    → #dev-triage  (or: ________)
+    → #analytics   (or: ________)
+    → #feedback    (or: ________)
+    → #marketing   (or: ________)
+    → #dev-archive (or: ________)
+```
+
+**End with:**
+```
+ 7. Install App to Workspace → Copy Bot Token
+    → Paste it here (starts with xoxb-...):
+    (You'll add this to .env.local later — just confirm you have it)
+```
+
+**Set:**
+- `config.notifications.slackLevel`
+- `config.notifications.slackDeployChannel` (and other channels if customized)
+- `config.notifications.devInbox` (true if Full)
+- `config.notifications.vibeChat` (true if Full)
+
+---
+
+**[BEGINNER] Context Help — What is a Vector DB?**
+If `beginnerMode`, display before Step 5:
+```
+(^ ^) The "intelligence layer" is about giving your AI a memory.
+
+A vector database is a special kind of database that searches by
+meaning, not just keywords. When you ask "how did we fix the auth
+bug?", it finds related memories even if they don't use those
+exact words.
+
+This is how Traqr gets smarter over time — every session's learnings
+get stored, and future sessions can search them.
+
+Powered by Supabase (the database service from Part 3).
+```
+
+### Step 5: Intelligence Layer — "Give your AI a memory"
+
+**Lightweight Mode: If `lightweightMode = true` and `lightweightOverride = false`, skip this step entirely.**
+Display inheritance notice as text:
+```
+   STEP 5 — Intelligence Layer [inherited from global profile]
+   Using: <orgConfig.memory.provider> memory, cross-project: <orgConfig.memory.crossProject ? "enabled" : "disabled">
+```
+Populate config from OrgConfig values:
+- `config.memory` = OrgConfig.memory (memory provider, cross-project settings)
+- `config.memory.provider` = OrgConfig.memory.provider
+- `config.memory.crossProject` = OrgConfig.memory.crossProject
+Update score from inherited values using existing `calculateAutomationScore()` logic.
+Then continue to next step.
+
+**If `lightweightOverride = true`:** Show this step with OrgConfig values pre-filled as defaults, but let the user modify. Input fields show inherited values instead of empty defaults.
+
+**Skip if pack has no memory (solo). Show pre-selected if pack includes it.**
+
+Print the step header:
+```
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 5 of 10 — Intelligence Layer  Score: <current>/100
+
+   "Without memory, every Claude session starts from zero.
+    With it, each session builds on every session before it."
+
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Call 1: AskUserQuestion** (single-select, 3 options):
+
+```
+AskUserQuestion:
+  question: "What level of memory should your AI have?"
+  header: "Memory"
+  multiSelect: false
+  options:
+    - label: "Full Memory"
+      description: "Supabase pgvector — learnings surface automatically, cross-project optional. +15-20 pts."
+      markdown: |
+        ## Full Memory (Supabase pgvector)
+
+        **Score:** +15-20 points
+        **Requires:** Supabase project + OpenAI API key
+
+        ### How it works:
+        - `/startup` surfaces relevant learnings automatically
+        - `/ship` auto-captures what you learned
+        - `/context "<task>"` searches for task-relevant memories
+        - Memories are vector-embedded for semantic search
+
+        ### Optional add-ons:
+        - **Cross-project learning** — learnings from one project help others (+3 pts)
+        - **Voice profiles** — learns your writing style (+2 pts)
+
+        ### Setup:
+        1. Create Supabase project
+        2. Enable pgvector extension
+        3. Run schema migration
+        4. Add SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY + OPENAI_API_KEY
+    - label: "Local Only"
+      description: "Learnings stored in CLAUDE.md — no external service needed. +10 pts."
+    - label: "Skip Memory"
+      description: "Each session starts fresh — add later with /traqr-upgrade. +0 pts."
+```
+
+- If "Other" → conversational customization
+
+**Call 2 (only if Full Memory selected) — two questions in one call:**
+
+```
+AskUserQuestion:
+  questions:
+    - question: "Do you already have a Supabase Memory API set up?"
+      header: "Memory Setup"
+      multiSelect: false
+      options:
+        - label: "Yes, I have one"
+          description: "Use my existing Memory API — I'll provide the URL"
+        - label: "No, new Supabase"
+          description: "I'll set up Supabase (setup guide in post-init checklist)"
+    - question: "Which memory add-ons do you want?"
+      header: "Memory Extras"
+      multiSelect: true
+      options:
+        - label: "Cross-project"
+          description: "Learnings from one project help others (+3 pts)"
+        - label: "Voice profiles"
+          description: "Learn your writing style for /draft commands (+2 pts)"
+```
+
+- If "Yes, I have one" → conversational follow-up for API URL
+
+**If Full Memory + new Supabase, provide setup guide (deferred to Step 10 checklist):**
+```
+ SUPABASE SETUP (do this after init):
+
+ 1. Create project: https://supabase.com/dashboard → New Project
+ 2. Enable pgvector:
+    → SQL Editor → Run:
+    CREATE EXTENSION IF NOT EXISTS vector;
+ 3. Run schema migration (provided in .traqr/schema.sql)
+ 4. Copy from Project Settings → API:
+    → Project URL → SUPABASE_URL
+    → service_role key → SUPABASE_SERVICE_ROLE_KEY
+ 5. Get OpenAI key: https://platform.openai.com/api-keys
+    → OPENAI_API_KEY
+```
+
+**Set:**
+- `config.memory.provider`
+- `config.memory.apiBase` (if existing)
+- `config.memory.projectSlug`
+- `config.memory.crossProject`
+- `config.memory.voiceProfiles`
+
+---
+
+**[BEGINNER] Context Help — What is a Pull Request?**
+If `beginnerMode`, display before Step 6:
+```
+(^ ^) Mission Control is about organizing work. The key concept here
+is a "pull request" (PR).
+
+A pull request is a proposal to add your changes to the main version.
+Think of it like submitting a draft for review:
+  1. You write the changes (on your branch)
+  2. You submit them for review (create a PR)
+  3. They get approved and merged (become official)
+
+When you run /ship, Traqr creates a PR automatically. If you have
+Guardian enabled, it can even auto-merge approved PRs.
+```
+
+### Step 6: Mission Control — "Organize work into trackable units"
+
+**Lightweight Mode: If `lightweightMode = true` and `lightweightOverride = false`, skip this step entirely.**
+Display inheritance notice as text:
+```
+   STEP 6 — Mission Control [inherited from global profile]
+   Using: <orgConfig.issues.provider> (<orgConfig.services.linear.connected ? "Linear connected" : "not connected">)
+```
+Populate config from OrgConfig values:
+- `config.issues` = OrgConfig.issues (Linear team, workspace settings)
+- `config.issues.provider` = OrgConfig.issues.provider
+- `config.issues.teamId` = OrgConfig.issues.teamId
+Update score from inherited values using existing `calculateAutomationScore()` logic.
+Then continue to next step.
+
+**If `lightweightOverride = true`:** Show this step with OrgConfig values pre-filled as defaults, but let the user modify. Input fields show inherited values instead of empty defaults.
+
+**Skip if pack has no issues (solo). Show pre-selected if pack includes it.**
+
+Print the step header:
+```
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 6 of 10 — Mission Control     Score: <current>/100
+
+   "Tickets turn chaos into queues. Every task gets
+    a number, a status, and a path to done."
+
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Call 1: AskUserQuestion** (single-select, 3 options):
+
+```
+AskUserQuestion:
+  question: "Which issue tracker should power your workflow?"
+  header: "Issue Tracker"
+  multiSelect: false
+  options:
+    - label: "Linear"
+      description: "Full automation: agent-ready labels, aging, SLA tracking, plan-dispatch. +10-15 pts."
+      markdown: |
+        ## Linear — Score: +10-15 points
+
+        **Requires:** Linear API key
+
+        ### What you get:
+        - **Agent-ready labels** — mark tickets for Claude to claim
+        - **Plan-dispatch** — /think creates plans, /dispatch sends to slots
+        - **Ticket aging** — stale-3d, stale-7d, stale-14d auto-labels
+        - **SLA tracking** — alerts when tickets exceed time limits
+        - **Auto-close on merge** — "Closes <PREFIX>-123" in PR description
+
+        ### Labels we'll create:
+        - `agent-ready` — Ready for Claude to claim
+        - `has-plan` — Implementation plan attached
+        - `stale-3d/7d/14d` — No activity alerts
+
+        ### Setup:
+        1. Get API key from https://linear.app/settings/api
+        2. Find your Team ID from team settings
+        3. Add LINEAR_API_KEY to .env.local
+    - label: "GitHub Issues"
+      description: "Labels, auto-close on merge. Uses existing GitHub CLI. +7-10 pts."
+    - label: "Skip"
+      description: "No formal tickets — /ship still works. +0 pts."
+```
+
+- If "Other" → conversational customization
+
+**Call 2 (only if Linear or GitHub Issues selected) — multi-select add-ons:**
+
+```
+AskUserQuestion:
+  question: "Which issue tracking add-ons do you want?"
+  header: "Issues Extras"
+  multiSelect: true
+  options:
+    - label: "Plan-dispatch"
+      description: "/think creates plans, /dispatch sends to slots (+3 pts)"
+    - label: "Auto-create labels"
+      description: "agent-ready, has-plan, stale-* labels created automatically (+2 pts)"
+```
+
+- If Linear selected → conversational follow-up for Team ID:
+```
+ LINEAR SETUP:
+
+ 1. Get API key:
+    → Go to: https://linear.app/settings/api
+    → Create key → Copy it (starts with lin_api_...)
+
+ 2. Find your Team ID:
+    → Settings → Teams → Click your team
+    → Copy the ID from the URL or settings page
+
+ Paste your Linear Team ID: ________
+```
+
+**Set:**
+- `config.issues.provider`
+- `config.issues.linearTeamId`
+- `config.issues.planDispatch`
+- `config.issues.autoLabels`
+
+---
+
+**[BEGINNER] Context Help — Service Cards**
+If `beginnerMode`, display before Step 7 with cards for whichever monitoring services are relevant to the user's selected pack:
+```
+(? ?) These services help you understand what's happening with your
+app. Here's what each one does:
+
+PostHog = see how people use your app (which pages, what they click)
+Sentry  = get notified when something breaks in production
+Axiom   = detailed logs for debugging (like a flight recorder)
+
+All have free tiers. See docs/traqr/beginners-guide.md for details.
+```
+
+### Step 7: Monitoring Tower — "Know before your users know"
+
+**Lightweight Mode: If `lightweightMode = true` and `lightweightOverride = false`, skip this step entirely.**
+Display inheritance notice as text:
+```
+   STEP 7 — Monitoring Tower [inherited from global profile]
+   Using: Derived from connected services (Sentry: <connected?>, PostHog: <connected?>, Axiom: <connected?>)
+```
+Populate config from OrgConfig values:
+- `config.monitoring.errorTracking` = derive from `orgConfig.services.sentry.connected`
+- `config.monitoring.analytics` = derive from `orgConfig.services.posthog.connected`
+- `config.monitoring.uptime` = derive from connected uptime services
+Update score from inherited values using existing `calculateAutomationScore()` logic.
+Then continue to next step.
+
+**If `lightweightOverride = true`:** Show this step with OrgConfig values pre-filled as defaults, but let the user modify. Input fields show inherited values instead of empty defaults.
+
+**Skip if pack has no monitoring (solo, smart). Show pre-selected if pack includes it.**
+
+Print the step header:
+```
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 7 of 10 — Monitoring Tower    Score: <current>/100
+
+   "Each of these is independent — pick any combo."
+
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Single call with 4 questions** (one per category, all independent):
+
+```
+AskUserQuestion:
+  questions:
+    - question: "Error tracking — catch runtime errors before users report them?"
+      header: "Error Track"
+      multiSelect: false
+      options:
+        - label: "Sentry"
+          description: "Runtime errors → #dev-triage with 'Fix This' button (+4 pts)"
+        - label: "None"
+          description: "Skip error tracking for now"
+    - question: "Analytics — understand how users interact with your app?"
+      header: "Analytics"
+      multiSelect: false
+      options:
+        - label: "PostHog"
+          description: "DAU/WAU/MAU, retention, feature usage, rage clicks (+4 pts)"
+        - label: "None"
+          description: "Skip analytics for now"
+    - question: "Uptime monitoring — know when your site goes down?"
+      header: "Uptime"
+      multiSelect: false
+      options:
+        - label: "Checkly"
+          description: "Synthetic monitoring with browser checks (+3 pts)"
+        - label: "Better Stack"
+          description: "Incident management + status page (+3 pts)"
+        - label: "Both"
+          description: "Maximum coverage — Checkly + Better Stack (+4 pts)"
+        - label: "None"
+          description: "Skip uptime monitoring for now"
+    - question: "Feedback widget — let users report bugs from your app?"
+      header: "Feedback"
+      multiSelect: false
+      options:
+        - label: "Built-in"
+          description: "Users report bugs → creates ticket + #feedback (+3 pts)"
+        - label: "None"
+          description: "Skip feedback widget for now"
+```
+
+- "Other" on any question → conversational customization for that category
+
+**For each selected service, print setup guide as text output:**
+
+**Sentry:**
+```
+ SENTRY SETUP:
+ 1. Create project: https://sentry.io → Create Project → Next.js (or your framework)
+ 2. Copy DSN from Project Settings → Client Keys
+ 3. Add to .env.local: SENTRY_DSN=<your-dsn>
+```
+
+**PostHog:**
+```
+ POSTHOG SETUP:
+ 1. Create project: https://us.posthog.com → New Project
+ 2. Copy from Project Settings:
+    → Project API Key → NEXT_PUBLIC_POSTHOG_KEY
+    → Project ID → NEXT_PUBLIC_POSTHOG_PROJECT_ID
+ 3. For server-side: Personal API Key → POSTHOG_PERSONAL_API_KEY
+```
+
+**Checkly:**
+```
+ CHECKLY SETUP:
+ 1. Create account: https://www.checklyhq.com
+ 2. Create a browser check for your homepage
+ 3. Add webhook: Settings → Alerts → Webhook
+    → URL: https://<your-domain>/api/webhooks/checkly
+```
+
+**Better Stack:**
+```
+ BETTER STACK SETUP:
+ 1. Create account: https://betterstack.com
+ 2. Create monitor for your domain
+ 3. Add webhook integration:
+    → URL: https://<your-domain>/api/webhooks/betterstack
+```
+
+**Set:**
+- `config.monitoring.errorTracking`
+- `config.monitoring.analytics`
+- `config.monitoring.uptime`
+- `config.monitoring.feedbackWidget`
+
+---
+
+### Step 8: Marketing Engine — "Close the loop with your users"
+
+**Lightweight Mode: If `lightweightMode = true` and `lightweightOverride = false`, skip this step entirely.**
+Display inheritance notice as text:
+```
+   STEP 8 — Marketing Engine [inherited from global profile]
+   Using: Skipped (email config is project-specific, not in OrgConfig)
+```
+No config values to inherit — email settings are project-specific. Score unchanged.
+Then continue to next step.
+
+**If `lightweightOverride = true`:** Show this step normally (no pre-filled defaults from OrgConfig).
+
+**Skip if pack has no email (solo, smart, production). Show pre-selected if Full.**
+
+Print the step header:
+```
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 8 of 10 — Marketing Engine    Score: <current>/100
+
+   "The feedback loop is the killer feature.
+    User reports bug → you fix it → they get an email.
+    That's how you build loyalty."
+
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Call 1: AskUserQuestion** (single-select, 2 options):
+
+```
+AskUserQuestion:
+  question: "Do you want email automation for user communications?"
+  header: "Email"
+  multiSelect: false
+  options:
+    - label: "Resend"
+      description: "Modern email API — bug fixed notifications, welcome emails, feedback loops. +3 pts."
+      markdown: |
+        ## Resend — Email Automation
+
+        **Score:** +3 pts (base) + up to 7 more from templates & feedback loop
+        **Requires:** Resend account + verified domain
+
+        ### The Feedback Loop (the killer feature):
+        ```
+        User reports bug → Linear ticket created
+          → Fix implemented → PR merged
+            → Email sent to user: "Your bug is fixed!"
+        ```
+
+        ### Available templates:
+        - Bug Fixed notification (+1 pt)
+        - Feature Shipped notification (+1 pt)
+        - Welcome email (+1 pt)
+        - Feedback Request (+1 pt)
+        - Weekly Recap (+1 pt)
+        - Marketing / Newsletter (+1 pt)
+
+        ### Setup:
+        1. Create account at https://resend.com
+        2. Add & verify your domain
+        3. Create API key
+        4. Add RESEND_API_KEY to .env.local
+    - label: "Skip"
+      description: "No email automation — add later with /traqr-upgrade"
+```
+
+- If "Other" → conversational customization
+
+**Call 2 (only if Resend selected) — 3 questions in one call:**
+
+```
+AskUserQuestion:
+  questions:
+    - question: "Which notification templates do you want? (first batch)"
+      header: "Templates 1/2"
+      multiSelect: true
+      options:
+        - label: "Bug Fixed"
+          description: "Notify users when their reported bug is fixed (+1 pt)"
+        - label: "Feature Shipped"
+          description: "Announce new features to interested users (+1 pt)"
+        - label: "Welcome"
+          description: "Welcome email for new user signups (+1 pt)"
+        - label: "Feedback Request"
+          description: "Ask users for feedback after using a feature (+1 pt)"
+    - question: "Additional templates? (second batch)"
+      header: "Templates 2/2"
+      multiSelect: true
+      options:
+        - label: "Weekly Recap"
+          description: "Weekly summary of activity and updates (+1 pt)"
+        - label: "Newsletter"
+          description: "Marketing / newsletter broadcasts (+1 pt)"
+    - question: "Enable the full feedback loop?"
+      header: "Feedback Loop"
+      multiSelect: false
+      options:
+        - label: "Yes"
+          description: "Bug report → fix → auto-email user. The killer feature. (+2 pts)"
+        - label: "No"
+          description: "Just use templates without the automated loop"
+```
+
+**If Resend selected, show setup guide:**
+```
+ RESEND SETUP:
+ 1. Create account: https://resend.com
+ 2. Add your domain: Domains → Add Domain
+ 3. Add DNS records (DKIM, SPF, DMARC — Resend provides exact values)
+ 4. Wait for verification (usually < 5 min)
+ 5. Create API key: API Keys → Create
+ 6. Add to .env.local: RESEND_API_KEY=<key>
+```
+
+**Set:**
+- `config.email.provider`
+- `config.email.templates` (array of selected templates)
+- `config.email.feedbackLoop`
+
+---
+
+### Step 9: Automation Grid — "Automations that run while you sleep"
+
+**Lightweight Mode: If `lightweightMode = true` and `lightweightOverride = false`, skip this step entirely.**
+Display inheritance notice as text:
+```
+   STEP 9 — Automation Grid [inherited from global profile]
+   Using: Auto-enabled for inherited services (Slack digests, Linear aging, Memory pulse, etc.)
+```
+Populate config from OrgConfig values:
+- `config.crons` = auto-enable categories based on which services were inherited from OrgConfig
+- Enable Dev Health (always), plus any category whose prerequisite service is connected in OrgConfig
+Update score from inherited values using existing `calculateAutomationScore()` logic.
+Then continue to next step.
+
+**If `lightweightOverride = true`:** Show this step with auto-enabled categories pre-selected, but let the user toggle. Input fields show inherited values instead of empty defaults.
+
+**Skip if pack has no crons (solo). Show pre-selected based on pack + what prerequisites are met.**
+
+Print the step header:
+```
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 9 of 10 — Automation Grid     Score: <current>/100
+
+   "These run on a schedule. Only categories where
+    you have the prerequisites are shown."
+
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Display available categories as text based on prerequisites met in Steps 4-8:**
+
+Show ONLY categories where prerequisites are met:
+- Dev Health (requires: slots — always available)
+- Analytics (requires: PostHog)
+- Issue Tracking (requires: Linear/GitHub)
+- Monitoring (requires: Sentry/Checkly)
+- Memory (requires: Memory)
+- Marketing (requires: Resend)
+- Agent System (requires: Full Traqr / tier 4)
+- Digests (requires: Slack)
+
+**Call 1: AskUserQuestion** (single-select, 4 options):
+
+```
+AskUserQuestion:
+  question: "How should cron jobs be configured?"
+  header: "Cron Jobs"
+  multiSelect: false
+  options:
+    - label: "Accept defaults"
+      description: "Use the pack's pre-selected cron categories"
+    - label: "Toggle categories"
+      description: "Choose which categories to enable/disable"
+    - label: "Enable all"
+      description: "Turn on every eligible category"
+    - label: "Skip crons"
+      description: "No automated jobs — add later"
+```
+
+- If "Other" → conversational customization
+
+**Call 2 (only if "Toggle categories" selected) — multi-select with eligible categories:**
+
+Build options dynamically from prerequisites met in Steps 4-8. Up to 8 categories possible; if more than 4 eligible, split into 2 sequential calls (4 each).
+
+**First call (up to 4 categories):**
+```
+AskUserQuestion:
+  question: "Which cron categories do you want enabled? (batch 1)"
+  header: "Cron Toggle"
+  multiSelect: true
+  options:
+    (dynamically built from eligible categories, up to 4)
+    Example:
+    - label: "Dev Health"
+      description: "Slot status, stale branch cleanup (+1-2 pts)"
+    - label: "Analytics"
+      description: "Engagement reports, traffic monitor (+1-2 pts)"
+    - label: "Issue Tracking"
+      description: "Ticket aging, backlog digest (+1-2 pts)"
+    - label: "Monitoring"
+      description: "Proactive error digest, uptime summary (+1-2 pts)"
+```
+
+**Second call (remaining categories, if >4 eligible):**
+```
+AskUserQuestion:
+  question: "Which cron categories do you want enabled? (batch 2)"
+  header: "Cron Toggle"
+  multiSelect: true
+  options:
+    (remaining eligible categories, up to 4)
+    Example:
+    - label: "Memory"
+      description: "Learning synthesis, contradiction check (+1-2 pts)"
+    - label: "Marketing"
+      description: "Newsletter schedule, deliverability check (+1-2 pts)"
+    - label: "Agent System"
+      description: "Daemon health, session analysis (+1-2 pts)"
+    - label: "Digests"
+      description: "Daily summary, weekly rollup to Slack (+1-2 pts)"
+```
+
+**Set:**
+- `config.crons.*` (boolean per category)
+
+---
+
+### Step 10: Launch! — "Everything comes together"
+
+This is the grand finale. Seven phases, executed in order.
+
+#### Phase A: Review & Confirm
+
+Print the config summary as text:
+```
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 10 of 10 — Launch!
+
+   "Here's everything you've configured.
+    Confirm and we'll generate it all."
+
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ CONFIGURATION SUMMARY:
+
+   Project:        <display name>
+   Starter Pack:   <pack name>
+   Tier:           <N>
+   Automation:     <score>/100
+   Mode:           <"DEMO" if config.demo, otherwise omit this line>
+
+   Design DNA:     <flavor or "none">
+   Workspaces:     <N> slots (<breakdown>)
+   Slack:          <level> (<N> channels)
+   Memory:         <provider>
+   Issues:         <provider>
+   Monitoring:     <list of enabled services>
+   Email:          <provider> (<N> templates)
+   Crons:          <N> categories enabled
+
+   Files to generate:  ~<N> files
+   Estimated time:     <X> seconds
+```
+
+**Use AskUserQuestion for confirmation** (single-select, 2 options):
+
+```
+AskUserQuestion:
+  question: "Ready to generate all files and set up your project?"
+  header: "Ready?"
+  multiSelect: false
+  options:
+    - label: "Yes, generate"
+      description: "Generate all config files, commands, scripts, and worktrees"
+    - label: "No, go back"
+      description: "Revisit a previous step before generating"
+```
+
+- If "No, go back" → conversational ask which step to revisit
+- If "Other" → handle conversationally
+
+#### Phase B: Build Config & Generate Variables
+
+Build the final config JSON object using `buildTemplateVars()` from `config-schema.ts`.
+
+**Lightweight Mode Config Merge:**
+If `lightweightMode = true`, merge OrgConfig defaults into the project config for any steps that were skipped:
+- `config.notifications` ??= OrgConfig.notifications
+- `config.memory` ??= OrgConfig.memory
+- `config.issues` ??= OrgConfig.issues
+- `config.monitoring` ??= derive from OrgConfig connected services
+- `config.crons` ??= auto-enabled categories from OrgConfig services
+- Apply `coAuthor` from OrgConfig if not set: `config.coAuthor` ??= OrgConfig.coAuthor
+This ensures the generated output includes inherited service connections even though the user didn't walk through those steps.
+
+1. Construct the full `TraqrConfig` object from all gathered answers (+ OrgConfig merge if lightweight)
+2. Calculate the final automation score using `calculateAutomationScore()`
+3. Call `buildTemplateVars(config)` to get all template variables
+4. Call `getFeatureFlags(config)` to get feature flags for conditionals
+
+Save config:
+```bash
+mkdir -p .traqr
+```
+Write `.traqr/config.json` with the full config object (pretty-printed).
+
+#### Phase B.5: Service Provisioning
+
+**DEMO MODE OVERRIDE:** If `config.demo === true`, skip MCP detection and provisioning entirely. Instead:
+
+1. Build provisioning state using `getDemoProvisioningState(config)` from `@traqr/core`
+2. Write demo `.env.local` with mock credentials:
+```bash
+# ============================================================
+# DEMO MODE - Generated by Traqr init (demo)
+# These values are NOT real. Replace with actual keys to go live.
+# Run /traqr-upgrade to provision real services.
+# ============================================================
+```
+Then write each service's vars from `DEMO_ENV_VARS` (imported from `@traqr/core`), grouped by service with `# <ServiceName> (demo)` headers.
+
+3. Print demo provisioning output:
+```
+ DEMO PROVISIONING:
+
+   [demo] Supabase -- mock credentials generated
+   [demo] Linear -- mock team ID + labels (not created)
+   [demo] Slack -- mock bot token generated
+   ...
+   All N services configured with demo credentials.
+   Run /traqr-upgrade when ready for real provisioning.
+```
+
+4. Set `config.provisioning` to the demo state and re-save `.traqr/config.json`
+5. Skip to Phase C (template generation proceeds identically)
+
+**Normal mode (below):**
+
+**This phase auto-provisions services via MCP where available, falling back to manual setup.**
+
+Initialize a `provisioningState` map to track results:
+```
+provisioningState = {}
+// Each entry: { available: boolean, method: 'mcp' | 'manual', envVars: {}, error?: string }
+```
+
+**Step 1: Detect MCP availability per selected service.**
+
+Only check services the user actually selected. Run detection in parallel where possible:
+
+| Service | Detection Query | Tool to Find |
+|---------|----------------|--------------|
+| Supabase (if memory.provider === 'supabase') | `+supabase create project` | `create_project` |
+| Linear (if issues.provider === 'linear') | `+linear list teams` | `list_teams` |
+| Resend (if email.provider === 'resend') | `+resend create` | `create-api-key` |
+| Cloudflare (if daemon config present) | `+cloudflare accounts` | `accounts_list` |
+| PostHog (if monitoring.analytics === 'posthog') | `+posthog projects` | `projects-get` |
+| Slack (if notifications.slackLevel !== 'none') | `+slack search channels` | `slack_search_channels` |
+| Vercel (if project.deployPlatform === 'vercel') | `+vercel list projects` | `list_projects` |
+
+Print detection results:
+```
+ MCP SERVICE DETECTION:
+
+   [mcp]    Supabase — auto-provision available
+   [mcp]    Linear — auto-provision available
+   [manual] Resend — MCP not connected, manual setup required
+   [mcp]    PostHog — hybrid (MCP configure, manual create)
+   ...
+```
+
+**Step 2: Provision in dependency order.**
+
+Execute recipes from the "MCP Provisioning Recipes" section below, in this order:
+
+```
+Tier 1: Supabase (memory + KV depend on it)
+Tier 2: Linear, Slack (independent of each other)
+Tier 3: PostHog, Resend, Cloudflare (independent of each other)
+Tier 4: Vercel (may reference project info from above)
+```
+
+For each service:
+1. If `provisioningState[service].available` is true → run the MCP recipe
+2. If MCP recipe succeeds → store env vars in `provisioningState[service].envVars`
+3. If MCP recipe fails → mark as `method: 'manual'`, log error, continue
+4. If MCP not available → mark as `method: 'manual'`, skip
+
+Print progress as each service completes:
+```
+ PROVISIONING:
+
+   [done]    Supabase — project created, pgvector enabled, schema applied
+   [done]    Linear — team found, 5 labels created
+   [skipped] Resend — will set up manually
+   [done]    PostHog — dashboard created, feature flag set
+   ...
+```
+
+**Step 3: Collect env vars and write `.env.local`.**
+
+Merge all captured env vars from provisioning into a single `.env.local` file:
+
+```bash
+# Auto-generated by Traqr init
+# Services provisioned via MCP are marked; manual entries need your values.
+
+# Supabase (auto-provisioned)
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=<paste from Supabase dashboard>
+
+# Linear (auto-provisioned)
+LINEAR_API_KEY=<paste from Linear Settings → API>
+LINEAR_TEAM_ID=8a369f13-...
+
+# Resend (manual)
+RESEND_API_KEY=<paste from Resend dashboard>
+
+# ... etc
+```
+
+For env vars that couldn't be captured via MCP (API keys, tokens), insert a `<paste from ...>` placeholder with a direct link to where the user can find it.
+
+**Step 4: Update config with provisioning state.**
+
+Add the provisioning results to the TraqrConfig before saving:
+```typescript
+config.provisioning = {
+  supabase: { method: 'mcp', provisionedAt: new Date().toISOString(), envVars: ['SUPABASE_URL', 'SUPABASE_ANON_KEY'] },
+  linear: { method: 'mcp', provisionedAt: new Date().toISOString(), envVars: ['LINEAR_TEAM_ID'] },
+  resend: { method: 'manual' },
+  // ...
+}
+```
+
+Re-save `.traqr/config.json` with the updated provisioning state.
+
+#### Phase C: Generate Files
+
+**Template Source Resolution:**
+Before reading templates, determine the source (check in order):
+
+1. If `packages/core/templates/` exists relative to the git root → use **local** templates (current behavior below)
+2. If `~/.traqr/config.json` exists and has `templatesPath` → read templates from that path:
+   ```bash
+   node -e "const c=JSON.parse(require('fs').readFileSync(process.env.HOME+'/.traqr/config.json','utf8')); if(c.templatesPath) console.log(c.templatesPath)" 2>/dev/null
+   ```
+   If the path exists and contains template files, use it as the template root (same as local processing below, just from a different directory).
+3. Otherwise → call `POST ${TRAQR_RENDER_API_BASE}/traqr/render` with `{ config: <config> }` and write the returned `files` map directly to disk. Skip the per-template read/render loop below — the API handles rendering. Write each file from the response's `files` object (key = output path, value = rendered content). Show any `warnings` from the response. Then skip to Phase D. Note: `TRAQR_RENDER_API_BASE` must be set in the environment (e.g., from `~/.traqr/config.json` or `.env.local`) — there is no hardcoded default.
+
+**Local template processing (when templates directory exists):**
+
+Read each template file from `packages/core/templates/` (in the Traqr source repo, NOT the target project). Replace all `{{VAR}}` placeholders and process conditionals using `renderTemplate()`.
+
+**Template processing rules:**
+1. Replace `{{VAR}}` with the corresponding value from template variables
+2. Process tier conditionals: `{{#IF_TIER_N+}}...{{/IF_TIER_N+}}` — include if tier >= N
+3. Process feature conditionals: `{{#IF_FEATURE}}...{{/IF_FEATURE}}` — include if feature flag is true
+   - Supported flags: `SLACK`, `MEMORY`, `MEMORY_FULL`, `LINEAR`, `GITHUB_ISSUES`, `ISSUES`, `POSTHOG`, `SENTRY`, `CHECKLY`, `BETTERSTACK`, `EMAIL`, `RESEND`, `FEEDBACK_LOOP`, `FEEDBACK_WIDGET`, `DEV_INBOX`, `VIBE_CHAT`, `CRONS`, `VOICE_PROFILES`, `CROSS_PROJECT`, `PLAN_DISPATCH`, `MONOREPO`, `AUTH_CLERK`, `AUTH_FIREBASE`, `AUTH_SUPABASE`
+4. Remove any conditional markers after processing
+
+**Core files (always generated — Tier 0+):**
+
+| Template | Output Location |
+|----------|----------------|
+| `templates/commands/ship.md.tmpl` | `.claude/commands/ship.md` |
+| `templates/commands/sync.md.tmpl` | `.claude/commands/sync.md` |
+| `templates/commands/worktrees.md.tmpl` | `.claude/commands/worktrees.md` |
+| `templates/commands/pr.md.tmpl` | `.claude/commands/pr.md` |
+| `templates/commands/resync.md.tmpl` | `.claude/commands/resync.md` |
+| `templates/commands/verify.md.tmpl` | `.claude/commands/verify.md` |
+| `templates/commands/draft.md.tmpl` | `.claude/commands/draft.md` |
+| `templates/commands/context.md.tmpl` | `.claude/commands/context.md` |
+| `templates/commands/techdebt.md.tmpl` | `.claude/commands/techdebt.md` |
+| `templates/commands/browser.md.tmpl` | `.claude/commands/browser.md` |
+| `templates/commands/plan.md.tmpl` | `.claude/commands/plan.md` |
+| `templates/scripts/setup-worktrees.sh.tmpl` | `scripts/setup-worktrees.sh` |
+| `templates/scripts/aliases.sh.tmpl` | `scripts/<prefix>-aliases.sh` |
+| `templates/scripts/pre-push-guardrail.sh.tmpl` | `scripts/pre-push-guardrail.sh` |
+| `templates/CLAUDE.md.tmpl` | `CLAUDE.md` |
+| `templates/settings.json.tmpl` | `.claude/settings.json` |
+
+**Tier 1+ command templates** (if they exist):
+| Template | Output | Requires |
+|----------|--------|----------|
+| `commands/startup.md.tmpl` | `.claude/commands/startup.md` | memory |
+| `commands/learn.md.tmpl` | `.claude/commands/learn.md` | memory |
+| `commands/memory.md.tmpl` | `.claude/commands/memory.md` | memory |
+| `commands/think.md.tmpl` | `.claude/commands/think.md` | memory |
+| `commands/capture.md.tmpl` | `.claude/commands/capture.md` | memory |
+| `commands/reflect.md.tmpl` | `.claude/commands/reflect.md` | memory |
+| `commands/analyze.md.tmpl` | `.claude/commands/analyze.md` | memory |
+| `commands/status.md.tmpl` | `.claude/commands/status.md` | memory |
+| `commands/bootstrap-skills.md.tmpl` | `.claude/commands/bootstrap-skills.md` | memory (full) |
+
+**Tier 2+ command templates** (if they exist):
+| Template | Output | Requires |
+|----------|--------|----------|
+| `commands/dispatch.md.tmpl` | `.claude/commands/dispatch.md` | issues |
+| `commands/task.md.tmpl` | `.claude/commands/task.md` | issues |
+
+**Tier 3+ command templates** (if they exist):
+| Template | Output | Requires |
+|----------|--------|----------|
+| `commands/slack.md.tmpl` | `.claude/commands/slack.md` | slack |
+| `commands/inbox.md.tmpl` | `.claude/commands/inbox.md` | slack |
+| `commands/email.md.tmpl` | `.claude/commands/email.md` | email |
+| `commands/writing-style.md.tmpl` | `.claude/commands/writing-style.md` | memory |
+
+**Tier 4 command templates** (if they exist):
+| Template | Output | Requires |
+|----------|--------|----------|
+| `commands/analytics.md.tmpl` | `.claude/commands/analytics.md` | posthog |
+| `commands/cron.md.tmpl` | `.claude/commands/cron.md` | crons |
+| `commands/webhook.md.tmpl` | `.claude/commands/webhook.md` | tier4 |
+| `commands/gap-analysis.md.tmpl` | `.claude/commands/gap-analysis.md` | tier4 |
+
+**Monorepo sub-app templates** (if `monorepoMode = true` and sub-app mode selected):
+
+| Template | Output | Notes |
+|----------|--------|-------|
+| `monorepo/next.config.ts.tmpl` | `apps/<app>/next.config.ts` | Monorepo-aware outputFileTracingRoot |
+| `monorepo/vercel.json.tmpl` | `apps/<app>/vercel.json` | Monorepo-aware buildCommand |
+| `monorepo/package.json.tmpl` | `apps/<app>/package.json` | Workspace deps with `"*"` versions |
+| `monorepo/tsconfig.json.tmpl` | `apps/<app>/tsconfig.json` | Standard Next.js tsconfig |
+| `monorepo/postcss.config.mjs.tmpl` | `apps/<app>/postcss.config.mjs` | Tailwind CSS plugin |
+| `monorepo/companion-package.json.tmpl` | `packages/<pkg>/package.json` | Only if companion package selected |
+
+In sub-app mode, also:
+- Create `apps/<app>/src/app/page.tsx` and `layout.tsx` stubs
+- If companion package: create `packages/<pkg>/src/index.ts`, `tsconfig.json`
+- Update root `tsconfig.json` references (add app + optional companion)
+- Update `.traqr/config.json` with monorepo section
+- Skip worktree creation (shared) and shell alias changes (shared)
+- Show port allocation table for all apps across slots
+
+**Design DNA templates** (if `config.design` is defined):
+
+| Template | Output | Notes |
+|----------|--------|-------|
+| `design/globals.css.tmpl` | `src/app/globals.css` | **WARN if file exists — offer merge/replace/skip** |
+| `design/tailwind.config.ts.tmpl` | `tailwind.config.ts` | **WARN if file exists — offer merge/replace/skip** |
+| `design/components/layout/AppShell.tsx.tmpl` | `src/components/layout/AppShell.tsx` | |
+| `design/components/layout/Sidebar.tsx.tmpl` | `src/components/layout/Sidebar.tsx` | |
+| `design/components/layout/TopBar.tsx.tmpl` | `src/components/layout/TopBar.tsx` | |
+| `design/components/layout/MobileNav.tsx.tmpl` | `src/components/layout/MobileNav.tsx` | |
+| `design/components/ui/Card.tsx.tmpl` | `src/components/ui/Card.tsx` | |
+| `design/components/ui/Toast.tsx.tmpl` | `src/components/ui/Toast.tsx` | |
+| `design/components/ui/FilterToggle.tsx.tmpl` | `src/components/ui/FilterToggle.tsx` | |
+| `design/components/ui/Skeleton.tsx.tmpl` | `src/components/ui/Skeleton.tsx` | |
+| `design/components/ui/Modal.tsx.tmpl` | `src/components/ui/Modal.tsx` | |
+| `design/components/ui/ChunkedGrid.tsx.tmpl` | `src/components/ui/ChunkedGrid.tsx` | |
+| `design/components/Providers.tsx.tmpl` | `src/components/Providers.tsx` | |
+
+**If `config.design.useFramerMotion` is true**, add `framer-motion` to the target project:
+```bash
+<package-manager> add framer-motion
+```
+(Use the detected package manager from Step 1.)
+
+**IMPORTANT**:
+- Only generate a command file if its template exists in the templates directory
+- If a template doesn't exist yet, skip it silently (Phase B of the overall plan creates these)
+- If the project already has a `CLAUDE.md`, ask before overwriting. Offer to append instead.
+- If the project already has `src/app/globals.css` or `tailwind.config.ts`, ask before overwriting — offer merge/replace/skip
+- Always write `.traqr/config.json` (the config itself, not from a template)
+
+**Make scripts executable:**
+```bash
+chmod +x scripts/setup-worktrees.sh
+chmod +x scripts/pre-push-guardrail.sh
+```
+
+**Show progress:**
+```
+ Generating files...
+   ✓ .traqr/config.json
+   ✓ CLAUDE.md
+   ✓ .claude/settings.json
+   ✓ .claude/commands/ship.md
+   ✓ .claude/commands/sync.md
+   ... (list each file)
+   ✓ scripts/setup-worktrees.sh
+   ✓ scripts/<prefix>-aliases.sh
+   ✓ scripts/pre-push-guardrail.sh
+
+ Generated <N> files.
+```
+
+#### Phase D: Create Worktrees
+
+```bash
+bash scripts/setup-worktrees.sh
+```
+
+If worktrees already exist, skip this step and note it.
+
+#### Phase E: Validation
+
+Run automated checks and present results:
+
+```bash
+# Core checks
+git rev-parse --show-toplevel
+ls .claude/commands/ship.md .claude/commands/sync.md
+ls -la scripts/setup-worktrees.sh scripts/pre-push-guardrail.sh
+git worktree list
+cat .traqr/config.json | head -3
+head -5 CLAUDE.md
+```
+
+```
+ VALIDATION RESULTS:
+
+   [pass] Git repository initialized
+   [pass] <N> slash commands generated
+   [pass] <N> scripts generated (executable)
+   [pass] <N> worktree slots created
+   [pass] .traqr/config.json written
+   [pass] CLAUDE.md generated
+   [pass] Pre-push hook ready
+```
+
+Show provisioned service status (from Phase B.5 results).
+**In demo mode**, show `[demo]` instead of `[pass]`/`[pending]`:
+```
+   [demo] Supabase — mock credentials (not connected)
+   [demo] Linear — mock team ID (not created)
+   [demo] Slack — mock bot token (not connected)
+   ...
+```
+
+**In normal mode**, show actual provisioning results:
+```
+   [pass] Supabase — provisioned via MCP (project created, schema applied)
+   [pass] Linear — provisioned via MCP (5 labels created)
+   [pending] Slack bot token — fill in SLACK_BOT_TOKEN in .env.local
+   [pending] Sentry DSN — add SENTRY_DSN to .env.local
+   ... (only for services the user selected, mark [pass] for MCP-provisioned, [pending] for manual)
+```
+
+Verify `.env.local` exists and has content:
+```bash
+test -f .env.local && echo "[pass] .env.local written" || echo "[pending] .env.local not yet created"
+```
+
+#### Phase F: Manual Setup Checklist
+
+**DEMO MODE OVERRIDE:** If `config.demo === true`, replace the entire per-service manual setup with a single upgrade path:
+```
+ DEMO MODE — All services configured with mock credentials.
+
+ When you're ready to go live:
+   → Run /traqr-upgrade to provision real services
+   → Or manually replace values in .env.local
+
+ Your worktrees, commands, and config are fully functional.
+ The only difference is API calls won't reach real services.
+```
+Then skip to Phase G.
+
+**Normal mode:**
+
+Present the remaining manual steps. **Skip services that were fully provisioned via MCP in Phase B.5.** Check `provisioningState[service].method` — if `'mcp'`, only show items that still need manual input (e.g., API keys not capturable via MCP). If `'manual'`, show the full manual guide.
+
+```
+ REMAINING SETUP:
+
+ 1. Source the Traqr shell init (if not already in your shell config):
+    echo 'source ~/.traqr/shell-init.sh' >> ~/.zshrc
+    source ~/.zshrc
+
+ 2. Verify worktrees:
+    <prefix>-slots
+```
+
+**If `.env.local` has `<paste from ...>` placeholders from Phase B.5:**
+```
+ 3. Fill in remaining API keys in .env.local:
+    → Open .env.local and replace all <paste from ...> placeholders
+    → Each placeholder includes a direct link to where to find the value
+```
+
+**If Memory (Supabase) selected AND `provisioningState.supabase.method !== 'mcp'`:**
+```
+ Set up Supabase:
+    → Create project: https://supabase.com/dashboard
+    → Enable pgvector: CREATE EXTENSION IF NOT EXISTS vector;
+    → Run schema: (copy from .traqr/schema.sql if provided)
+    → Add to .env.local:
+      SUPABASE_URL=<url>
+      SUPABASE_SERVICE_ROLE_KEY=<key>
+      OPENAI_API_KEY=<key>
+```
+
+**If Linear selected AND `provisioningState.linear.method !== 'mcp'`:**
+```
+ Add Linear API key:
+    → Add to .env.local: LINEAR_API_KEY=<key>
+```
+
+**If Slack selected AND `provisioningState.slack.method !== 'mcp'`:**
+```
+ Add Slack bot token:
+    → Add to .env.local: SLACK_BOT_TOKEN=<token>
+    → Add channel env vars:
+      SLACK_DEPLOYMENTS_CHANNEL=<channel>
+      SLACK_TRIAGE_CHANNEL=<channel>
+      ...
+```
+
+**If Sentry selected (no MCP recipe — always manual):**
+```
+ Add Sentry DSN:
+    → Add to .env.local: SENTRY_DSN=<dsn>
+```
+
+**If PostHog selected AND `provisioningState.posthog.method !== 'mcp'`:**
+```
+ Add PostHog keys:
+    → Add to .env.local:
+      NEXT_PUBLIC_POSTHOG_KEY=<key>
+      NEXT_PUBLIC_POSTHOG_HOST=https://us.posthog.com
+      NEXT_PUBLIC_POSTHOG_PROJECT_ID=<id>
+      POSTHOG_PERSONAL_API_KEY=<key>
+```
+
+**If Resend selected AND `provisioningState.resend.method !== 'mcp'`:**
+```
+ Add Resend API key:
+    → Add to .env.local: RESEND_API_KEY=<key>
+```
+
+**If this is a multi-project setup (not the first Traqr project):**
+```
+ WEBHOOK HOST UPDATE:
+
+   Your webhook host (e.g., NookTraqr) routes GitHub and Linear
+   events by project. Update these env vars on the host:
+
+   TRAQR_REPO_PROJECT_MAP — append "<org>/<repo>:<prefix>:<ticket-prefix>"
+   LINEAR_CHANNEL_PREFIX_MAP — append "<ticket-prefix>:<channel-prefix>"
+
+   Example (adding a second project alongside Traqr):
+     TRAQR_REPO_PROJECT_MAP="jiggycapital/traqr:nk:NTQ,jiggycapital/other-project:td:TD"
+     LINEAR_CHANNEL_PREFIX_MAP="NTQ:nk,TD:td"
+
+   Update in both .env.local and your hosting provider (e.g., Vercel).
+```
+
+**Show provisioning summary:**
+```
+ PROVISIONING SUMMARY:
+
+   [auto] Supabase — project created via MCP
+   [auto] Linear — labels created via MCP
+   [manual] Resend — fill in API key above
+   ...
+
+   <N> services auto-provisioned, <M> need manual setup
+```
+
+#### Phase G: First Learning & Celebration
+
+**DEMO MODE OVERRIDE:** If `config.demo === true`:
+- **Skip** the memory store (mock Supabase URL won't work)
+- **Still register** the project in `~/.traqr/config.json` (local-only, works fine)
+- **Adapted celebration**:
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( ^   ^ )   Demo complete!                              │
+│     (  =^=  )   Everything generated -- nothing connected.  │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Traqr is set up in DEMO MODE.
+
+   Project:     <display name>
+   Pack:        <starter pack>
+   Mode:        DEMO (mock credentials)
+   Slots:       <N> parallel lanes
+   Commands:    <N> slash commands
+
+What you can do right now:
+   z1            Jump to feature slot 1
+   /ship "msg"   Ship changes (PR workflow works normally)
+   /sync         Sync all slots
+
+When you're ready for real services:
+   → Run /traqr-upgrade to provision with real API keys
+```
+Then stop (do not show the normal celebration).
+
+**Normal mode:**
+
+**If Memory is enabled, store the setup as the first learning:**
+```bash
+curl -s -X POST "{{MEMORY_API_BASE}}/memory/store" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Set up Traqr for <project> with <pack> starter pack (Tier <N>, score <score>/100). <slot-count> slots, <services-list>.",
+    "category": "setup",
+    "tags": ["traqr", "init", "<project-name>"],
+    "sourceProject": "<project-slug>"
+  }'
+```
+
+**Register project in ~/.traqr/config.json (org-level registry for multi-project support):**
+
+```bash
+# Create ~/.traqr/ if it doesn't exist
+mkdir -p ~/.traqr
+
+# Read existing config or start fresh
+if [ -f ~/.traqr/config.json ]; then
+  EXISTING=$(cat ~/.traqr/config.json)
+else
+  EXISTING='{}'
+fi
+
+# Use node to upsert the project entry (safe JSON manipulation)
+node -e "
+  const cfg = $EXISTING;
+  if (!cfg.projects) cfg.projects = {};
+  cfg.projects['<project-slug>'] = {
+    repoPath: '<absolute-repo-path>',
+    worktreesPath: '<absolute-worktrees-path>',
+    displayName: '<display-name>',
+    aliasPrefix: '<alias-prefix>',
+    registeredAt: new Date().toISOString(),
+  };
+  if (!cfg.primaryProject) cfg.primaryProject = '<project-slug>';
+  console.log(JSON.stringify(cfg, null, 2));
+" > ~/.traqr/config.json
+```
+
+This enables `traqr projects` CLI and multi-project shell aliases in the future.
+
+**Celebration:**
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_CELEBRATE}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /traqr-init                       Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Traqr is ready!
+
+   Project:     <display name>
+   Pack:        <starter pack>
+   Score:       <score>/100
+   Slots:       <N> parallel lanes
+   Commands:    <N> slash commands
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Quick start:
+   z1            Jump to feature slot 1
+   c1            Open Claude in feature slot 1
+   /ship "msg"   Ship your changes
+   /sync         Sync all slots after merge
+
+What's next:
+   → Make a small change in z1
+   → Run /ship "test: verify traqr setup"
+   → You're officially shipping with Traqr!
+```
+
+**If score < 50:**
+```
+ Want more automation?
+   → Run /traqr-upgrade to add Memory, Slack, or Monitoring
+```
+
+**If score >= 75:**
+```
+ You're running a fully automated dev shop.
+   → Every bug gets tracked, every fix gets shipped,
+     every user gets notified. That's the Traqr way.
+```
+
+---
+
+## MCP Provisioning Recipes
+
+These recipes are used by **Phase B.5** (Service Provisioning) during Step 10. Each recipe defines:
+- **Detection**: How to check if the MCP integration is available
+- **Provisioning steps**: Claude Code instructions to auto-configure the service
+- **Env vars captured**: What gets written to `.env.local`
+- **Fallback**: Manual guide shown when MCP tools are unavailable
+
+### How MCP Detection Works
+
+Before attempting any recipe, use `ToolSearch` to check availability:
+
+```
+ToolSearch query: "+<service> list"
+```
+
+If the tool is found, MCP is available for that service. If not found, fall back to the manual guide.
+
+Track results in a `provisioningState` map:
+```
+provisioningState = {
+  supabase: { available: boolean, method: 'mcp' | 'manual', envVars: {} },
+  linear:   { available: boolean, method: 'mcp' | 'manual', envVars: {} },
+  ...
+}
+```
+
+---
+
+### Recipe: Supabase (Full Auto)
+
+**Detection:**
+```
+ToolSearch query: "+supabase create project"
+```
+Look for: `mcp__claude_ai_Supabase__create_project`
+
+**Provisioning steps (if MCP available):**
+
+1. **List organizations** to find or confirm the target org:
+   ```
+   mcp__claude_ai_Supabase__list_organizations
+   ```
+   If multiple orgs, ask user which one. Store `orgId`.
+
+2. **Create project** (or find existing):
+   ```
+   mcp__claude_ai_Supabase__create_project
+     name: "<project-slug>-db"
+     organization_id: <orgId>
+     region: "us-east-1"
+     plan: "free"
+   ```
+   Wait for project to be ready. Store `projectRef`.
+
+3. **Get project URL and keys**:
+   ```
+   mcp__claude_ai_Supabase__get_project_url
+     id: <projectRef>
+   ```
+   ```
+   mcp__claude_ai_Supabase__get_publishable_keys
+     id: <projectRef>
+   ```
+   Store `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+
+4. **Enable pgvector extension**:
+   ```
+   mcp__claude_ai_Supabase__execute_sql
+     project_id: <projectRef>
+     query: "CREATE EXTENSION IF NOT EXISTS vector;"
+   ```
+
+5. **Apply memory schema** (if memory provider is supabase):
+   ```
+   mcp__claude_ai_Supabase__execute_sql
+     project_id: <projectRef>
+     query: "<contents of .traqr/schema.sql or the inline memory table DDL>"
+   ```
+   The memory schema creates the `memories` (or `traqr_memories`) table with:
+   - `id uuid primary key default gen_random_uuid()`
+   - `content text not null`
+   - `embedding vector(1536)`
+   - `metadata jsonb default '{}'`
+   - `category text`
+   - `tags text[]`
+   - `created_at timestamptz default now()`
+   - `updated_at timestamptz default now()`
+   - Plus the similarity search function and index.
+
+6. **Seed default user and domain** (using project name from config):
+   ```
+   mcp__claude_ai_Supabase__execute_sql
+     project_id: <projectRef>
+     query: "
+       INSERT INTO memory_users (id, api_key, email)
+       VALUES ('a0000000-0000-0000-0000-000000000001', '<PROJECT_SLUG>-default-key', '<PROJECT_SLUG>@local')
+       ON CONFLICT (api_key) DO NOTHING;
+
+       INSERT INTO memory_domains (id, user_id, name, description, is_shareable)
+       VALUES ('b0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001',
+         '<PROJECT_SLUG>', '<PROJECT_DESCRIPTION>', FALSE)
+       ON CONFLICT (user_id, name) DO NOTHING;
+     "
+   ```
+   Replace `<PROJECT_SLUG>` with `config.projectSlug` and `<PROJECT_DESCRIPTION>` with `config.projectDescription`.
+
+7. **Capture env vars**:
+   ```
+   SUPABASE_URL=<url from step 3>
+   SUPABASE_ANON_KEY=<anon key from step 3>
+   SUPABASE_SERVICE_ROLE_KEY=<ask user — not exposed via MCP>
+   ```
+   **Note**: The service role key is NOT available via MCP. Ask the user to copy it from the Supabase dashboard → Settings → API. Provide direct link: `https://supabase.com/dashboard/project/<projectRef>/settings/api`
+
+**Fallback (manual guide):**
+```
+ Set up Supabase:
+    → Create project: https://supabase.com/dashboard
+    → Enable pgvector: CREATE EXTENSION IF NOT EXISTS vector;
+    → Run schema: (copy from .traqr/schema.sql if provided)
+    → Add to .env.local:
+      SUPABASE_URL=<url>
+      SUPABASE_SERVICE_ROLE_KEY=<key>
+      OPENAI_API_KEY=<key>
+```
+
+---
+
+### Recipe: Linear (Full Auto)
+
+**Detection:**
+```
+ToolSearch query: "+linear list teams"
+```
+Look for: `mcp__claude_ai_Linear__list_teams` or `mcp__linear__list_teams`
+
+**Provisioning steps (if MCP available):**
+
+1. **List teams** to find the target team:
+   ```
+   mcp__claude_ai_Linear__list_teams
+   ```
+   If multiple teams, ask user which one. Store `teamId`.
+
+2. **Create required labels** (5 labels for the Traqr workflow):
+   ```
+   mcp__claude_ai_Linear__create_issue_label
+     teamId: <teamId>
+     name: "agent-ready"
+     color: "#27AE60"
+   ```
+   ```
+   mcp__claude_ai_Linear__create_issue_label
+     teamId: <teamId>
+     name: "agent-claimed"
+     color: "#E67E22"
+   ```
+   ```
+   mcp__claude_ai_Linear__create_issue_label
+     teamId: <teamId>
+     name: "has-plan"
+     color: "#3498DB"
+   ```
+   ```
+   mcp__claude_ai_Linear__create_issue_label
+     teamId: <teamId>
+     name: "stale-pr"
+     color: "#E74C3C"
+   ```
+   ```
+   mcp__claude_ai_Linear__create_issue_label
+     teamId: <teamId>
+     name: "daemon-pr"
+     color: "#9B59B6"
+   ```
+   If labels already exist, the API will return them — no duplicates created.
+
+3. **Capture env vars**:
+   ```
+   LINEAR_API_KEY=<ask user — API key not available via MCP>
+   LINEAR_TEAM_ID=<teamId from step 1>
+   ```
+   Ask user to get API key from: Settings → API → Personal API keys
+
+**Fallback (manual guide):**
+```
+ Add Linear API key:
+    → Get API key: Linear Settings → API → Personal API keys
+    → Add to .env.local: LINEAR_API_KEY=<key>
+```
+
+---
+
+### Recipe: Resend (Full Auto)
+
+**Detection:**
+```
+ToolSearch query: "+resend create"
+```
+Look for: `mcp__resend__create-api-key`
+
+**Provisioning steps (if MCP available):**
+
+1. **Create API key** for the project:
+   ```
+   mcp__resend__create-api-key
+     name: "<project-slug>-traqr"
+   ```
+   Store the returned API key.
+
+2. **Create domain** (if user has a custom domain):
+   ```
+   mcp__resend__create-domain
+     name: "<user's domain>"
+   ```
+   Show DNS records to user for verification.
+
+3. **Capture env vars**:
+   ```
+   RESEND_API_KEY=<key from step 1>
+   ```
+
+**Fallback (manual guide):**
+```
+ Add Resend API key:
+    → Sign up: https://resend.com
+    → Create API key in dashboard
+    → Add to .env.local: RESEND_API_KEY=<key>
+```
+
+---
+
+### Recipe: Cloudflare (Full Auto)
+
+**Detection:**
+```
+ToolSearch query: "+cloudflare accounts"
+```
+Look for: `mcp__claude_ai_Cloudflare_Developer_Platform__accounts_list`
+
+**Provisioning steps (if MCP available):**
+
+1. **List accounts** to find target:
+   ```
+   mcp__claude_ai_Cloudflare_Developer_Platform__accounts_list
+   ```
+   Store `accountId`.
+
+2. **Set active account**:
+   ```
+   mcp__claude_ai_Cloudflare_Developer_Platform__set_active_account
+     accountId: <accountId>
+   ```
+
+3. **Create KV namespace** for daemon state:
+   ```
+   mcp__claude_ai_Cloudflare_Developer_Platform__kv_namespace_create
+     title: "<project-slug>-traqr-kv"
+   ```
+   Store `namespaceId`.
+
+4. **Capture env vars**:
+   ```
+   CLOUDFLARE_ACCOUNT_ID=<accountId>
+   CLOUDFLARE_KV_NAMESPACE_ID=<namespaceId>
+   ```
+
+**Fallback (manual guide):**
+```
+ Set up Cloudflare KV:
+    → Log in: https://dash.cloudflare.com
+    → Create KV namespace: Workers & Pages → KV
+    → Add to .env.local:
+      CLOUDFLARE_ACCOUNT_ID=<id>
+      CLOUDFLARE_KV_NAMESPACE_ID=<id>
+```
+
+---
+
+### Recipe: PostHog (Hybrid — User Creates Project, MCP Configures)
+
+**Detection:**
+```
+ToolSearch query: "+posthog projects"
+```
+Look for: `mcp__posthog__projects-get`
+
+**Provisioning steps (if MCP available):**
+
+1. **Get existing projects** — PostHog project creation is not available via MCP:
+   ```
+   mcp__posthog__projects-get
+   ```
+   Ask user to select their project (or create one at https://posthog.com first).
+
+2. **Create dashboard** for the project:
+   ```
+   mcp__posthog__dashboard-create
+     name: "<display-name> — Traqr Analytics"
+     description: "Auto-generated by Traqr init"
+   ```
+
+3. **Create feature flags** for common Traqr features:
+   ```
+   mcp__posthog__create-feature-flag
+     key: "traqr-feedback-widget"
+     name: "Traqr Feedback Widget"
+     active: true
+   ```
+
+4. **Capture env vars**:
+   ```
+   NEXT_PUBLIC_POSTHOG_KEY=<project API key — ask user>
+   NEXT_PUBLIC_POSTHOG_HOST=https://us.posthog.com
+   NEXT_PUBLIC_POSTHOG_PROJECT_ID=<project ID from step 1>
+   POSTHOG_PERSONAL_API_KEY=<ask user — Settings → Personal API keys>
+   ```
+
+**Fallback (manual guide):**
+```
+ Add PostHog keys:
+    → Sign up: https://posthog.com
+    → Create project in dashboard
+    → Add to .env.local:
+      NEXT_PUBLIC_POSTHOG_KEY=<key>
+      NEXT_PUBLIC_POSTHOG_HOST=https://us.posthog.com
+      NEXT_PUBLIC_POSTHOG_PROJECT_ID=<id>
+      POSTHOG_PERSONAL_API_KEY=<key>
+```
+
+---
+
+### Recipe: Slack (Hybrid — User Creates App, MCP Verifies)
+
+**Detection:**
+```
+ToolSearch query: "+slack search channels"
+```
+Look for: `mcp__claude_ai_Slack__slack_search_channels` or `mcp__slack__slack_list_channels`
+
+**Provisioning steps (if MCP available):**
+
+1. **User must create Slack app first** — MCP cannot create apps:
+   Tell user: "Create a Slack app at https://api.slack.com/apps with Bot Token Scopes: `chat:write`, `channels:read`, `channels:history`, `reactions:write`, `users:read`"
+
+2. **Verify channels exist** once user confirms app is created:
+   ```
+   mcp__claude_ai_Slack__slack_search_channels
+     query: "deployments"
+   ```
+   Repeat for each configured channel (triage, analytics, etc.).
+
+3. **Create missing channels** if any aren't found — ask user to create them manually (MCP can't create channels).
+
+4. **Capture env vars**:
+   ```
+   SLACK_BOT_TOKEN=<ask user — from app's OAuth page>
+   SLACK_DEPLOYMENTS_CHANNEL=<channel name>
+   SLACK_TRIAGE_CHANNEL=<channel name>
+   SLACK_ANALYTICS_CHANNEL=<channel name (if standard+)>
+   SLACK_FEEDBACK_CHANNEL=<channel name (if full)>
+   SLACK_MARKETING_CHANNEL=<channel name (if full)>
+   SLACK_ARCHIVE_CHANNEL=<channel name (if full)>
+   ```
+
+**Fallback (manual guide):**
+```
+ Add Slack bot token:
+    → Create app: https://api.slack.com/apps
+    → Add bot scopes: chat:write, channels:read, channels:history, reactions:write, users:read
+    → Install to workspace
+    → Add to .env.local: SLACK_BOT_TOKEN=<token>
+    → Add channel env vars for each configured channel
+```
+
+---
+
+### Recipe: Vercel (Hybrid — User Connects Repo, MCP Verifies)
+
+**Detection:**
+```
+ToolSearch query: "+vercel list projects"
+```
+Look for: `mcp__claude_ai_Vercel__list_projects`
+
+**Provisioning steps (if MCP available):**
+
+1. **User must connect repo first** — MCP cannot create the initial git connection:
+   Tell user: "Import your repo at https://vercel.com/new"
+
+2. **Verify project exists**:
+   ```
+   mcp__claude_ai_Vercel__list_projects
+   ```
+   Find the project matching `<project-slug>` or `<ghOrgRepo>`.
+
+3. **Get project details**:
+   ```
+   mcp__claude_ai_Vercel__get_project
+     idOrName: <project name or ID>
+   ```
+   Verify framework, build settings, etc.
+
+4. **Capture env vars** — Vercel env vars are managed via Vercel dashboard, not `.env.local`. Note this to the user.
+
+**Fallback (manual guide):**
+```
+ Set up Vercel:
+    → Import repo: https://vercel.com/new
+    → Framework: auto-detected
+    → Add env vars in Vercel dashboard (Settings → Environment Variables)
+```
+
+---
+
+## Notes
+
+- Templates are stored in `packages/core/templates/` (design templates in `packages/core/templates/design/`)
+- Config schema is at `packages/core/src/config-schema.ts`
+- Starter pack defaults are in `STARTER_PACK_DEFAULTS` in config-schema.ts
+- Design flavor defaults are in `DESIGN_FLAVOR_DEFAULTS` in config-schema.ts
+- Feature flags are computed by `getFeatureFlags()` in template-engine.ts (includes DESIGN, DESIGN_DARK_MODE, DESIGN_FRAMER_MOTION, etc.)
+- Automation score is computed by `calculateAutomationScore()` in config-schema.ts
+- Design is orthogonal to automation tier — any starter pack can pick any design flavor
+- Upgrade individual features with `/traqr-upgrade`
+- Test with `/traqr-test` using preset configurations

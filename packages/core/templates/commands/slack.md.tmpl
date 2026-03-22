@@ -1,0 +1,252 @@
+# /slack - Slack Integration Management
+
+Test Slack integrations, send messages, and debug button handlers for {{PROJECT_DISPLAY_NAME}}.
+
+---
+## Metadata
+- **Agent Compatibility**: Both (Claude Code + Daemon)
+- **Related Skills**: `/webhook`, `/status`, `/integration`
+- **Slack Channel**: All channels
+---
+
+## Arguments
+
+- `test [channel]` - Send test message to a channel
+- `post <channel> <message>` - Post a message to a specific channel
+- `channels` - List configured channels
+- `buttons` - List all button action handlers
+- `debug [action_id]` - Show handler for a button action
+
+## Instructions
+
+### List Channels
+
+Display all configured Slack channels:
+
+```
+Configured Slack Channels for {{PROJECT_DISPLAY_NAME}}:
+{{#IF_SLACK}}
+  #{{SLACK_DEPLOY_CHANNEL}}    - Deployments, PR merge buttons     (SLACK_DEPLOY_CHANNEL)
+  #{{SLACK_TRIAGE_CHANNEL}}    - Errors, triage, dev inbox          (SLACK_TRIAGE_CHANNEL)
+  #{{SLACK_ANALYTICS_CHANNEL}} - Signups, traffic, engagement       (SLACK_ANALYTICS_CHANNEL)
+{{#IF_FEEDBACK_LOOP}}  #{{SLACK_FEEDBACK_CHANNEL}}  - User feedback log                  (SLACK_FEEDBACK_CHANNEL){{/IF_FEEDBACK_LOOP}}
+{{#IF_EMAIL}}  #{{SLACK_MARKETING_CHANNEL}} - Email notifications, marketing      (SLACK_MARKETING_CHANNEL){{/IF_EMAIL}}
+{{#IF_VIBE_CHAT}}  #{{SLACK_ARCHIVE_CHANNEL}}   - Archived threads, reference         (SLACK_ARCHIVE_CHANNEL){{/IF_VIBE_CHAT}}
+{{/IF_SLACK}}
+```
+
+### Send Test Message
+
+{{#IF_SLACK}}
+```bash
+curl -s -X POST "{{MEMORY_API_BASE}}/test-integrations?test=slack"
+```
+
+Or send a custom message using the Slack API:
+
+```typescript
+await fetch('https://slack.com/api/chat.postMessage', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${SLACK_BOT_TOKEN}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    channel: '{{SLACK_TRIAGE_CHANNEL}}',
+    text: 'Test message from {{PROJECT_DISPLAY_NAME}}',
+    blocks: [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: '*Test Message*\nThis is a test from {{PROJECT_DISPLAY_NAME}}.' },
+      },
+    ],
+  }),
+});
+```
+{{/IF_SLACK}}
+
+### Post to Channel
+
+Post a message to a specific configured channel:
+
+```bash
+# Arguments: /slack post <channel-alias> <message>
+# channel-alias: deploy, triage, analytics{{#IF_FEEDBACK_LOOP}}, feedback{{/IF_FEEDBACK_LOOP}}{{#IF_EMAIL}}, marketing{{/IF_EMAIL}}{{#IF_VIBE_CHAT}}, archive{{/IF_VIBE_CHAT}}
+```
+
+{{#IF_SLACK}}
+Channel alias mapping:
+
+| Alias | Slack Channel | Env Var |
+|-------|--------------|---------|
+| `deploy` | #{{SLACK_DEPLOY_CHANNEL}} | `SLACK_DEPLOY_CHANNEL` |
+| `triage` | #{{SLACK_TRIAGE_CHANNEL}} | `SLACK_TRIAGE_CHANNEL` |
+| `analytics` | #{{SLACK_ANALYTICS_CHANNEL}} | `SLACK_ANALYTICS_CHANNEL` |
+{{#IF_FEEDBACK_LOOP}}| `feedback` | #{{SLACK_FEEDBACK_CHANNEL}} | `SLACK_FEEDBACK_CHANNEL` |{{/IF_FEEDBACK_LOOP}}
+{{#IF_EMAIL}}| `marketing` | #{{SLACK_MARKETING_CHANNEL}} | `SLACK_MARKETING_CHANNEL` |{{/IF_EMAIL}}
+{{#IF_VIBE_CHAT}}| `archive` | #{{SLACK_ARCHIVE_CHANNEL}} | `SLACK_ARCHIVE_CHANNEL` |{{/IF_VIBE_CHAT}}
+
+```typescript
+const CHANNEL_MAP: Record<string, string> = {
+  deploy: process.env.SLACK_DEPLOY_CHANNEL ?? '{{SLACK_DEPLOY_CHANNEL}}',
+  triage: process.env.SLACK_TRIAGE_CHANNEL ?? '{{SLACK_TRIAGE_CHANNEL}}',
+  analytics: process.env.SLACK_ANALYTICS_CHANNEL ?? '{{SLACK_ANALYTICS_CHANNEL}}',
+{{#IF_FEEDBACK_LOOP}}  feedback: process.env.SLACK_FEEDBACK_CHANNEL ?? '{{SLACK_FEEDBACK_CHANNEL}}',{{/IF_FEEDBACK_LOOP}}
+{{#IF_EMAIL}}  marketing: process.env.SLACK_MARKETING_CHANNEL ?? '{{SLACK_MARKETING_CHANNEL}}',{{/IF_EMAIL}}
+{{#IF_VIBE_CHAT}}  archive: process.env.SLACK_ARCHIVE_CHANNEL ?? '{{SLACK_ARCHIVE_CHANNEL}}',{{/IF_VIBE_CHAT}}
+};
+```
+{{/IF_SLACK}}
+
+### Button Action Handlers
+
+All button clicks are routed to `/api/webhooks/slack/route.ts`.
+
+Current handlers (search for `action_id` in codebase):
+
+| Action ID | Purpose | Channel |
+|-----------|---------|---------|
+| `merge_pr_squash` | Merge PR (squash) | #{{SLACK_DEPLOY_CHANNEL}} |
+| `merge_pr_regular` | Merge PR (regular) | #{{SLACK_DEPLOY_CHANNEL}} |
+| `close_pr` | Close PR | #{{SLACK_DEPLOY_CHANNEL}} |
+| `pr_needs_rebase` | Show rebase instructions | #{{SLACK_DEPLOY_CHANNEL}} |
+{{#IF_LINEAR}}| `create_linear_*` | Create Linear issue | #{{SLACK_TRIAGE_CHANNEL}} |{{/IF_LINEAR}}
+{{#IF_SENTRY}}| `fix_sentry_issue` | Fix Sentry error | #{{SLACK_TRIAGE_CHANNEL}} |{{/IF_SENTRY}}
+{{#IF_POSTHOG}}| `fix_posthog_issue` | Fix PostHog error | #{{SLACK_TRIAGE_CHANNEL}} |{{/IF_POSTHOG}}
+| `save_for_later` | Save to backlog | #{{SLACK_TRIAGE_CHANNEL}} |
+
+### Adding a New Button Handler
+
+1. Add button to your Slack message blocks:
+
+```typescript
+{
+  type: 'button',
+  text: { type: 'plain_text', text: 'My Action', emoji: true },
+  style: 'primary', // or 'danger'
+  action_id: 'my_action_id',
+  value: JSON.stringify({ action: 'my_action', ...data }),
+}
+```
+
+2. Add handler in `/api/webhooks/slack/route.ts`:
+
+```typescript
+if (actionId === 'my_action_id') {
+  try {
+    const data = JSON.parse(value);
+
+    // Do the thing
+    await doTheThing(data);
+
+    // Update the Slack message
+    await updateSlackMessage(
+      payload.response_url,
+      'Action completed!',
+      false // true = replace message, false = add reply
+    );
+  } catch (error) {
+    captureError(error, { tags: { type: 'slack_action_error', action: 'my_action' } });
+    await updateSlackMessage(
+      payload.response_url,
+      `Error: ${error.message}`,
+      false
+    );
+  }
+  return NextResponse.json({ ok: true });
+}
+```
+
+### Slack Block Kit Reference
+
+```typescript
+// Header
+{ type: 'header', text: { type: 'plain_text', text: 'Title', emoji: true } }
+
+// Section with markdown
+{ type: 'section', text: { type: 'mrkdwn', text: '*Bold* and _italic_' } }
+
+// Context (small text)
+{ type: 'context', elements: [{ type: 'mrkdwn', text: 'Small context text' }] }
+
+// Divider
+{ type: 'divider' }
+
+// Actions (buttons)
+{
+  type: 'actions',
+  elements: [
+    { type: 'button', text: { type: 'plain_text', text: 'Click Me' }, action_id: 'btn1' },
+  ],
+}
+
+// Fields (side by side)
+{
+  type: 'section',
+  fields: [
+    { type: 'mrkdwn', text: '*Field 1*\nValue 1' },
+    { type: 'mrkdwn', text: '*Field 2*\nValue 2' },
+  ],
+}
+```
+
+## Report
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_WELCOME}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /slack                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Checking Slack...
+
+{{RAQR_HR_MEDIUM}}
+Slack Status: <connected/error>
+Bot Token: <configured/missing>
+
+Channels:
+  #{{SLACK_DEPLOY_CHANNEL}} — ok
+  #{{SLACK_TRIAGE_CHANNEL}} — ok
+  #{{SLACK_ANALYTICS_CHANNEL}} — ok
+
+{{RAQR_HR}}
+What's next? → /slack test <channel> to send a test message
+```
+
+### Debug Slack Issues
+
+1. Check deployment logs for webhook errors
+2. Verify `SLACK_BOT_TOKEN` is set in environment
+3. Ensure bot is invited to the target channel
+4. Check `action_id` matches handler in webhook route
+5. Test with: `curl -s "{{MEMORY_API_BASE}}/test-integrations?test=slack"`
+
+### Error Handling
+
+If Slack commands fail, show the error with Raqr:
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_ALERT}}
+{{RAQR_FRAME_END}}
+
+Raqr · /slack                             Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Slack isn't cooperating.
+
+<translate the raw error to plain English using the table below>
+
+{{RAQR_HR}}
+```
+
+| Raw Error | Plain English | Fix |
+|-----------|--------------|-----|
+| `SLACK_BOT_TOKEN` not set | Bot token is missing from your environment | Add SLACK_BOT_TOKEN to .env.local — get it from api.slack.com/apps |
+| `invalid_auth` | Bot token is expired or wrong | Regenerate the token in your Slack app settings |
+| `channel_not_found` | Channel doesn't exist or was renamed | Check the channel name in your .traqr/config.json |
+| `not_in_channel` | Bot isn't a member of this channel | Invite the bot: type `/invite @YourBot` in the channel |
+| `ratelimited` | Too many requests to Slack | Wait 30 seconds and try again |
+| `ECONNREFUSED` | Can't reach Slack's API | Check your internet connection |

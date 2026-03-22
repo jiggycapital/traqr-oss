@@ -1,0 +1,829 @@
+---
+allowed-tools: Bash, Read, Write, Edit, AskUserQuestion
+name: traqr-setup
+description: One-Time Global Profile Setup
+tier: any
+category: infrastructure
+autoInvoked: false
+dependencies: []
+relatedSkills: [traqr-init, traqr-projects]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /traqr-setup - One-Time Global Profile Setup
+
+Set up your global Traqr developer profile. This runs ONCE and connects your services (Slack, Linear, Supabase) so every project you initialize with `/traqr-init` inherits them automatically.
+
+---
+## Metadata
+- **Agent Compatibility**: Claude Code (any session)
+- **Related Skills**: `/traqr-init`, `/traqr-projects`, `/traqr-upgrade`
+- **Delivery**: Claude Code Max personal subscription — no API keys needed
+---
+
+## Overview
+
+Traqr runs entirely inside Claude Code. Your subscription powers everything — no separate API keys for AI. This wizard connects the **external services** that Traqr orchestrates on your behalf:
+
+| Service | What it does for you |
+|---------|---------------------|
+| **Slack** | PR notifications, triage alerts, AI chat threads |
+| **Linear** | Issue tracking, plan-dispatch workflow, ticket lifecycle |
+| **Supabase** | Memory database — your AI's learnings persist across sessions |
+
+Everything here is **optional**. You can skip any service and add it later with `/traqr-setup`.
+
+## The 10-Step Flow
+
+```
+STEP 1:   Welcome              Detect existing profile + explain what's happening
+STEP 2:   Connect Slack        MCP server detection + workspace verification
+STEP 3:   Connect Linear       MCP server detection + team access
+STEP 4:   Connect Supabase     MCP server detection + memory database
+STEP 5:   MCP Server Check     Verify all Claude Code integrations
+STEP 6:   Preferences          Default co-author, primary project
+STEP 7:   Write Profile        Save ~/.traqr/config.json
+STEP 8:   Shell Setup          Add source line to zshrc/bashrc
+STEP 9:   Verification         Test each connection
+STEP 10:  Celebration          Welcome to the platform
+```
+
+---
+
+## Instructions
+
+Run this wizard conversationally. Each step uses `AskUserQuestion` for structured choices and conversational prompts for free-text. Be warm, clear, and assume the user may have never used Terminal before today.
+
+### Beginner Detection (run before Step 1)
+
+Run these checks silently:
+```bash
+git config user.name 2>/dev/null || echo "NO_GIT_USER"
+which claude 2>/dev/null || echo "NO_CLAUDE"
+which node 2>/dev/null || echo "NO_NODE"
+```
+
+If ANY check returns negative, set `beginnerMode = true`. In beginner mode, insert context-help blocks before relevant steps (marked with `[BEGINNER]` below). Each block uses the friendly Raqr voice `(^ ^)` and references `docs/traqr/beginners-guide.md` for details.
+
+---
+
+### Step 1: Welcome — "Let's get you set up"
+
+**[BEGINNER] Context Help — What is Terminal?**
+If `beginnerMode`, display before the welcome banner:
+```
+(^ ^) Quick context: You're in Terminal right now! It's a text-based
+way to talk to your computer. Instead of clicking, you type commands.
+
+Everything Traqr does happens here. Don't worry — I'll guide you
+through every step. If a command looks confusing, just ask me.
+
+Want to know more? See docs/traqr/beginners-guide.md, Part 1.
+```
+
+**Auto-detect** existing profile (run silently):
+
+```bash
+# Check for existing Traqr profile
+cat ~/.traqr/config.json 2>/dev/null || echo "NO_PROFILE"
+# Check Claude Code MCP servers
+ls ~/.claude/settings.json 2>/dev/null || echo "NO_SETTINGS"
+# Check shell
+echo "$SHELL"
+# Check OS
+uname -s
+```
+
+**If profile exists**, show current state and ask:
+
+```
+AskUserQuestion:
+  question: "You already have a Traqr profile. What would you like to do?"
+  header: "Existing"
+  multiSelect: false
+  options:
+    - label: "Update connections"
+      description: "Re-run setup to add or fix service connections"
+    - label: "Start fresh"
+      description: "Delete existing profile and set up from scratch"
+    - label: "View profile"
+      description: "Show current profile and exit"
+```
+
+- "View profile" → display the config prettily and exit
+- "Start fresh" → continue wizard from Step 2
+- "Update connections" → skip to whichever service they want
+
+**If no profile**, show welcome:
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_WELCOME}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /traqr-setup                      Traqr · {{PROJECT_NAME}}
+
+{{RAQR_HR}}
+
+   STEP 1 of 10 — Welcome
+
+   Traqr is a development automation platform that runs
+   inside Claude Code. Your Claude Code Max subscription
+   powers everything — no separate AI API keys needed.
+
+   This setup connects the external services that Traqr
+   orchestrates: Slack for notifications, Linear for
+   issue tracking, and Supabase for AI memory.
+
+   Everything is optional. Skip anything and add it later.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Then ask what services to connect:**
+
+```
+AskUserQuestion:
+  question: "Which services do you want to connect today?"
+  header: "Services"
+  multiSelect: true
+  options:
+    - label: "Slack"
+      description: "PR notifications, Dev Inbox, AI chat threads in your workspace"
+    - label: "Linear"
+      description: "Issue tracking with automated ticket lifecycle"
+    - label: "Supabase"
+      description: "Memory database — your AI remembers learnings across sessions"
+```
+
+Store selection. If user selects none, that's fine — skip to Step 6.
+
+---
+
+**[BEGINNER] Context Help — What is Claude Code? What is Git?**
+If `beginnerMode`, display before Step 2:
+```
+(^ ^) Two tools you should know about:
+
+Claude Code is the AI assistant you're talking to right now (hi!).
+It lives in Terminal and can read, write, and manage your code.
+
+Git is a version history system. Every time you save a meaningful
+change, Git remembers it. Think of it like unlimited undo.
+
+Want to know more? See docs/traqr/beginners-guide.md, Part 2.
+```
+
+### Step 2: Connect Slack — "Your command center for notifications"
+
+**Skip if not selected in Step 1.**
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 2 of 10 — Connect Slack
+
+   Slack is where Traqr sends you notifications:
+   - PR created/merged alerts
+   - Build failure warnings
+   - AI question threads (Raqr asks you things!)
+   - Analytics summaries
+
+   You need a Slack workspace where you can install apps.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Check if Slack MCP is already connected:**
+
+```bash
+# Check Claude Code settings for Slack MCP (local servers)
+cat ~/.claude.json 2>/dev/null | grep -i slack || echo "NO_SLACK_MCP"
+```
+
+> **Fallback:** If grep returns "NO_SLACK_MCP", try a functional MCP call before concluding not connected. Services may be available via Claude.ai integrations (not in `~/.claude.json`). Try `mcp__slack__slack_list_channels` or `mcp__claude_ai_Slack__slack_search_channels` — if either responds, Slack IS connected.
+
+**If Slack MCP detected (via grep OR functional call):**
+```
+Slack MCP server detected in your Claude Code settings.
+
+Let me verify the connection...
+```
+
+Use the Slack MCP tool to verify: try listing channels or getting user profile. If it works → "Connected! Moving on."
+
+**If NOT detected:**
+
+```
+AskUserQuestion:
+  question: "How would you like to connect Slack?"
+  header: "Slack"
+  multiSelect: false
+  options:
+    - label: "I have a Slack workspace (Recommended)"
+      description: "I'll guide you through connecting it to Claude Code"
+    - label: "Skip for now"
+      description: "You can add Slack later with /traqr-setup"
+```
+
+If connecting, provide step-by-step:
+
+```
+Here's how to connect Slack to Claude Code:
+
+1. Open Claude Code settings:
+   Press Cmd+Shift+P → "Claude: MCP Servers" (or edit ~/.claude.json)
+
+2. Add the Slack MCP server. Claude Code's built-in Slack
+   integration handles authentication automatically when
+   you connect through the Claude Code settings UI.
+
+3. Once connected, I'll verify the connection.
+
+Need help? Just ask — I can walk you through each click.
+```
+
+After connection, verify by attempting a Slack API call. Store result.
+
+**Record in profile:**
+```json
+{
+  "services": {
+    "slack": {
+      "connected": true,
+      "method": "mcp",
+      "connectedAt": "<ISO timestamp>"
+    }
+  }
+}
+```
+
+---
+
+**[BEGINNER] Context Help — What is an API Key?**
+If `beginnerMode`, display before Step 3:
+```
+(^ ^) You might see the term "API key" here. An API key is like a
+password that lets your app talk to another service.
+
+You'll get API keys by signing up for each service (free tiers are
+fine). Traqr stores them safely in a file called .env.local that
+never gets shared publicly.
+
+Want to know more? See docs/traqr/beginners-guide.md, Part 3.
+```
+
+### Step 3: Connect Linear — "Your issue tracker for structured work"
+
+**Skip if not selected in Step 1.**
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 3 of 10 — Connect Linear
+
+   Linear is where Traqr creates and manages tickets:
+   - Plan-dispatch workflow (think → plan → ticket → implement)
+   - Automated labels (agent-ready, has-plan, shipped)
+   - Ticket lifecycle management
+
+   Think of it as your project's to-do list that AI agents
+   can read, create, and update.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Check if Linear MCP is already connected:**
+
+```bash
+# Check Claude Code settings for Linear MCP (local servers)
+cat ~/.claude.json 2>/dev/null | grep -i linear || echo "NO_LINEAR_MCP"
+```
+
+> **Fallback:** If grep returns "NO_LINEAR_MCP", try a functional MCP call before concluding not connected. Services may be available via Claude.ai integrations (not in `~/.claude.json`). Try `mcp__linear__list_teams` or `mcp__claude_ai_Linear__list_teams` — if either responds, Linear IS connected.
+
+**If Linear MCP detected (via grep OR functional call):**
+Verify by listing teams. If teams found → "Connected! Found team(s): <team names>"
+
+Ask which team to use as default:
+```
+AskUserQuestion:
+  question: "Which Linear team should be your default?"
+  header: "Linear Team"
+  multiSelect: false
+  options:
+    - (dynamically generated from team list)
+```
+
+**If NOT detected:**
+
+Same pattern as Slack — guide through MCP connection or skip.
+
+**Also ask for workspace slug** (for Linear URLs):
+"What's your Linear workspace slug? (the part after linear.app/ in your browser URL)"
+
+**Record in profile:**
+```json
+{
+  "services": {
+    "linear": {
+      "connected": true,
+      "method": "mcp",
+      "defaultTeamId": "<team-uuid>",
+      "workspaceSlug": "<slug>",
+      "connectedAt": "<ISO timestamp>"
+    }
+  }
+}
+```
+
+---
+
+### Step 4: Connect Supabase — "Your AI's long-term memory"
+
+**Skip if not selected in Step 1.**
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 4 of 10 — Connect Supabase
+
+   Supabase is where Traqr stores AI memories:
+   - Learnings from every coding session
+   - Gotchas and patterns discovered in your codebase
+   - Context that loads automatically when you start work
+
+   Without this, each Claude Code session starts fresh.
+   With it, your AI gets smarter every day.
+
+   Supabase has a generous free tier — no credit card needed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Check if Supabase MCP is already connected:**
+
+```bash
+# Check Claude Code settings for Supabase MCP (local servers)
+cat ~/.claude.json 2>/dev/null | grep -i supabase || echo "NO_SUPABASE_MCP"
+```
+
+> **Fallback:** If grep returns "NO_SUPABASE_MCP", try a functional MCP call before concluding not connected. Supabase is commonly connected via Claude.ai integrations (not local MCP servers) and WILL NOT appear in `~/.claude.json`. Try `mcp__claude_ai_Supabase__list_projects` — if it responds, Supabase IS connected.
+
+**If Supabase MCP detected (via grep OR functional call):**
+Verify by listing projects. Show available projects.
+
+```
+AskUserQuestion:
+  question: "Which Supabase project should store your AI memories?"
+  header: "Supabase"
+  multiSelect: false
+  options:
+    - label: "Create new project"
+      description: "I'll create a 'traqr-memory' project in your Supabase org"
+    - (dynamically list existing projects)
+```
+
+If creating new: use Supabase MCP to create project named "traqr-memory".
+If selecting existing: record the project reference.
+
+**Note about schema:** The memory database schema will be set up during `/traqr-init` for each project. This step just confirms the Supabase connection works.
+
+**If NOT detected:**
+
+Same pattern — guide through MCP connection or skip.
+
+For users without Supabase:
+```
+Don't have a Supabase account? Here's how to get started:
+
+1. Go to https://supabase.com and sign up (free tier is plenty)
+2. Create a new project (any name — "traqr-memory" is a good choice)
+3. Come back here and connect the Supabase MCP server
+
+The free tier includes:
+- 500 MB database (enough for thousands of memories)
+- Unlimited API requests
+- No credit card required
+```
+
+**Record in profile:**
+```json
+{
+  "services": {
+    "supabase": {
+      "connected": true,
+      "method": "mcp",
+      "projectRef": "<project-ref>",
+      "connectedAt": "<ISO timestamp>"
+    }
+  }
+}
+```
+
+---
+
+**[BEGINNER] Context Help — What is MCP?**
+If `beginnerMode`, display before Step 5:
+```
+(^ ^) MCP stands for Model Context Protocol. It's how I (Claude Code)
+connect to external services like Slack, Linear, and Supabase.
+
+Think of it like a universal adapter. When MCP is connected, I can
+set things up for you automatically instead of you doing it manually.
+
+More MCP servers connected = more things I can do for you.
+```
+
+### Step 5: MCP Server Check — "Making sure everything's wired up"
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 5 of 10 — MCP Server Check
+
+   Claude Code uses MCP (Model Context Protocol) servers
+   to talk to external services. Let me check what you
+   have connected.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Check all MCP servers:**
+
+```bash
+cat ~/.claude.json 2>/dev/null || echo "NO_CLAUDE_CONFIG"
+```
+
+Parse the MCP server configuration and report:
+
+```
+MCP Server Status:
+  Slack      ✓ Connected     (via claude.ai integration)
+  Linear     ✓ Connected     (via claude.ai integration)
+  Supabase   ✓ Connected     (via claude.ai integration)
+  GitHub     ✓ Connected     (via claude.ai integration)
+  Playwright ✓ Connected     (for visual verification)
+  PostHog    ✗ Not connected (optional — analytics)
+  Resend     ✗ Not connected (optional — email)
+```
+
+**Additional MCP servers** (informational, not required):
+
+```
+AskUserQuestion:
+  question: "Want to connect any additional MCP servers?"
+  header: "More MCPs"
+  multiSelect: true
+  options:
+    - label: "GitHub"
+      description: "PR management, code search, issue creation"
+    - label: "Playwright"
+      description: "Visual verification — screenshot your app automatically"
+    - label: "PostHog"
+      description: "Product analytics and feature flags"
+    - label: "Resend"
+      description: "Transactional email (welcome emails, bug-fix notifications)"
+```
+
+For each selected, guide through connection.
+
+---
+
+### Step 6: Preferences — "A few defaults"
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 6 of 10 — Preferences
+
+   A few defaults that apply to all your projects.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Co-author line** (conversational):
+"What name should appear in the Co-Authored-By line of your commits? (default: 'Claude Opus 4.6')"
+
+**Max concurrent slots** (conversational):
+"How many Claude Code sessions do you typically run at once? (default: 3)"
+
+Store as preferences.
+
+---
+
+### Step 7: Write Profile — "Saving your setup"
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 7 of 10 — Saving Profile
+
+   Writing your configuration to ~/.traqr/config.json
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Build and write the OrgConfig:**
+
+```bash
+mkdir -p ~/.traqr/aliases
+```
+
+Write `~/.traqr/config.json` using the Write tool with the assembled config:
+
+```json
+{
+  "coAuthor": "<from Step 6>",
+  "maxConcurrentSlots": <from Step 6>,
+  "templatesPath": "<absolute path to packages/core/templates if in Traqr source repo, else omit>",
+  "services": {
+    "slack": { "connected": true/false, "method": "mcp", ... },
+    "linear": { "connected": true/false, "method": "mcp", ... },
+    "supabase": { "connected": true/false, "method": "mcp", ... }
+  },
+  "memory": {
+    "provider": "supabase" (if connected, else omit),
+    "crossProject": true
+  },
+  "issues": {
+    "provider": "linear" (if connected) / "github" (fallback) / omit,
+    "linearTeamId": "<from Step 3>",
+    "linearWorkspaceSlug": "<from Step 3>",
+    "planDispatch": true
+  },
+  "notifications": {
+    "slackLevel": "standard" (if connected, else omit)
+  },
+  "projects": {}
+}
+```
+
+**Detect and record `templatesPath`:**
+If the current repo has `packages/core/templates/` (i.e., you're running inside a Traqr source repo), record the absolute path:
+```bash
+TEMPLATES_DIR="$(git rev-parse --show-toplevel 2>/dev/null)/packages/core/templates"
+if [ -d "$TEMPLATES_DIR" ]; then
+  echo "$TEMPLATES_DIR"
+fi
+```
+If found, include `"templatesPath": "<absolute path>"` in the JSON above. This allows `/traqr-init` to find templates when run from any directory.
+
+Show the saved config.
+
+---
+
+**[BEGINNER] Context Help — What is ~/.zshrc?**
+If `beginnerMode`, display before Step 8:
+```
+(^ ^) Your shell config file (~/.zshrc) is like a settings file for
+Terminal. It runs every time you open a new Terminal window.
+
+We're going to add one line to it that loads your Traqr shortcuts.
+This is completely safe and reversible — you can remove the line
+anytime and everything goes back to normal.
+
+The ~ symbol means "your home folder" (like /Users/yourname/).
+```
+
+### Step 8: Shell Setup — "One more thing for your Terminal"
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 8 of 10 — Shell Setup
+
+   When you set up projects with /traqr-init, Traqr
+   generates shell aliases for quick navigation:
+
+   z1  → jump to feature slot 1
+   c1  → jump to slot 1 + open Claude Code
+   zm  → jump to main repo
+
+   To make these work, your shell needs to know about them.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Detect shell:**
+
+```bash
+echo "$SHELL"
+cat ~/.zshrc 2>/dev/null | grep "\.traqr/aliases" || echo "NOT_SOURCED"
+```
+
+If not already sourced, explain what to do:
+
+```
+AskUserQuestion:
+  question: "Can I add a source line to your shell config?"
+  header: "Shell"
+  multiSelect: false
+  options:
+    - label: "Yes, add it (Recommended)"
+      description: "Adds one line to ~/.zshrc (or ~/.bashrc) that loads Traqr aliases"
+    - label: "Show me what to add"
+      description: "I'll show the line and you can add it manually"
+    - label: "Skip"
+      description: "You can always add this later"
+```
+
+If yes, add to the appropriate rc file:
+```bash
+# For zsh:
+echo '' >> ~/.zshrc
+echo '# Traqr aliases (generated per-project by /traqr-init)' >> ~/.zshrc
+echo 'for f in ~/.traqr/aliases/*.sh(N); do [ -f "$f" ] && source "$f"; done' >> ~/.zshrc
+```
+
+If "show me":
+```
+Add this line to the end of your ~/.zshrc file:
+
+  for f in ~/.traqr/aliases/*.sh(N); do [ -f "$f" ] && source "$f"; done
+
+What is ~/.zshrc?
+  It's a configuration file that runs every time you open Terminal.
+  You can edit it with: open ~/.zshrc (opens in TextEdit)
+
+After adding, run: source ~/.zshrc (or close and reopen Terminal)
+```
+
+---
+
+### Step 8b: Global Command Install — "Making Traqr available everywhere"
+
+**Only run this step if running inside a Traqr source repo** (i.e., `packages/core/templates/` exists relative to the git root).
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 8b — Global Commands
+
+   Installing Traqr commands globally so you can use
+   /traqr-init from any project directory.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Detect Traqr source repo:**
+```bash
+TRAQR_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -d "$TRAQR_ROOT/packages/core/templates" ]; then
+  echo "TRAQR_SOURCE_REPO"
+else
+  echo "NOT_SOURCE_REPO"
+fi
+```
+
+**If in a Traqr source repo**, install global commands:
+
+```bash
+mkdir -p ~/.claude/commands
+```
+
+Copy these 5 commands from `.claude/commands/` to `~/.claude/commands/`:
+- `traqr-init.md`
+- `traqr-setup.md`
+- `traqr-upgrade.md`
+- `traqr-test.md`
+- `traqr-projects.md`
+
+```bash
+TRAQR_ROOT="$(git rev-parse --show-toplevel)"
+for cmd in traqr-init.md traqr-setup.md traqr-upgrade.md traqr-test.md traqr-projects.md; do
+  cp "$TRAQR_ROOT/.claude/commands/$cmd" "$HOME/.claude/commands/$cmd"
+done
+echo "Installed 5 global commands to ~/.claude/commands/"
+```
+
+**Why copy the non-template versions**: The `.tmpl` files have `{{VAR}}` placeholders in display text that won't resolve when run globally. The local `.claude/commands/` versions have hardcoded art and work as-is from any directory.
+
+**Idempotent**: Re-running overwrites with latest. This IS the update mechanism for Crawl.
+
+Display result:
+```
+Global commands installed:
+  ~/.claude/commands/traqr-init.md
+  ~/.claude/commands/traqr-setup.md
+  ~/.claude/commands/traqr-upgrade.md
+  ~/.claude/commands/traqr-test.md
+  ~/.claude/commands/traqr-projects.md
+
+These commands are now available from any project directory.
+```
+
+**If NOT in a Traqr source repo**, skip with a note:
+```
+Skipping global command install (not running from a Traqr source repo).
+Global commands can be installed by running /traqr-setup from the Traqr source repo.
+```
+
+---
+
+### Step 9: Verification — "Let's make sure everything works"
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   STEP 9 of 10 — Verification
+
+   Testing each connection...
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Test each connected service:**
+
+- **Slack**: Try listing channels via MCP. Report success/failure.
+- **Linear**: Try listing teams via MCP. Report success/failure.
+- **Supabase**: Try listing projects via MCP. Report success/failure.
+- **Profile file**: Read `~/.traqr/config.json` and confirm valid JSON.
+- **Shell aliases**: Check if source line exists in rc file.
+
+Display results:
+```
+Verification Results:
+
+  Profile     ✓  ~/.traqr/config.json is valid
+  Slack       ✓  Connected to <workspace-name>
+  Linear      ✓  Connected (team: <team-name>)
+  Supabase    ✓  Connected (project: <project-name>)
+  Shell       ✓  Alias source line found in ~/.zshrc
+
+All systems go!
+```
+
+If any failures, explain clearly and offer to retry or skip.
+
+---
+
+**[BEGINNER] Context Help — What is a Worktree? (Teaser)**
+If `beginnerMode`, display before Step 10:
+```
+(^ ^) Coming up next: when you run /traqr-init on a project, it creates
+"worktrees" — linked copies of your project for parallel development.
+
+Imagine working on a bug fix in one window while a feature gets built
+in another, without either one interfering. That's what worktrees do.
+
+You'll set this up per-project with /traqr-init. For now, your
+global profile is ready!
+```
+
+### Step 10: Celebration — "You're ready!"
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_CELEBRATE}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /traqr-setup                      Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Your Traqr developer profile is ready!
+
+   Profile:    ~/.traqr/config.json
+   Aliases:    ~/.traqr/aliases/ (populated per-project)
+   Commands:   ~/.claude/commands/traqr-*.md (global)
+   Services:   <N> connected
+   Shell:      ✓ Configured
+
+{{RAQR_HR_MEDIUM}}
+
+What's next?
+
+   1. Navigate to any project directory
+   2. Run /traqr-init to set up that project
+   3. Your connected services will be auto-detected!
+
+   Tip: /traqr-setup runs anytime to update connections.
+   Tip: Global commands (/traqr-init, etc.) work from any directory.
+
+{{RAQR_HR}}
+```
+
+---
+
+## Error Handling
+
+- **MCP server not responding**: "The <service> MCP server isn't responding. This usually means it's not configured in Claude Code yet. Would you like me to help you set it up?"
+- **Permission denied**: "Looks like the MCP connection doesn't have the right permissions. Check that your <service> account has the necessary access."
+- **File write failures**: "Couldn't write to ~/.traqr/. Check that you have write permissions to your home directory."
+- **Shell detection failures**: Default to zsh on macOS, bash on Linux.
+
+## Re-running /traqr-setup
+
+This command is **idempotent**. Running it again:
+- Detects existing profile
+- Offers to update specific connections
+- Preserves project registry (never deletes registered projects)
+- Re-verifies all connections
+
+## Security Notes
+
+- No secrets are stored in `~/.traqr/config.json`
+- All authentication goes through Claude Code's MCP server infrastructure
+- API keys live in Claude Code's own encrypted settings, not in Traqr config

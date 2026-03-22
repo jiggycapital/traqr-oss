@@ -1,0 +1,161 @@
+---
+allowed-tools: Bash, Read
+name: traqr-test
+description: Validate traqr-init template engine across all starter packs
+tier: any
+category: verification
+autoInvoked: false
+dependencies: [traqr-init, traqr-setup]
+relatedSkills: [traqr-init, traqr-upgrade]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /traqr-test - Template Engine Validation Suite
+
+Run the traqr-init validation harness across all 4 starter packs (solo, smart, production, full). Tests config generation, template variables, feature flags, tier gating, full render pipeline, and skill engine integrity.
+
+---
+
+## Instructions
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_STRAINING}}
+{{RAQR_FRAME_END}}
+
+Raqr · /traqr-test                        Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Running validation suite...
+```
+
+**Step 1: Build @traqr/core**
+
+```bash
+cd packages/core && npm run build
+```
+
+If the build fails, show the error with the SAD mood frame (see Error Handling below) and stop.
+
+**Step 2a: Run the unit test harness**
+
+```bash
+cd packages/core && node dist/test-harness.js
+```
+
+**Step 2b: Run the E2E integration tests**
+
+```bash
+cd packages/core && node dist/e2e-runner.js
+```
+
+Or run each E2E harness individually:
+```bash
+cd packages/core && node dist/e2e-two-phase.js    # Two-phase + multi-project
+cd packages/core && node dist/e2e-upgrade-path.js  # Tier upgrade path
+```
+
+**Step 3: Report results**
+
+The harness outputs structured text with pass/fail indicators per pack per suite.
+
+{{#IF_ALL_PASS}}
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_CELEBRATE}}
+{{RAQR_FRAME_END}}
+
+Raqr · /traqr-test                        Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+All test suites passed!
+
+<N> test groups across 4 starter packs — all green.
+
+| Pack | Suites | Result |
+|------|--------|--------|
+| solo | <N> | all pass |
+| smart | <N> | all pass |
+| production | <N> | all pass |
+| full | <N> | all pass |
+
+{{RAQR_HR}}
+Template engine is solid. Ship with confidence.
+```
+{{/IF_ALL_PASS}}
+
+{{#IF_FAILURES}}
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_SAD}}
+{{RAQR_FRAME_END}}
+
+Raqr · /traqr-test                        Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+<N> test groups failed.
+
+| Pack | Suite | Status | Details |
+|------|-------|--------|---------|
+| <pack> | <suite> | FAIL | <failure details> |
+...
+
+{{RAQR_HR}}
+Investigation steps:
+1. Check the failed suite's expected vs actual output
+2. Look at recent changes to template-loader.ts or template-engine.ts
+3. If a gating test failed, check shouldIncludeTemplate() for the affected template
+4. Re-run with --json for machine-parseable output
+```
+{{/IF_FAILURES}}
+
+**Optional: JSON output**
+
+For machine-parseable results:
+```bash
+cd packages/core && node dist/test-harness.js --json
+```
+
+---
+
+## What It Tests
+
+| Suite | What | Key Checks |
+|-------|------|------------|
+| Config | Schema correctness | version, tier, starterPack, automationScore range |
+| Variables | Template var generation | 100+ non-empty vars, `=^=` in Raqr art, core vars populated |
+| Flags | Feature flag derivation | Per-pack boolean correctness (SLACK, MEMORY, LINEAR, etc.) |
+| Gating | Tier-based template inclusion | Which templates are included/excluded per tier |
+| Render | Full template rendering | Zero leftover unresolved vars, zero unresolved conditionals |
+| Skills | Skill engine integrity | Skill loading, tier filtering, dependency validation |
+| Content | Rendered file content | Per-pack required/forbidden strings in rendered output |
+| **E2E: Two-Phase** | **Org profile + multi-project** | **writeOrgConfig, registerProject, alias generation, cross-project isolation** |
+| **E2E: Upgrade Path** | **Solo -> Smart -> Prod -> Full** | **deepMerge preserves fields, score monotonic, commands appear/disappear** |
+
+### Error Handling
+
+If the build or test harness fails to run:
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_SAD}}
+{{RAQR_FRAME_END}}
+
+Raqr · /traqr-test                        Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Test suite couldn't run.
+
+<translate the raw error to plain English using the table below>
+
+{{RAQR_HR}}
+```
+
+| Raw Error | Plain English | Fix |
+|-----------|--------------|-----|
+| `tsc` compilation errors | TypeScript won't compile | Fix the type errors shown above, then retry |
+| `Cannot find module` | A dependency is missing | Run `npm install` in packages/core |
+| `ENOENT dist/test-harness.js` | Tests haven't been built yet | Run `cd packages/core && npm run build` first |
+| `SyntaxError in config` | Template config has invalid JSON | Check .traqr/config.json for syntax errors |

@@ -1,0 +1,233 @@
+{{#IF_MEMORY_FULL}}
+# /bootstrap-skills - Portable Skill Management
+
+Export or import skills across projects using the memory system.
+
+---
+
+## Usage
+
+```bash
+/bootstrap-skills export           # Export all project-agnostic skills to memory
+/bootstrap-skills export --all     # Export ALL skills (including project-specific)
+/bootstrap-skills export ship      # Export a single skill
+/bootstrap-skills import           # Bootstrap skills from memory into current project
+/bootstrap-skills import --all     # Import all skills (including project-specific)
+/bootstrap-skills diff             # Compare local skills with memory versions
+/bootstrap-skills list             # List available skills in memory
+```
+
+---
+
+## How It Works
+
+1. **Skills are memories** - Each skill markdown file is stored in the memory system with the `portable-skill` tag
+2. **Project-agnostic by default** - Only universal skills are exported/imported unless `--all` is specified
+3. **Version tracking** - Skills include version info for sync detection
+4. **Dependency awareness** - Skills can declare required integrations (slack, linear, etc.)
+
+---
+
+## Export Skills
+
+When you run `export`, skills from `.claude/commands/` are stored in the memory system:
+
+```bash
+curl -s -X POST "{{MEMORY_API_BASE}}/skills/export" \
+  -H "Content-Type: application/json" \
+  -d '{"includeProjectSpecific": false}'
+```
+
+This stores skills as JSON memories:
+```json
+{
+  "name": "ship",
+  "content": "# /ship - Ship your code...",
+  "category": "workflow",
+  "version": "1.0.0",
+  "projectAgnostic": true,
+  "tags": ["portable-skill", "workflow", "ship"]
+}
+```
+
+---
+
+## Bootstrap Skills (Import)
+
+When starting a new project, bootstrap skills from your memory:
+
+```bash
+curl -s -X POST "{{MEMORY_API_BASE}}/skills/bootstrap" \
+  -H "Content-Type: application/json" \
+  -d '{"onlyProjectAgnostic": true}'
+```
+
+This:
+1. Searches memory for `portable-skill` tagged items
+2. Creates `.claude/commands/<skill>.md` files
+3. Skips existing files (use `--overwrite` to replace)
+
+---
+
+## Skill Categories
+
+| Category | Description | Example Skills |
+|----------|-------------|----------------|
+| workflow | Development workflows | ship, sync, commit, pr |
+| integration | External service integrations | linear, slack-notify |
+| utility | Helper utilities | memory, deepsync |
+| documentation | Documentation generators | api-docs |
+
+---
+
+## Project-Agnostic vs Specific
+
+**Project-Agnostic Skills** (portable):
+- `ship` - Works in any git project
+- `sync` - Works in any multi-branch project
+- `commit` - Works anywhere
+- `advisor` - Works with any CLAUDE.md
+- `memory` - Works with any Supabase
+
+**Project-Specific Skills**:
+- Custom integrations tied to your specific setup
+- Skills referencing hardcoded channels or endpoints
+
+---
+
+## Diff Mode
+
+Check which skills need syncing:
+
+```bash
+/bootstrap-skills diff
+```
+
+## Report
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_WELCOME}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /bootstrap-skills                 Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Managing skills...
+
+{{RAQR_HR_MEDIUM}}
+Skill Comparison:
+
+Newer locally (push to memory):
+  - ship (modified 2 days ago)
+  - advisor (modified today)
+
+In memory but outdated locally:
+  - commit
+
+Not in memory (export needed):
+  - custom-workflow
+
+Synced:
+  - sync, pr, memory
+
+{{RAQR_HR}}
+What's next? → /bootstrap-skills export to push local changes to memory
+```
+
+---
+
+## Examples
+
+### New Project Setup
+
+Starting a new project? Get your skills:
+
+```bash
+# In the new project directory
+cd ~/new-project
+mkdir -p .claude/commands
+
+# Bootstrap portable skills
+/bootstrap-skills import
+
+# Verify
+ls .claude/commands/
+# ship.md sync.md commit.md advisor.md memory.md ...
+```
+
+### Update Skills After Changes
+
+Made improvements to a skill? Export to memory:
+
+```bash
+# After editing .claude/commands/ship.md
+/bootstrap-skills export ship
+
+# Or export all changed skills
+/bootstrap-skills export
+```
+
+### Full Sync
+
+Keep all projects in sync:
+
+```bash
+# Check what's different
+/bootstrap-skills diff
+
+# Export newer local skills
+/bootstrap-skills export ship advisor
+
+# Import newer memory skills
+/bootstrap-skills import --overwrite commit
+```
+
+---
+
+## API Endpoints
+
+| Endpoint | Method | Action |
+|----------|--------|--------|
+| `{{MEMORY_API_BASE}}/skills/export` | POST | Export skills to memory |
+| `{{MEMORY_API_BASE}}/skills/bootstrap` | POST | Bootstrap skills from memory |
+| `{{MEMORY_API_BASE}}/skills/list` | GET | List skills in memory |
+| `{{MEMORY_API_BASE}}/skills/diff` | GET | Compare local vs memory |
+
+---
+
+## Best Practices
+
+1. **Export after major changes** - Keep memory updated with your latest skills
+2. **Use project-agnostic skills** - Make skills portable when possible
+3. **Document dependencies** - List required integrations in skill files
+4. **Version your skills** - Track breaking changes
+5. **Test after bootstrap** - Verify skills work in new project context
+
+### Error Handling
+
+If skill export or bootstrap fails:
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_SAD}}
+{{RAQR_FRAME_END}}
+
+Raqr · /bootstrap-skills                   Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Skill sync hit a snag.
+
+<translate the raw error to plain English using the table below>
+
+{{RAQR_HR}}
+```
+
+| Raw Error | Plain English | Fix |
+|-----------|--------------|-----|
+| `ECONNREFUSED` on memory API | Can't reach the memory server | Check if the platform is running or deployed |
+| `ENOENT` on skill file | Skill file not found at expected path | Re-run /traqr-init to regenerate missing skills |
+| `EACCES` on ~/.claude/commands/ | Permission denied writing skills | Fix with: chmod 755 ~/.claude/commands/ |
+| `413 Payload Too Large` | Skill file is too large to store | Split the skill into smaller files |
+| `409 Conflict` | Skill already exists with different content | Use export --force to overwrite |
+{{/IF_MEMORY_FULL}}
