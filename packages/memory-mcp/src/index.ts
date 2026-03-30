@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { configureMemory, getMemoryClient } from '@traqr/memory'
+import { configureMemory, getMemoryClient, getEmbeddingProvider } from '@traqr/memory'
 import { registerTools } from './tools.js'
 import { teachingError } from './errors.js'
 
@@ -83,8 +83,8 @@ const REQUIRED_SCHEMA_VERSION = 2
 
 async function checkSchemaAndReport() {
   const dbProvider = supabaseUrl ? 'Supabase' : 'Postgres'
-  const embeddingProvider = process.env.EMBEDDING_PROVIDER
-    || (process.env.OPENAI_API_KEY ? 'OpenAI' : process.env.GOOGLE_API_KEY ? 'Gemini' : 'None (BM25 only)')
+  const ep = getEmbeddingProvider()
+  const embeddingProvider = ep.provider === 'none' ? 'None (BM25 only)' : `${ep.provider}/${ep.model}`
   let schemaVersion = '?'
 
   try {

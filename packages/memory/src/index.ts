@@ -129,8 +129,11 @@ export {
   needsReembedding,
   checkEmbeddingHealth,
   EMBEDDING_CONFIG,
+  getEmbeddingProvider,
+  getEmbeddingConfig,
+  resetEmbeddingProvider,
 } from './lib/embeddings.js'
-export type { EmbeddingResult, EmbeddingHealthStatus } from './lib/embeddings.js'
+export type { EmbeddingResult, EmbeddingHealthStatus, EmbeddingProvider } from './lib/embeddings.js'
 
 // Formatting
 export {
