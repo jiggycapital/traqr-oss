@@ -38,7 +38,11 @@ let client: OpenAI | null = null
 function getClient(): OpenAI {
   if (client) return client
   const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error('OPENAI_API_KEY not set')
+  if (!apiKey) throw new Error(
+    'OPENAI_API_KEY not set. Borderline decisions use GPT-4o-mini to classify memories ' +
+    'near the cosine similarity threshold. Without it, the system falls back to heuristic ' +
+    'scoring (still works, slightly less accurate). Set OPENAI_API_KEY to enable LLM triage.'
+  )
   client = new OpenAI({ apiKey })
   return client
 }

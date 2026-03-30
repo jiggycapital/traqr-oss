@@ -7,6 +7,7 @@
 
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { enrichError } from './errors.js'
 import {
   storeMemory,
   searchMemoriesV2,
@@ -32,9 +33,8 @@ const controlledTagEnum = z.enum(['critical', 'important', 'nice-to-know', 'ever
 // Helpers
 // ---------------------------------------------------------------------------
 
-function errorResult(err: unknown) {
-  const msg = err instanceof Error ? err.message : String(err)
-  return { content: [{ type: 'text' as const, text: `Error: ${msg}` }] }
+function errorResult(toolName: string, err: unknown) {
+  return { content: [{ type: 'text' as const, text: enrichError(toolName, err) }] }
 }
 
 function toSummaryResult(r: any) {
@@ -87,7 +87,7 @@ export function registerTools(server: McpServer) {
         return {
           content: [{ type: 'text' as const, text: `Stored [${derived.domain}/${derived.category}] ${derived.summary}` }],
         }
-      } catch (err) { return errorResult(err) }
+      } catch (err) { return errorResult('memory_store', err) }
     },
   )
 
@@ -117,7 +117,7 @@ export function registerTools(server: McpServer) {
             query, total: summaries.length, showing: summaries.length, results: summaries,
           }, null, 2) }],
         }
-      } catch (err) { return errorResult(err) }
+      } catch (err) { return errorResult('memory_search', err) }
     },
   )
 
@@ -131,7 +131,7 @@ export function registerTools(server: McpServer) {
         const memory = await getMemory(memoryId)
         if (!memory) return { content: [{ type: 'text' as const, text: `Memory ${memoryId} not found` }] }
         return { content: [{ type: 'text' as const, text: JSON.stringify(memory, null, 2) }] }
-      } catch (err) { return errorResult(err) }
+      } catch (err) { return errorResult('memory_read', err) }
     },
   )
 
@@ -165,7 +165,7 @@ export function registerTools(server: McpServer) {
         return {
           content: [{ type: 'text' as const, text: `Enhanced [${derived.domain}/${derived.category}]: ${derived.summary} (zone: ${result.zone})` }],
         }
-      } catch (err) { return errorResult(err) }
+      } catch (err) { return errorResult('memory_enhance', err) }
     },
   )
 
@@ -210,7 +210,7 @@ export function registerTools(server: McpServer) {
           category: r.category,
         }))
         return { content: [{ type: 'text' as const, text: JSON.stringify(summaries, null, 2) }] }
-      } catch (err) { return errorResult(err) }
+      } catch (err) { return errorResult('memory_browse', err) }
     },
   )
 
@@ -228,7 +228,7 @@ export function registerTools(server: McpServer) {
           taskDescription,
         })
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
-      } catch (err) { return errorResult(err) }
+      } catch (err) { return errorResult('memory_context', err) }
     },
   )
 
@@ -293,7 +293,7 @@ export function registerTools(server: McpServer) {
           : summary
 
         return { content: [{ type: 'text' as const, text }] }
-      } catch (err) { return errorResult(err) }
+      } catch (err) { return errorResult('memory_pulse', err) }
     },
   )
 
@@ -309,7 +309,7 @@ export function registerTools(server: McpServer) {
           getDetailedStats(),
         ])
         return { content: [{ type: 'text' as const, text: JSON.stringify({ health, stats }, null, 2) }] }
-      } catch (err) { return errorResult(err) }
+      } catch (err) { return errorResult('memory_audit', err) }
     },
   )
 
@@ -325,7 +325,7 @@ export function registerTools(server: McpServer) {
       try {
         await archiveMemory(memoryId, reason)
         return { content: [{ type: 'text' as const, text: `Archived ${memoryId}: ${reason}` }] }
-      } catch (err) { return errorResult(err) }
+      } catch (err) { return errorResult('memory_archive', err) }
     },
   )
 
@@ -350,7 +350,7 @@ export function registerTools(server: McpServer) {
           .eq('id', memoryId)
         if (error) throw new Error(error.message)
         return { content: [{ type: 'text' as const, text: `Forgotten ${memoryId}${reason ? `: ${reason}` : ''}` }] }
-      } catch (err) { return errorResult(err) }
+      } catch (err) { return errorResult('memory_forget', err) }
     },
   )
 }

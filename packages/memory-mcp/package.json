@@ -1,6 +1,6 @@
 {
   "name": "traqr-memory-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Memory-as-a-service MCP server for AI agents. 10 tools, Postgres + pgvector, multi-strategy retrieval. Works with Claude Code, Cursor, Codex, and any MCP client.",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,8 +16,10 @@
   "files": [
     "dist",
     "setup.sql",
+    "upgrade-*.sql",
     "README.md",
-    "MEMORY_INSTRUCTIONS.md"
+    "MEMORY_INSTRUCTIONS.md",
+    "UPGRADING.md"
   ],
   "scripts": {
     "build": "tsc",
