@@ -78,6 +78,7 @@ const GLOBAL_SKILLS = new Set([
   'commands/sync.md.tmpl',
   'commands/resync.md.tmpl',
   'commands/inbox.md.tmpl',
+  'commands/alpha-onboard.md.tmpl',
 ])
 
 /**

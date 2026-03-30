@@ -84,6 +84,11 @@ export function generateShellInitContent(): string {
     lines.push('');
   }
 
+  // Traqr tools (raqr TUI, mesh) on PATH
+  lines.push('# Traqr tools');
+  lines.push('export PATH="$HOME/.traqr/bin:$PATH"');
+  lines.push('');
+
   // Smart traqr dispatcher
   if (primaryRepoPath) {
     lines.push('# Smart traqr dispatcher');

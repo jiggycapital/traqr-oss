@@ -1,0 +1,410 @@
+# /alpha-onboard — Full Traqr Setup for Alpha Testers
+
+Walk a new alpha tester through the complete Traqr setup. This is a conversational guide — ask questions, adapt to what they already have, and skip steps that are already done.
+
+## Tone
+
+Be direct, practical, and a little fun. You're helping a developer set up a powerful system. Don't be corny. Don't over-explain things they'd already know (they're technical). Link to the right pages, tell them exactly what to click, and collect credentials as you go.
+
+## Opening
+
+Show the Raqr welcome frame:
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( o   o )   Let's get you set up.                       │
+│     (  =^=  )   This takes about 20 minutes.                │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /alpha-onboard                     Traqr
+────────────────────────────────────────────────────────────
+
+We're going to:
+  1. Check your machine is ready
+  2. Set up 6 service accounts (Slack, Linear, Supabase, PostHog, Resend, OpenAI)
+  3. Run traqr init to configure your project
+  4. Write your .env.local with all the keys
+  5. Verify everything works
+  6. Ship your first PR
+
+I'll ask before each step. If you already have something set up, just say so.
+
+────────────────────────────────────────────────────────────
+```
+
+Then ask: "Ready to start? And is this a new project or an existing repo you want to add Traqr to?"
+
+---
+
+## Step 0: Prerequisites
+
+Run these checks (all in one bash call):
+
+```bash
+echo "=== NODE ===" && node --version && \
+echo "=== GIT ===" && git --version && git config user.name && git config user.email && \
+echo "=== GH ===" && gh auth status 2>&1 && \
+echo "=== CLAUDE ===" && which claude 2>&1 && \
+echo "=== HARDWARE ===" && sysctl -n hw.memsize 2>/dev/null || free -b 2>/dev/null | awk '/Mem:/{print $2}'
+```
+
+**Check results:**
+- Node 18+: required. If missing: "Install Node from https://nodejs.org"
+- Git: required with user.name + user.email configured
+- GitHub CLI: required with auth. If not authed: ask user to run `! gh auth login`
+- Claude Code: required. If missing: "Install from https://claude.ai/claude-code"
+- Hardware: use RAM to recommend slot counts:
+  - 8GB: 3 feature slots (minimum viable)
+  - 16GB: 5 feature, 3 bugfix, 2 devops
+  - 32GB: 7 feature, 5 bugfix, 3 devops
+  - 64GB+: 10 feature, 7 bugfix, 5 devops
+  - 128GB+: go wild, 15+ per category
+
+Report results and ask to continue.
+
+**If in an existing repo:** Check for existing `.traqr/config.json`, `.claude/settings.json`, `.env.local`. If found, ask if this is a re-setup or upgrade.
+
+---
+
+## Step 1: Slack App
+
+Ask: "Do you already have a Slack workspace with a Traqr bot app?"
+
+**If no — walk through creation:**
+
+1. Go to https://api.slack.com/apps
+2. Click **Create New App** → **From scratch**
+3. App name: `Traqr` (or their project name)
+4. Pick their workspace
+5. Go to **OAuth & Permissions** → scroll to **Bot Token Scopes** → add:
+   - `chat:write` — post messages
+   - `channels:history` — read channel messages for context
+   - `channels:read` — list channels
+   - `commands` — slash commands
+   - `reactions:read` — read emoji reactions
+   - `reactions:write` — add reactions
+   - `files:write` — upload files (screenshots, logs)
+6. Scroll up → **Install to Workspace** → click **Allow**
+7. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
+8. Go to **Basic Information** → scroll to **Signing Secret** → copy it
+
+Tell them to create these Slack channels (or note existing ones):
+- `#deployments` — deploy notifications
+- `#dev-triage` — error alerts and ticket notifications
+- `#analytics` — signup alerts, waitlist, metrics
+- `#control-center` — cross-project system status
+
+**Collect and store (in your working memory for Step 8):**
+- `SLACK_BOT_TOKEN` = xoxb-...
+- `SLACK_SIGNING_SECRET` = ...
+
+**If yes:** Ask them to share the bot token and signing secret, or confirm they know where to find them.
+
+---
+
+## Step 2: Linear
+
+Ask: "Do you have a Linear workspace?"
+
+**If no:**
+1. Go to https://linear.app and sign up
+2. Create a workspace (e.g., their company name)
+3. Create a team (e.g., "Engineering" or their project name)
+4. Note the team key (the 2-3 letter prefix like "ENG" or "PRJ")
+
+**Get API key:**
+1. Go to https://linear.app → click your avatar → **Settings**
+2. **API** → **Personal API Keys** → **Create key**
+3. Copy the key
+
+**Collect:**
+- `LINEAR_API_KEY` = lin_api_...
+- Linear team key (e.g., "ENG") — needed for config
+
+---
+
+## Step 3: Supabase
+
+Ask: "Do you have a Supabase project for memory storage?"
+
+**If no:**
+1. Go to https://supabase.com/dashboard → **New Project**
+2. Name it (e.g., "traqr-memory" or their project name)
+3. Choose a region close to them
+4. Set a strong database password (save it)
+5. Wait for project to provision (~2 min)
+
+**Enable pgvector:**
+1. Go to **SQL Editor** in the Supabase dashboard
+2. Run: `CREATE EXTENSION IF NOT EXISTS vector;`
+3. Should return "Success"
+
+**Get keys:**
+1. Go to **Settings** → **API**
+2. Copy: **Project URL**, **anon/public key**, **service_role key** (click "Reveal")
+
+**Collect:**
+- `NEXT_PUBLIC_SUPABASE_URL` = https://xxxxx.supabase.co
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` = eyJ...
+- `SUPABASE_SERVICE_ROLE_KEY` = eyJ...
+
+---
+
+## Step 4: PostHog
+
+Ask: "Do you want analytics? PostHog is free for up to 1M events/month."
+
+**If yes:**
+1. Go to https://posthog.com → sign up → **New Project**
+2. Go to **Settings** → **Project** → copy **Project API Key**
+3. Note the host URL (usually `https://us.i.posthog.com` or `https://eu.i.posthog.com`)
+4. For server-side: **Settings** → **Personal API Keys** → create one
+
+**Collect:**
+- `NEXT_PUBLIC_POSTHOG_KEY` = phc_...
+- `NEXT_PUBLIC_POSTHOG_HOST` = https://us.i.posthog.com
+- `POSTHOG_PERSONAL_API_KEY` = phx_...
+
+**If no:** Skip. PostHog is optional but recommended.
+
+---
+
+## Step 5: Resend (optional)
+
+Ask: "Do you want email notifications (deploy alerts, user feedback emails)? Requires a domain you own."
+
+**If yes:**
+1. Go to https://resend.com → sign up
+2. **Domains** → **Add Domain** → enter their domain
+3. Add the DNS records Resend shows (DKIM, SPF, DMARC)
+4. Wait for verification (can take 5-30 min, continue with other steps)
+5. **API Keys** → **Create API Key** → copy it
+6. **Audiences** → create an audience → copy the ID
+
+**Collect:**
+- `RESEND_API_KEY` = re_...
+- `RESEND_AUDIENCE_ID` = ...
+- `RESEND_FROM_EMAIL` = Traqr <hello@theirdomain.com>
+
+**If no:** Skip. Email is optional.
+
+---
+
+## Step 6: OpenAI (for memory embeddings)
+
+Ask: "Do you have an OpenAI API key? The memory system uses it for vector embeddings."
+
+**If no:**
+1. Go to https://platform.openai.com/api-keys
+2. **Create new secret key** → copy it
+3. Add a few dollars of credit if needed ($5 is plenty for months of embeddings)
+
+**Collect:**
+- `OPENAI_API_KEY` = sk-...
+
+---
+
+## Step 7: Run traqr init
+
+Now run the init wizard. Guide them through it:
+
+```bash
+npx @traqr/cli init
+```
+
+**Guidance during the wizard:**
+- **Project location:** Current directory if existing repo, or specify path for new project
+- **Starter pack:** Recommend **full** for alpha testers who want the complete experience. Recommend **production** if they want to ease in.
+- **Custom slots:** Based on the hardware assessment from Step 0, suggest slot counts. If they have 64GB+ RAM, let them go big.
+- **Monorepo:** If they have multiple apps, guide through the monorepo setup. If single app, keep it simple.
+
+After init completes, verify the files were created:
+```bash
+ls -la .traqr/config.json .claude/settings.json CLAUDE.md 2>/dev/null
+```
+
+---
+
+## Step 8: Populate .env.local
+
+Now write all the collected credentials to `.env.local`. Use the Write tool to create the file with all the keys collected in steps 1-6.
+
+**Template:**
+```
+# Traqr Environment — Generated by /alpha-onboard
+# DO NOT commit this file
+
+# Supabase (Memory)
+NEXT_PUBLIC_SUPABASE_URL=<from step 3>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<from step 3>
+SUPABASE_SERVICE_ROLE_KEY=<from step 3>
+
+# OpenAI (Embeddings)
+OPENAI_API_KEY=<from step 6>
+
+# Slack
+SLACK_BOT_TOKEN=<from step 1>
+SLACK_SIGNING_SECRET=<from step 1>
+
+# Linear
+LINEAR_API_KEY=<from step 2>
+
+# PostHog (if collected)
+NEXT_PUBLIC_POSTHOG_KEY=<from step 4>
+NEXT_PUBLIC_POSTHOG_HOST=<from step 4>
+POSTHOG_PERSONAL_API_KEY=<from step 4>
+
+# Resend (if collected)
+RESEND_API_KEY=<from step 5>
+RESEND_AUDIENCE_ID=<from step 5>
+RESEND_FROM_EMAIL=<from step 5>
+
+# Security
+CRON_SECRET=<generate with: openssl rand -hex 32>
+```
+
+Generate the CRON_SECRET:
+```bash
+openssl rand -hex 32
+```
+
+Write the file, filling in all collected values. Tell the user: "I've written your .env.local. **Never commit this file** — it's in .gitignore by default."
+
+---
+
+## Step 9: Verify with /doctor
+
+Run the doctor skill to validate everything:
+
+Tell the user: "Let me run /doctor to make sure everything is connected."
+
+Then follow the /doctor skill instructions to validate:
+1. All required env vars are present
+2. Supabase is reachable
+3. Slack bot token works (auth.test returns ok)
+4. Linear API key works
+5. GitHub auth works
+6. Memory API is accessible (if platform is running)
+
+Report results. Fix any failures before continuing.
+
+---
+
+## Step 10: First Ship Test
+
+Guide them through their first PR:
+
+1. Source the shell aliases:
+```bash
+source ~/.traqr/shell-init.sh
+```
+
+2. Jump to a feature slot:
+```bash
+z1
+```
+
+3. Make a small change (e.g., add a comment to any file)
+
+4. Run /ship:
+Tell them to type `/ship "test: first Traqr PR"` in Claude
+
+5. Verify:
+- PR was created on GitHub
+- Slack notification arrived in #deployments
+- Guardian picks it up (if enabled and not dry-run)
+
+If everything works, they can merge the test PR and clean up.
+
+---
+
+## Step 11: Memory Test
+
+Test the memory system:
+
+1. Store a test memory:
+```bash
+curl -X POST "$(grep MEMORY_API_BASE .traqr/config.json 2>/dev/null | head -1 | sed 's/.*: "//;s/".*//')/memory/store" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Test memory from alpha onboarding", "type": "project", "tags": ["test"]}'
+```
+
+Or if the MCP memory tools are available, use `memory_store` directly.
+
+2. Search for it:
+Use `memory_search` MCP tool with query "alpha onboarding test"
+
+3. If both work: memory system is operational.
+
+**If memory API isn't running:** This is expected if they don't have the platform deployed yet. The memory system requires either:
+- A running platform instance (apps/platform on Vercel)
+- Or a local MCP server pointed at their Supabase
+
+Guide them based on their setup.
+
+---
+
+## Completion
+
+Show the celebration frame:
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( ^   ^ )   You're fully set up!                        │
+│     (  =^=  )   Welcome to the alpha.                       │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /alpha-onboard                     Traqr
+────────────────────────────────────────────────────────────
+
+  Everything is connected:
+    Slack:     ✓ bot active in your workspace
+    Linear:    ✓ team connected
+    Supabase:  ✓ pgvector memory ready
+    PostHog:   ✓ analytics tracking (or skipped)
+    GitHub:    ✓ authenticated
+    Resend:    ✓ email configured (or skipped)
+
+  Your daily workflow:
+    z1          jump to a feature slot
+    c1          open Claude in that slot
+    /ship       commit, build, push, create PR
+    /sync       sync all slots after merge
+    /doctor     check system health
+    /inbox      see open tickets from Slack
+
+  Give feedback directly to Sean — he reads everything.
+
+────────────────────────────────────────────────────────────
+```
+
+---
+
+## Error Handling
+
+If any step fails, use the ALERT mood:
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( !   ! )   Hit a snag.                                 │
+│     (  =^=  )   Let me help fix it.                         │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+```
+
+| Error | Fix |
+|-------|-----|
+| Node not found | Install from https://nodejs.org (LTS) |
+| Git not configured | `git config --global user.name "Name"` + `git config --global user.email "email"` |
+| gh not authenticated | Ask user to run `! gh auth login` |
+| Slack token invalid | Re-copy from https://api.slack.com/apps → your app → OAuth |
+| Supabase connection failed | Check URL and keys in Settings → API |
+| pgvector not enabled | Run `CREATE EXTENSION IF NOT EXISTS vector;` in SQL Editor |
+| Linear API 401 | Re-generate key at linear.app → Settings → API |
+| OpenAI key invalid | Check at https://platform.openai.com/api-keys |
+| Port conflict | Another process is using the port. Kill it or adjust port range in .traqr/config.json |

@@ -1,4 +1,16 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(npm run build*)",
+      "Bash(npm run dev*)",
+      "Bash(npm test*)",
+      "Bash(npm install*)",
+      "Bash(git *)",
+      "Bash(npx *)",
+      "Bash(gh *)",
+      "Bash(curl *)"
+    ]
+  },
   "hooks": {
 {{#IF_MEMORY_FULL}}    "SessionStart": [{
       "matcher": "",
@@ -14,5 +26,14 @@
         "command": "printf '{\"slot\":\"%s\",\"project\":\"{{TRAQR_PROJECT_SLUG}}\"}' \"$(basename \"$PWD\")\" | curl -sf -X POST '{{MEMORY_API_BASE}}/memory/capture-session' -H 'Content-Type: application/json' -d @- 2>/dev/null || true"
       }]
     }]
-{{/IF_MEMORY_FULL}}  }
+{{/IF_MEMORY_FULL}}  }{{#IF_MEMORY_FULL}},
+  "mcpServers": {
+    "traqr-memory": {
+      "type": "sse",
+      "url": "{{MEMORY_API_BASE}}/memory/mcp",
+      "headers": {
+        "x-project-slug": "{{TRAQR_PROJECT_SLUG}}"
+      }
+    }
+  }{{/IF_MEMORY_FULL}}
 }

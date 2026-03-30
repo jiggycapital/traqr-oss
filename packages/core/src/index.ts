@@ -21,6 +21,8 @@ export {
   getProvisioningOrder,
   getProvisioningPasses,
   getDemoProvisioningState,
+  migrateConfigV1ToV2,
+  isConfigV2,
 } from './config-schema.js'
 
 // Template engine — slot generation, template vars, rendering
@@ -50,10 +52,13 @@ export {
 } from './config-resolver.js'
 
 // Skill engine — frontmatter parsing, discovery, dependency validation
-export type { SkillTier, SkillCategory, SkillRequirements, SkillManifest, ValidationResult } from './skill-engine.js'
+export type { SkillTier, SkillCategory, SkillRequirements, SkillManifest, SystemSkillManifest, ValidationResult } from './skill-engine.js'
 export {
   parseSkillManifest,
+  parseSystemSkillManifest,
   loadSkills,
+  loadSystemSkills,
+  topologicalSort,
   resolveSkill,
   getSkillsByTier,
   getSkillsByCategory,

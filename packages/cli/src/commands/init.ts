@@ -35,11 +35,24 @@ import { writeFiles } from '../lib/writer.js'
 import { checkPrerequisites } from '../lib/checks.js'
 
 const RAQR_WELCOME = `
-    /\\___/\\
-   ( o   o )   Hey! Let's set up Traqr.
-   (  =^=  )   I'll walk you through it.
-    (______)
+╭─────────────────────────────────────────────────────────────╮
+│      /\\___/\\                                                │
+│     ( o   o )   Hey! I'm Raqr.                              │
+│     (  =^=  )   Let's set up your project.                  │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
 `
+
+const RAQR_SUCCESS = `
+╭─────────────────────────────────────────────────────────────╮
+│      /\\___/\\                                                │
+│     ( ^   ^ )   You're all set!                             │
+│     (  =^=  )   Time to build something amazing.            │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+`
+
+const RAQR_HR = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 
 // ============================================================
 // Step 0 — Ensure we're in a project directory
@@ -647,6 +660,29 @@ async function run() {
     guardian: packDefaults.guardian as TraqrConfig['guardian'],
   }
 
+  // Custom slot counts for power users
+  const customizeSlots = await confirm('Customize slot counts? (skip for defaults)', false)
+  if (customizeSlots) {
+    const totalRam = (() => { try { return parseInt(execSync('sysctl -n hw.memsize 2>/dev/null', { encoding: 'utf-8' }).trim()) / (1024 ** 3) } catch { return 16 } })()
+    const rec = totalRam >= 128 ? 15 : totalRam >= 64 ? 10 : totalRam >= 32 ? 7 : totalRam >= 16 ? 5 : 3
+    console.log(`  Your machine has ~${Math.round(totalRam)}GB RAM. Recommended: ${rec} feature slots.`)
+    const featureStr = await ask(`Feature slots (${config.slots.feature}):`, String(config.slots.feature))
+    const bugfixStr = await ask(`Bugfix slots (${config.slots.bugfix}):`, String(config.slots.bugfix))
+    const devopsStr = await ask(`DevOps slots (${config.slots.devops}):`, String(config.slots.devops))
+    config.slots.feature = Math.max(1, parseInt(featureStr) || config.slots.feature)
+    config.slots.bugfix = Math.max(0, parseInt(bugfixStr) || config.slots.bugfix)
+    config.slots.devops = Math.max(0, parseInt(devopsStr) || config.slots.devops)
+    // Widen port ranges if slot counts exceed default gaps of 10
+    const maxSlots = Math.max(config.slots.feature, config.slots.bugfix, config.slots.devops)
+    if (maxSlots > 9) {
+      const gap = maxSlots + 1
+      config.ports.featureStart = 3001
+      config.ports.bugfixStart = 3001 + gap
+      config.ports.devopsStart = 3001 + gap * 2
+      console.log(`  Port ranges widened: feature ${config.ports.featureStart}+, bugfix ${config.ports.bugfixStart}+, devops ${config.ports.devopsStart}+`)
+    }
+  }
+
   // Always merge org defaults if they exist
   if (orgConfig) {
     config = mergeOrgDefaults(config, orgConfig)
@@ -834,7 +870,23 @@ async function run() {
     info(`Create worktrees later:\n  bash "${repoPath}/scripts/setup-worktrees.sh"`)
   }
 
-  console.log('\nAll set! Reload your shell and try: z1 && c1')
+  console.log(RAQR_SUCCESS)
+  console.log(`Raqr · traqr init                         Traqr · ${displayName}`)
+  console.log(RAQR_HR)
+  console.log('')
+  console.log('  Claude Code configured:')
+  console.log('    .claude/settings.json — hooks + permissions')
+  console.log(`    .claude/commands/     — ${globalEntries.length > 0 ? globalEntries.length + ' skills installed' : 'skills ready'}`)
+  console.log(`    .traqr/config.json    — Tier ${config.tier} (${config.starterPack})`)
+  console.log('    CLAUDE.md             — project intelligence')
+  console.log('')
+  console.log('  Next steps:')
+  console.log('    1. Reload shell:       source ~/.traqr/shell-init.sh')
+  console.log('    2. Open Claude Code:   claude')
+  console.log('    3. Set up integrations: /alpha-onboard')
+  console.log('    4. Check connections:   /doctor')
+  console.log('')
+  console.log(RAQR_HR)
 
   closePrompts()
 }

@@ -143,6 +143,29 @@ curl -s --max-time 5 "{{MEMORY_API_BASE}}/memory/search?q=health+check&limit=1" 
 - 200 response with results: PASS
 - 401/403: credentials invalid
 - Connection refused: server not running
+
+#### Supabase pgvector Extension
+
+```bash
+curl -s --max-time 5 "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/" \
+  -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" | head -c 100
+```
+
+Then check pgvector is enabled:
+```bash
+curl -s --max-time 5 "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/rpc/check_pgvector" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{}' 2>/dev/null || echo "pgvector_check_unavailable"
+```
+
+If pgvector is not enabled, show:
+```
+MISSING: pgvector extension not enabled on Supabase.
+FIX: Go to Supabase Dashboard -> SQL Editor -> run:
+     CREATE EXTENSION IF NOT EXISTS vector;
+```
 {{/IF_MEMORY}}
 
 {{#IF_SLACK}}
@@ -153,8 +176,22 @@ curl -s --max-time 5 -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
   "https://slack.com/api/auth.test" | jq '{ok, team, user}'
 ```
 
-- `ok: true`: PASS
-- `ok: false`: token invalid or expired
+- `ok: true`: PASS — also note the `team` and `user` in the response
+- `ok: false`: token invalid or expired. Re-copy from api.slack.com/apps -> your app -> OAuth & Permissions.
+
+If auth passes, verify the bot has the required scopes by checking it can post:
+```bash
+# Test channel list access (channels:read scope)
+curl -s --max-time 5 -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+  "https://slack.com/api/conversations.list?limit=1" | jq '.ok'
+```
+
+If `ok: false` with `missing_scope`, the bot needs additional scopes:
+```
+Required scopes: chat:write, channels:history, channels:read, commands
+FIX: api.slack.com/apps -> your app -> OAuth & Permissions -> Bot Token Scopes
+     Add missing scopes, then reinstall the app to your workspace.
+```
 {{/IF_SLACK}}
 
 {{#IF_LINEAR}}

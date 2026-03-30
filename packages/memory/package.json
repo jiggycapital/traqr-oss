@@ -1,0 +1,51 @@
+{
+  "name": "@traqr/memory",
+  "version": "0.1.1",
+  "description": "Persistent memory for AI agents. Multi-strategy retrieval (semantic + BM25 + RRF), 3-zone cosine triage, type-aware lifecycle, entity canonicalization. Postgres + pgvector.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "migrate": "node --loader ts-node/esm src/migrate.ts",
+    "serve": "node --loader ts-node/esm src/server.ts"
+  },
+  "files": [
+    "dist",
+    "setup.sql",
+    "README.md"
+  ],
+  "dependencies": {
+    "@supabase/supabase-js": "^2.93.3",
+    "@hono/node-server": "^1.8.0",
+    "hono": "^4.0.0",
+    "openai": "^4.77.0"
+  },
+  "keywords": [
+    "memory",
+    "ai",
+    "agent",
+    "postgres",
+    "pgvector",
+    "embedding",
+    "rag",
+    "mcp",
+    "vector"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jiggycapital/traqr-oss"
+  }
+}

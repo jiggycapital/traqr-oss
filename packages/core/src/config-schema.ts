@@ -466,8 +466,8 @@ export type RequiredService = (typeof REQUIRED_SERVICES)[number];
 // ============================================================
 
 export interface TraqrConfig {
-  /** Schema version for future migrations */
-  version: '1.0.0';
+  /** Schema version — '2.0.0' adds per-system tracking via `systems` map */
+  version: '1.0.0' | '2.0.0';
 
   project: {
     /** Lowercase slug, e.g. "jiggycapital" */
@@ -742,6 +742,20 @@ export interface TraqrConfig {
     provisionedAt?: string;
     /** Env vars captured during provisioning */
     envVars?: string[];
+  }>;
+
+  /** Per-system skill tracking (v2) — records version, last applied, and audit state per sub-skill */
+  systems?: Record<string, {
+    /** Version of the sub-skill that last configured this system */
+    skillVersion: string;
+    /** ISO timestamp of when the sub-skill was last run in setup/upgrade mode */
+    lastApplied: string;
+    /** Last audit result, if audit has been run */
+    lastAudit?: {
+      timestamp: string;
+      status: 'pass' | 'warn' | 'fail';
+      gaps: number;
+    };
   }>;
 }
 
@@ -1037,4 +1051,30 @@ export function calculateAutomationScore(config: TraqrConfig): number {
   }
 
   return Math.min(100, Math.round(score));
+}
+
+// ============================================================
+// Config v2 Migration
+// ============================================================
+
+/**
+ * Migrate a v1 config to v2 by adding the `systems` tracking map.
+ * Idempotent — returns the config unchanged if already v2.
+ * Preserves all existing fields.
+ */
+export function migrateConfigV1ToV2(config: TraqrConfig): TraqrConfig {
+  if (config.version === '2.0.0') return config;
+  return {
+    ...config,
+    version: '2.0.0' as const,
+    systems: {},
+  };
+}
+
+/**
+ * Type guard: returns true if the config has been migrated to v2
+ * (has version 2.0.0 and a systems map).
+ */
+export function isConfigV2(config: TraqrConfig): boolean {
+  return config.version === '2.0.0' && config.systems !== undefined;
 }

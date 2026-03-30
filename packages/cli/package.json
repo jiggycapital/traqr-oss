@@ -1,6 +1,6 @@
 {
   "name": "@traqr/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI that remembers you. Open-source CLI for Claude Code — memory system, autonomous CI/CD, worktree slots, skill templates.",
   "type": "module",
   "main": "./dist/index.js",
@@ -23,7 +23,7 @@
     "dist"
   ],
   "dependencies": {
-    "@traqr/core": "0.1.0"
+    "@traqr/core": "^0.1.0"
   },
   "repository": {
     "type": "git",
@@ -47,6 +47,8 @@
     "npx"
   ],
   "author": "Traqr Enterprises LLC <sean@traqr.dev>",
-  "engines": { "node": ">=18.0.0" },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "license": "MIT"
 }
