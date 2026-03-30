@@ -6,8 +6,6 @@
  */
 
 import { getVectorDB } from '../vectordb/index.js'
-import { SupabaseVectorProvider } from '../vectordb/supabase.js'
-import { getMemoryClient } from './client.js'
 import { CATEGORY_EMOJI } from './formatting.js'
 import { generateEmbedding, formatEmbeddingForPgVector, checkEmbeddingHealth, type EmbeddingHealthStatus } from './embeddings.js'
 import { borderlineDecision, type MaskedMemory } from './borderline.js'
@@ -77,44 +75,20 @@ export async function createRelationship(
   confidence: number = 1.0,
   metadata: Record<string, unknown> = {},
 ): Promise<string | null> {
-  try {
-    const client = getMemoryClient()
-    const { data, error } = await (client.from('memory_relationships') as any)
-      .insert({
-        source_memory_id: sourceId,
-        target_memory_id: targetId,
-        edge_type: edgeType,
-        confidence,
-        metadata,
-      })
-      .select('id')
-      .single()
-
-    if (error) {
-      console.warn('[memory] Failed to create relationship:', error.message)
-      return null
-    }
-    return data.id
-  } catch (err) {
-    console.warn('[memory] Relationship creation error:', err)
-    return null
-  }
+  const db = getVectorDB()
+  return db.createRelationship(sourceId, targetId, edgeType, { ...metadata, confidence })
 }
 
 /** Invalidate a fact — sets invalid_at, is_latest=false */
 export async function invalidateMemory(id: string): Promise<void> {
   const db = getVectorDB()
-  if (db instanceof SupabaseVectorProvider) {
-    await db.invalidate(id)
-  }
+  await db.invalidate(id)
 }
 
 /** Supersede a preference — sets is_latest=false (keeps valid_at) */
 export async function supersedeMemory(id: string): Promise<void> {
   const db = getVectorDB()
-  if (db instanceof SupabaseVectorProvider) {
-    await db.supersede(id)
-  }
+  await db.supersede(id)
 }
 
 function classifyZone(similarity: number, opts: TriageOptions = {}): TriageZone {

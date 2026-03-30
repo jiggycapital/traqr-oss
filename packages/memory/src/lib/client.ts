@@ -13,6 +13,7 @@ let clientInstance: SupabaseClient | null = null
 export interface MemoryClientConfig {
   supabaseUrl?: string
   supabaseKey?: string
+  databaseUrl?: string
   userId?: string
   projectId?: string
   tableName?: string
@@ -25,6 +26,7 @@ export const DEFAULT_PROJECT_ID = 'b0000000-0000-0000-0000-000000000001'
 let _userId = DEFAULT_USER_ID
 let _projectId = DEFAULT_PROJECT_ID
 let _tableName = 'traqr_memories'
+let _databaseUrl: string | undefined
 
 export function getMemoryClient(config?: MemoryClientConfig): SupabaseClient {
   if (clientInstance) return clientInstance
@@ -63,18 +65,38 @@ export function getProjectId(): string {
 /**
  * Configure the memory system in one shot.
  * Resets the singleton so next getMemoryClient() uses the new config.
+ * For raw Postgres (DATABASE_URL), pass databaseUrl instead of supabaseUrl.
  */
 export function configureMemory(config: MemoryClientConfig): void {
   clientInstance = null
   if (config.tableName) _tableName = config.tableName
-  getMemoryClient(config)
+  if (config.userId) _userId = config.userId
+  if (config.projectId) _projectId = config.projectId
+  _databaseUrl = config.databaseUrl
+  // Only initialize Supabase client if supabaseUrl is provided
+  if (config.supabaseUrl && config.supabaseKey) {
+    getMemoryClient(config)
+  }
 }
 
 export function getTableName(): string {
   return _tableName
 }
 
+/** Get the stored memory config (used by VectorDB factory for provider auto-detection) */
+export function getMemoryConfig(): MemoryClientConfig & { databaseUrl?: string } {
+  return {
+    supabaseUrl: process.env.SUPABASE_URL || process.env.TRAQR_SUPABASE_URL,
+    supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.TRAQR_SUPABASE_SERVICE_ROLE_KEY,
+    databaseUrl: _databaseUrl || process.env.DATABASE_URL,
+    userId: _userId,
+    projectId: _projectId,
+    tableName: _tableName,
+  }
+}
+
 /** Reset singleton (for testing) */
 export function resetMemoryClient(): void {
   clientInstance = null
+  _databaseUrl = undefined
 }

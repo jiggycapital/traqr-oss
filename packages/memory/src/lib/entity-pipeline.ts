@@ -11,8 +11,8 @@
  */
 
 import { getVectorDB } from '../vectordb/index.js'
-import { SupabaseVectorProvider } from '../vectordb/supabase.js'
-import { getMemoryClient, getUserId } from './client.js'
+import type { VectorDBProvider } from '../vectordb/types.js'
+import { getUserId } from './client.js'
 import { extractEntityCandidates, type EntityCandidate } from './auto-derive.js'
 import { generateEmbedding, formatEmbeddingForPgVector } from './embeddings.js'
 
@@ -48,12 +48,7 @@ export async function processEntitiesForMemory(
   content: string,
   userId: string,
 ): Promise<EntityExtractionResult> {
-  const db = getVectorDB()
-  if (!(db instanceof SupabaseVectorProvider)) {
-    return { candidates: 0, created: 0, merged: 0, linked: 0, skipped: 0 }
-  }
-
-  const provider = db as SupabaseVectorProvider
+  const provider = getVectorDB()
   const result: EntityExtractionResult = { candidates: 0, created: 0, merged: 0, linked: 0, skipped: 0 }
 
   // 1. Extract entity candidates from content
@@ -80,7 +75,7 @@ export async function processEntitiesForMemory(
 // ---------------------------------------------------------------------------
 
 async function processCandidate(
-  provider: SupabaseVectorProvider,
+  provider: VectorDBProvider,
   candidate: EntityCandidate,
   memoryId: string,
   userId: string,
@@ -145,7 +140,7 @@ async function processCandidate(
  * 3. Embedding similarity (if OPENAI_API_KEY available)
  */
 async function matchExistingEntity(
-  provider: SupabaseVectorProvider,
+  provider: VectorDBProvider,
   name: string,
   entityType: string,
 ): Promise<any | null> {
@@ -182,13 +177,8 @@ async function matchExistingEntity(
 
 async function countMentions(name: string): Promise<number> {
   try {
-    const client = getMemoryClient()
-    const { data, error } = await (client.rpc as any)('count_entity_mentions', {
-      p_name: name,
-      p_user_id: getUserId(),
-    })
-    if (error) return 0
-    return data ?? 0
+    const db = getVectorDB()
+    return await db.countEntityMentions(name, getUserId())
   } catch {
     return 0
   }

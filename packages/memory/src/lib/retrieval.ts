@@ -7,10 +7,9 @@
  */
 
 import { getVectorDB } from '../vectordb/index.js'
-import { SupabaseVectorProvider } from '../vectordb/supabase.js'
 import { generateEmbedding, formatEmbeddingForPgVector } from './embeddings.js'
 import { cohereRerank } from './rerank.js'
-import type { MemorySearchResult, SearchOptions, Memory } from '../vectordb/types.js'
+import type { VectorDBProvider, MemorySearchResult, SearchOptions, Memory } from '../vectordb/types.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -247,7 +246,7 @@ const STOPWORDS = new Set([
  */
 export async function findEntitiesInQuery(
   query: string,
-  provider: SupabaseVectorProvider,
+  provider: VectorDBProvider,
 ): Promise<string[]> {
   // Tokenize: split on spaces + punctuation, filter stopwords
   const words = query
@@ -290,12 +289,7 @@ export async function searchMemoriesV2(
 ): Promise<MemorySearchResult[]> {
   const db = getVectorDB()
 
-  // Gate: provider must support v2 methods
-  if (!(db instanceof SupabaseVectorProvider)) {
-    return db.search(query, options)
-  }
-
-  const provider = db as SupabaseVectorProvider
+  const provider = db
   const topN = options.limit || 10
   const k = options.rrfK || 60
   const overFetchLimit = topN * 2

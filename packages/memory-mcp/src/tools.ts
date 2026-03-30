@@ -18,7 +18,7 @@ import {
   getDetailedStats,
   assembleSessionContext,
   deriveAll,
-  getMemoryClient,
+  getVectorDB,
 } from '@traqr/memory'
 import type { MemoryInput, MemoryCategory, SearchOptions } from '@traqr/memory'
 
@@ -179,31 +179,20 @@ export function registerTools(server: McpServer) {
     },
     async ({ domain, category }) => {
       try {
-        // Direct query via client — browse doesn't need the full search pipeline
-        const client = getMemoryClient()
-        let query = (client.from('traqr_memories') as any)
-          .select('domain, category, content, summary, id')
-          .eq('is_archived', false)
-          .eq('is_forgotten', false)
-
-        if (domain) query = query.eq('domain', domain)
-        if (category) query = query.eq('category', category)
-        query = query.limit(20).order('created_at', { ascending: false })
-
-        const { data, error } = await query
-        if (error) throw new Error(error.message)
+        const db = getVectorDB()
+        const data = await db.browse({ domain, category })
 
         if (!domain && !category) {
           // Return domain counts
           const counts: Record<string, number> = {}
-          for (const row of data || []) {
+          for (const row of data) {
             const d = row.domain || 'unknown'
             counts[d] = (counts[d] || 0) + 1
           }
           return { content: [{ type: 'text' as const, text: JSON.stringify({ domains: counts }, null, 2) }] }
         }
 
-        const summaries = (data || []).map((r: any) => ({
+        const summaries = data.map((r) => ({
           id: r.id,
           summary: r.summary || r.content?.slice(0, 100),
           domain: r.domain,
@@ -340,15 +329,8 @@ export function registerTools(server: McpServer) {
     },
     async ({ memoryId, reason }) => {
       try {
-        const client = getMemoryClient()
-        const { error } = await (client.from('traqr_memories') as any)
-          .update({
-            is_forgotten: true,
-            forgotten_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', memoryId)
-        if (error) throw new Error(error.message)
+        const db = getVectorDB()
+        await db.forget(memoryId)
         return { content: [{ type: 'text' as const, text: `Forgotten ${memoryId}${reason ? `: ${reason}` : ''}` }] }
       } catch (err) { return errorResult('memory_forget', err) }
     },

@@ -26,6 +26,7 @@ export type {
   BM25SearchResult,
   TemporalSearchResult,
   GraphSearchResult,
+  BrowseResult,
   ProviderConfig,
 } from './vectordb/types.js'
 export { BOOTSTRAP_CONFIDENCE, DECAY_CONFIG } from './vectordb/types.js'
@@ -145,7 +146,7 @@ export {
 } from './lib/formatting.js'
 
 // Client configuration
-export { getMemoryClient, resetMemoryClient, getUserId, getProjectId, configureMemory, getTableName } from './lib/client.js'
+export { getMemoryClient, resetMemoryClient, getUserId, getProjectId, configureMemory, getTableName, getMemoryConfig } from './lib/client.js'
 export type { MemoryClientConfig } from './lib/client.js'
 
 // Auth middleware

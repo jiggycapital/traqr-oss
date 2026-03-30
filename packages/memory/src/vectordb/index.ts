@@ -2,10 +2,13 @@
  * VectorDB Provider Factory
  *
  * Abstraction layer for vector database operations.
- * Currently supports Supabase pgvector.
+ * Supports Supabase (PostgREST) and raw Postgres (pg wire protocol).
+ * Auto-detects from DATABASE_URL vs SUPABASE_URL.
  */
 
 import { SupabaseVectorProvider } from './supabase.js'
+import { PostgresVectorProvider, resetPostgresPool } from './postgres.js'
+import { getMemoryConfig } from '../lib/client.js'
 import type { VectorDBProvider, ProviderConfig } from './types.js'
 
 // Re-export types for convenience
@@ -15,23 +18,35 @@ export * from './types.js'
 let providerInstance: VectorDBProvider | null = null
 
 /**
- * Get the configured vector database provider
+ * Get the configured vector database provider.
+ * Auto-detects from config or env vars:
+ *   DATABASE_URL → PostgresVectorProvider
+ *   SUPABASE_URL → SupabaseVectorProvider
  */
 export function getVectorDB(config?: ProviderConfig): VectorDBProvider {
   if (providerInstance) return providerInstance
 
-  const providerType = config?.type || 'supabase'
+  // Explicit type takes priority
+  if (config?.type) {
+    switch (config.type) {
+      case 'postgres':
+        providerInstance = new PostgresVectorProvider()
+        break
+      case 'supabase':
+        providerInstance = new SupabaseVectorProvider()
+        break
+      default:
+        throw new Error(`Unknown provider type: ${config.type}`)
+    }
+    return providerInstance
+  }
 
-  switch (providerType) {
-    case 'supabase':
-      providerInstance = new SupabaseVectorProvider()
-      break
-    case 'pinecone':
-      throw new Error('Pinecone provider not yet implemented')
-    case 'qdrant':
-      throw new Error('Qdrant provider not yet implemented')
-    default:
-      throw new Error(`Unknown provider type: ${providerType}`)
+  // Auto-detect from stored config / env vars
+  const memConfig = getMemoryConfig()
+  if (memConfig.databaseUrl) {
+    providerInstance = new PostgresVectorProvider()
+  } else {
+    providerInstance = new SupabaseVectorProvider()
   }
 
   return providerInstance
@@ -42,6 +57,7 @@ export function getVectorDB(config?: ProviderConfig): VectorDBProvider {
  */
 export function resetVectorDB(): void {
   providerInstance = null
+  resetPostgresPool()
 }
 
 export default getVectorDB

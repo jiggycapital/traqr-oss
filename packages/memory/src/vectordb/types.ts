@@ -232,11 +232,20 @@ export interface MemoryUser {
   updatedAt: Date
 }
 
+// Browse result for faceted navigation
+export interface BrowseResult {
+  id: string
+  domain?: string
+  category?: string
+  content: string
+  summary?: string
+}
+
 // Provider interface - all implementations must conform to this
 export interface VectorDBProvider {
   // Core operations
   store(memory: MemoryInput, domainId?: string): Promise<Memory>
-  search(query: string, options?: SearchOptions): Promise<MemorySearchResult[]>
+  search(query: string, options?: SearchOptions & { precomputedEmbedding?: string }): Promise<MemorySearchResult[]>
   getById(id: string): Promise<Memory | null>
   update(id: string, updates: MemoryUpdate): Promise<Memory>
   delete(id: string): Promise<void>
@@ -257,13 +266,48 @@ export interface VectorDBProvider {
 
   // Health
   ping(): Promise<boolean>
+
+  // v2: Multi-strategy search
+  bm25Search(queryText: string, options?: {
+    projectId?: string, domain?: string, category?: string,
+    limit?: number, minScore?: number
+  }): Promise<BM25SearchResult[]>
+  temporalSearch(query: string, dateStart: Date, dateEnd: Date, options?: {
+    projectId?: string, similarityThreshold?: number, limit?: number, precomputedEmbedding?: string
+  }): Promise<TemporalSearchResult[]>
+  graphSearch(seedIds: string[], options?: {
+    edgeTypes?: string[], maxDepth?: number, limit?: number
+  }): Promise<GraphSearchResult[]>
+
+  // v2: Lifecycle
+  invalidate(id: string): Promise<void>
+  supersede(id: string): Promise<void>
+
+  // Entity operations
+  findEntityByName(name: string, entityType: string): Promise<any | null>
+  findEntityByNameFuzzy(name: string, entityType: string): Promise<any | null>
+  findEntityByEmbedding(embeddingStr: string, entityType: string, threshold?: number): Promise<any | null>
+  createEntity(entity: { name: string, entityType: string, embedding?: string, userId?: string }): Promise<any>
+  incrementEntityMentions(entityId: string): Promise<void>
+  linkMemoryToEntity(memoryId: string, entityId: string, role?: string): Promise<void>
+  findEntitiesByNames(names: string[]): Promise<{ id: string; name: string }[]>
+  findOrphanedEntities(): Promise<string[]>
+  archiveEntities(ids: string[]): Promise<number>
+
+  // Utility operations (abstracted from direct client calls)
+  browse(options?: { domain?: string, category?: string, limit?: number }): Promise<BrowseResult[]>
+  forget(id: string): Promise<void>
+  createRelationship(sourceId: string, targetId: string, edgeType: string, metadata?: Record<string, unknown>): Promise<string | null>
+  countEntityMentions(name: string, userId: string): Promise<number>
+  schemaVersion(): Promise<number | null>
 }
 
 // Provider configuration
 export interface ProviderConfig {
-  type: 'supabase' | 'pinecone' | 'qdrant'
+  type: 'supabase' | 'postgres'
   supabaseUrl?: string
   supabaseKey?: string
+  databaseUrl?: string
 }
 
 // Bootstrap confidence levels

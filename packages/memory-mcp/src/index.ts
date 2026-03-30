@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { configureMemory, getMemoryClient, getEmbeddingProvider } from '@traqr/memory'
+import { configureMemory, getVectorDB, getEmbeddingProvider } from '@traqr/memory'
 import { registerTools } from './tools.js'
 import { teachingError } from './errors.js'
 
@@ -65,8 +65,9 @@ Add to your MCP config env block:
 }
 
 configureMemory({
-  supabaseUrl: supabaseUrl || databaseUrl!,
-  supabaseKey: supabaseKey || 'not-needed-for-raw-postgres',
+  supabaseUrl: supabaseUrl,
+  supabaseKey: supabaseKey,
+  databaseUrl: databaseUrl,
   userId: process.env.TRAQR_USER_ID,
   projectId: process.env.TRAQR_PROJECT_ID,
 })
@@ -88,14 +89,10 @@ async function checkSchemaAndReport() {
   let schemaVersion = '?'
 
   try {
-    const client = getMemoryClient()
-    const { data, error } = await (client.from('schema_version') as any)
-      .select('version')
-      .order('version', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const db = getVectorDB()
+    const version = await db.schemaVersion()
 
-    if (error || !data) {
+    if (version === null) {
       console.error(teachingError(
         'TraqrDB: schema_version table not found.',
         'setup.sql may not have been run on your database.',
@@ -106,12 +103,12 @@ async function checkSchemaAndReport() {
         ]
       ))
     } else {
-      schemaVersion = `v${data.version}`
-      if (data.version < REQUIRED_SCHEMA_VERSION) {
-        console.error(`TraqrDB: Schema v${data.version} detected, v${REQUIRED_SCHEMA_VERSION} required.`)
+      schemaVersion = `v${version}`
+      if (version < REQUIRED_SCHEMA_VERSION) {
+        console.error(`TraqrDB: Schema v${version} detected, v${REQUIRED_SCHEMA_VERSION} required.`)
         console.error(`Run upgrade-v${REQUIRED_SCHEMA_VERSION}.sql on your database. See UPGRADING.md.`)
-      } else if (data.version > REQUIRED_SCHEMA_VERSION) {
-        console.error(`TraqrDB: Schema v${data.version} is newer than this server (expects v${REQUIRED_SCHEMA_VERSION}).`)
+      } else if (version > REQUIRED_SCHEMA_VERSION) {
+        console.error(`TraqrDB: Schema v${version} is newer than this server (expects v${REQUIRED_SCHEMA_VERSION}).`)
         console.error('Update the package: npm update traqr-memory-mcp')
       }
     }

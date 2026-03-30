@@ -9,6 +9,8 @@
 
 import { getMemoryClient, getUserId, getProjectId, getTableName } from '../lib/client.js'
 import { generateEmbedding, formatEmbeddingForPgVector } from '../lib/embeddings.js'
+import { rowToMemory, rowToSearchResult } from './converters.js'
+import type { MemoryRow, SearchResultRow } from './converters.js'
 import type {
   VectorDBProvider,
   Memory,
@@ -19,120 +21,11 @@ import type {
   MemoryDomain,
   SearchOptions,
   MemoryCategory,
-  MemoryDurability,
-  MemoryType,
+  BrowseResult,
   BM25SearchResult,
   TemporalSearchResult,
   GraphSearchResult,
 } from './types.js'
-
-// Table name is configurable via configureMemory() — defaults to 'memories'
-
-// Database row type matching memories schema
-interface MemoryRow {
-  id: string
-  user_id: string
-  project_id: string | null
-  content: string
-  summary: string | null
-  category: string | null
-  tags: string[]
-  context_tags: string[]
-  domain: string | null
-  embedding: string | null
-  embedding_model: string
-  embedding_model_version: string
-  source_type: string
-  source_ref: string | null
-  source_project: string
-  original_confidence: number
-  last_validated: string
-  related_to: string[]
-  is_contradiction: boolean
-  is_archived: boolean
-  archived_at: string | null
-  archive_reason: string | null
-  created_at: string
-  updated_at: string
-  durability?: string | null
-  expires_at?: string | null
-  is_portable?: boolean
-  is_universal?: boolean
-  agent_type?: string | null
-  times_returned?: number
-  times_cited?: number
-  last_returned_at?: string | null
-  last_cited_at?: string | null
-  // v2: Memory lifecycle
-  memory_type?: string | null
-  valid_at?: string | null
-  invalid_at?: string | null
-  is_latest?: boolean | null
-  is_forgotten?: boolean | null
-  forgotten_at?: string | null
-  forget_after?: string | null
-  source_tool?: string | null
-}
-
-interface SearchResultRow extends MemoryRow {
-  current_confidence: number
-  similarity: number
-  relevance_score: number
-}
-
-// Convert database row to Memory type
-function rowToMemory(row: MemoryRow): Memory {
-  return {
-    id: row.id,
-    content: row.content,
-    summary: row.summary ?? undefined,
-    category: row.category as MemoryCategory | undefined,
-    tags: row.tags || [],
-    contextTags: row.context_tags || [],
-    sourceType: row.source_type as Memory['sourceType'],
-    sourceRef: row.source_ref ?? undefined,
-    sourceProject: row.source_project,
-    originalConfidence: row.original_confidence,
-    lastValidated: new Date(row.last_validated),
-    relatedTo: row.related_to || [],
-    isContradiction: row.is_contradiction,
-    isArchived: row.is_archived,
-    archiveReason: row.archive_reason ?? undefined,
-    archivedAt: row.archived_at ? new Date(row.archived_at) : undefined,
-    embeddingModel: row.embedding_model,
-    embeddingModelVersion: row.embedding_model_version,
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at),
-    durability: (row.durability as MemoryDurability) || 'permanent',
-    expiresAt: row.expires_at ? new Date(row.expires_at) : undefined,
-    domain: (row as any).domain ?? undefined,
-    topic: (row as any).topic ?? undefined,
-    isUniversal: row.is_universal ?? false,
-    agentType: row.agent_type ?? undefined,
-    timesReturned: row.times_returned ?? 0,
-    timesCited: row.times_cited ?? 0,
-    lastReturnedAt: row.last_returned_at ? new Date(row.last_returned_at) : undefined,
-    lastCitedAt: row.last_cited_at ? new Date(row.last_cited_at) : undefined,
-    // v2: Memory lifecycle
-    memoryType: (row.memory_type as MemoryType) ?? undefined,
-    validAt: row.valid_at ? new Date(row.valid_at) : undefined,
-    invalidAt: row.invalid_at ? new Date(row.invalid_at) : undefined,
-    isLatest: row.is_latest ?? true,
-    isForgotten: row.is_forgotten ?? false,
-    forgottenAt: row.forgotten_at ? new Date(row.forgotten_at) : undefined,
-    forgetAfter: row.forget_after ? new Date(row.forget_after) : undefined,
-    sourceTool: row.source_tool ?? undefined,
-  }
-}
-
-function rowToSearchResult(row: SearchResultRow): MemorySearchResult {
-  return {
-    ...rowToMemory(row),
-    currentConfidence: row.current_confidence,
-    similarity: row.similarity,
-    relevanceScore: row.relevance_score,
-  }
-}
 
 export class SupabaseVectorProvider implements VectorDBProvider {
   async store(input: MemoryInput, domainId?: string): Promise<Memory> {
@@ -844,6 +737,95 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       return 0
     }
     return ids.length
+  }
+
+  // ============================================================
+  // UTILITY OPERATIONS (abstracted from direct client calls)
+  // ============================================================
+
+  async browse(options?: { domain?: string, category?: string, limit?: number }): Promise<BrowseResult[]> {
+    const client = getMemoryClient()
+    let query = (client.from(getTableName()) as any)
+      .select('domain, category, content, summary, id')
+      .eq('is_archived', false)
+      .eq('is_forgotten', false)
+
+    if (options?.domain) query = query.eq('domain', options.domain)
+    if (options?.category) query = query.eq('category', options.category)
+    query = query.limit(options?.limit || 20).order('created_at', { ascending: false })
+
+    const { data, error } = await query
+    if (error) throw new Error(error.message)
+    return (data || []).map((r: any) => ({
+      id: r.id,
+      domain: r.domain ?? undefined,
+      category: r.category ?? undefined,
+      content: r.content,
+      summary: r.summary ?? undefined,
+    }))
+  }
+
+  async forget(id: string): Promise<void> {
+    const client = getMemoryClient()
+    const { error } = await (client.from(getTableName()) as any)
+      .update({
+        is_forgotten: true,
+        forgotten_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+    if (error) throw new Error(error.message)
+  }
+
+  async createRelationship(
+    sourceId: string, targetId: string, edgeType: string,
+    metadata: Record<string, unknown> = {},
+  ): Promise<string | null> {
+    try {
+      const client = getMemoryClient()
+      const { data, error } = await (client.from('memory_relationships') as any)
+        .insert({
+          source_memory_id: sourceId,
+          target_memory_id: targetId,
+          edge_type: edgeType,
+          metadata,
+        })
+        .select('id')
+        .single()
+      if (error) {
+        if (error.code === '23505') return null // duplicate
+        console.warn('[VectorDB] createRelationship error:', error.message)
+        return null
+      }
+      return data?.id || null
+    } catch {
+      return null
+    }
+  }
+
+  async countEntityMentions(name: string, userId: string): Promise<number> {
+    const client = getMemoryClient()
+    const { data, error } = await (client.rpc as any)('count_entity_mentions', {
+      p_name: name,
+      p_user_id: userId,
+    })
+    if (error || data === null || data === undefined) return 0
+    return typeof data === 'number' ? data : 0
+  }
+
+  async schemaVersion(): Promise<number | null> {
+    try {
+      const client = getMemoryClient()
+      const { data, error } = await (client.from('schema_version') as any)
+        .select('version')
+        .order('version', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (error || !data) return null
+      return data.version
+    } catch {
+      return null
+    }
   }
 
   async ping(): Promise<boolean> {
