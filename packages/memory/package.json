@@ -1,6 +1,6 @@
 {
   "name": "@traqr/memory",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Persistent memory for AI agents. Multi-strategy retrieval (semantic + BM25 + RRF), 3-zone cosine triage, type-aware lifecycle, entity canonicalization. Postgres + pgvector.",
   "type": "module",
   "main": "./dist/index.js",

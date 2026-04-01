@@ -1,6 +1,6 @@
 {
   "name": "@traqr/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Config schema, template engine, and skill templates for the Traqr CLI",
   "type": "module",
   "main": "./dist/index.js",
@@ -41,6 +41,8 @@
     "traqr"
   ],
   "author": "Traqr Enterprises LLC <sean@traqr.dev>",
-  "engines": { "node": ">=18.0.0" },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "license": "MIT"
 }
