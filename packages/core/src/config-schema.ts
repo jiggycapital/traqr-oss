@@ -197,13 +197,13 @@ export function getDefaultDaemonConfig(projectName: string): DaemonConfig {
     intervals: {
       poll: 10_000,
       taskPoll: 30_000,
-      guardian: 30_000,
+      guardian: 60_000,
       question: 60_000,
       analytics: 60_000,
       approvalCheck: 30_000,
       trafficCheck: 15 * 60_000,
       healthCheck: 30 * 60_000,
-      syncCheck: 30_000,
+      syncCheck: 300_000,
       heartbeat: 60_000,
     },
     timeouts: {

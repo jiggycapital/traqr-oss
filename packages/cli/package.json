@@ -1,7 +1,7 @@
 {
   "name": "@traqr/cli",
   "version": "0.1.1",
-  "description": "AI that remembers you. Open-source CLI for Claude Code — memory system, autonomous CI/CD, worktree slots, skill templates.",
+  "description": "CLI for Claude Code — persistent memory, worktree slots, autonomous CI/CD, skill templates.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

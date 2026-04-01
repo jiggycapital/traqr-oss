@@ -2,6 +2,12 @@
 /**
  * TraqrDB Memory MCP Server
  *
+ * CLI flags (run instead of MCP server):
+ *   --install             Interactive setup wizard
+ *   --setup               Run setup.sql on your database
+ *   --verify              Health check + round trip test
+ *   --print-instructions  Print CLAUDE.md memory instructions
+ *
  * Standalone MCP server for AI agents. 10 memory tools powered by
  * Postgres + pgvector. Multi-strategy retrieval (semantic + BM25 + RRF),
  * cosine triage, LLM borderline decisions, entity extraction.
@@ -9,6 +15,33 @@
  * Usage:
  *   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npx traqr-memory-mcp
  */
+
+// CLI flag routing — handle before heavy imports
+const cliFlag = process.argv[2]
+if (cliFlag === '--install') { await import('./cli/install.js'); process.exit(0) }
+if (cliFlag === '--setup') { await import('./cli/setup-db.js'); process.exit(0) }
+if (cliFlag === '--verify') { await import('./cli/verify.js'); process.exit(0) }
+if (cliFlag === '--print-instructions') { await import('./cli/instructions.js'); process.exit(0) }
+if (cliFlag === '--help' || cliFlag === '-h') {
+  console.log(`
+  traqr-memory-mcp — MCP server for persistent AI agent memory
+
+  Usage: npx traqr-memory-mcp [flag]
+
+  Flags:
+    --install             Interactive setup wizard
+    --setup               Run setup.sql on your database
+    --verify              Health check + round trip test
+    --print-instructions  Print CLAUDE.md memory instructions
+    --help, -h            Show this help
+
+  No flags: start MCP server (for MCP client config, not direct use)
+
+  Quick start:
+    npx traqr-memory-mcp --install
+`)
+  process.exit(0)
+}
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
