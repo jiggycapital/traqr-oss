@@ -19,6 +19,8 @@ import {
   assembleSessionContext,
   deriveAll,
   getVectorDB,
+  createRelationship,
+  supersedeMemory,
 } from '@traqr/memory'
 import type { MemoryInput, MemoryCategory, SearchOptions } from '@traqr/memory'
 
@@ -315,6 +317,74 @@ export function registerTools(server: McpServer) {
         await archiveMemory(memoryId, reason)
         return { content: [{ type: 'text' as const, text: `Archived ${memoryId}: ${reason}` }] }
       } catch (err) { return errorResult('memory_archive', err) }
+    },
+  )
+
+  // --- memory_correct ---
+  server.tool(
+    'memory_correct',
+    'Correct a wrong memory. Atomically: stores the corrected version, archives the wrong one, ' +
+      'and creates a supersedes relationship. Use when Sean corrects a previous conclusion or ' +
+      'when a prior memory is factually wrong. Never leave contradicting memories both active.',
+    {
+      wrongMemoryId: z.string().describe('ID of the memory to correct'),
+      correctedContent: z.string().max(50000).describe('The corrected content — what should replace the wrong memory'),
+      reason: z.string().describe('Why the original was wrong and what changed'),
+      category: categoryEnum.optional().describe('Override auto-category for corrected memory'),
+      tags: z.array(controlledTagEnum).optional().describe('Override auto-tags'),
+      confidence: z.number().min(0).max(1).default(0.9),
+    },
+    async ({ wrongMemoryId, correctedContent, reason, category, tags, confidence }) => {
+      try {
+        // 1. Verify the wrong memory exists
+        const wrongMemory = await getMemory(wrongMemoryId)
+        if (!wrongMemory) {
+          return { content: [{ type: 'text' as const, text: `Memory ${wrongMemoryId} not found. Cannot correct a non-existent memory.` }] }
+        }
+
+        // 2. Store the corrected version
+        const derived = deriveAll(correctedContent, { category, tags, sourceTool: 'mcp-correct' })
+        const input: MemoryInput = {
+          content: correctedContent,
+          summary: derived.summary as string,
+          category: derived.category as MemoryCategory,
+          tags: [...(derived.tags as string[]), 'from-correction'],
+          sourceType: 'session',
+          sourceProject: 'default',
+          confidence,
+          domain: derived.domain as string,
+          topic: derived.topic as string,
+          memoryType: derived.memoryType as any,
+          sourceTool: 'mcp-correct',
+        }
+        const correctedMemory = await storeMemory(input)
+
+        // 3. Archive the wrong memory with reason
+        await archiveMemory(wrongMemoryId, `corrected: ${reason}`.slice(0, 500))
+
+        // 4. Mark the old memory as superseded
+        await supersedeMemory(wrongMemoryId)
+
+        // 5. Create supersedes relationship edge
+        await createRelationship(
+          correctedMemory.id,
+          wrongMemoryId,
+          'updates',
+          1.0,
+          { correctionReason: reason, correctedAt: new Date().toISOString() },
+        )
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Corrected memory ${wrongMemoryId}.\n` +
+              `Old: ${wrongMemory.summary || '(no summary)'}\n` +
+              `New: [${derived.domain}/${derived.category}] ${derived.summary}\n` +
+              `Reason: ${reason}\n` +
+              `New memory ID: ${correctedMemory.id}`,
+          }],
+        }
+      } catch (err) { return errorResult('memory_correct', err) }
     },
   )
 

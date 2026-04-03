@@ -208,6 +208,22 @@ export async function triageAndStore(
       }
     }
 
+    if (decision.action === 'correct') {
+      // New memory CORRECTS an old wrong one — store new, archive old as incorrect
+      const memory = await storeMemory({ ...input, precomputedEmbedding: embeddingStr })
+      await archiveMemory(targetId, `corrected: ${decision.reasoning}`.slice(0, 500))
+      await supersedeMemory(targetId)
+      const relId = await createRelationship(memory.id, targetId, 'updates', similarity, {
+        correctionReason: decision.reasoning,
+        correctedAt: new Date().toISOString(),
+      })
+      return {
+        memory, zone: 'borderline', action: 'extended', similarity,
+        matchedMemoryId: targetId, relationshipId: relId ?? undefined,
+        deduplicated: false, merged: true, existingId: targetId,
+      }
+    }
+
     if (decision.action === 'noop') {
       // Existing covers it — merge metadata, validate
       const newTags = (input.tags || []).filter(t => !best.tags.includes(t))

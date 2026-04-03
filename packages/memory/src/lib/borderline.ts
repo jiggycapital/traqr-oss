@@ -14,7 +14,7 @@ import OpenAI from 'openai'
 // Types
 // ---------------------------------------------------------------------------
 
-export type BorderlineAction = 'add' | 'update' | 'noop'
+export type BorderlineAction = 'add' | 'update' | 'correct' | 'noop'
 
 export interface BorderlineDecision {
   action: BorderlineAction
@@ -68,7 +68,8 @@ function buildPrompt(newContent: string, existing: MaskedMemory[], memoryType: s
 
 Given a NEW memory and EXISTING similar memories, decide:
 - ADD: genuinely new information that should be stored alongside existing memories
-- UPDATE: new memory supersedes or contradicts an existing memory — the old one should be replaced
+- UPDATE: new memory supersedes an existing memory — the old one should be replaced (evolution, not contradiction)
+- CORRECT: new memory CONTRADICTS an existing memory — the old one was WRONG and should be archived as incorrect. Use when the new content explicitly reverses, corrects, or debunks what was previously stored.
 - NOOP: existing memory already covers this content — skip storing the new one
 
 Memory type: ${memoryType.toUpperCase()}
@@ -95,7 +96,7 @@ const RESPONSE_SCHEMA = {
     schema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['add', 'update', 'noop'] },
+        action: { type: 'string', enum: ['add', 'update', 'correct', 'noop'] },
         target: { type: ['string', 'null'], description: 'Label of the existing memory to update (e.g., MEMORY_A). Null for add/noop.' },
         reasoning: { type: 'string', description: 'Brief explanation of the decision.' },
       },
