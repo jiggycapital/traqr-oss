@@ -492,6 +492,8 @@ export interface TraqrConfig {
     typecheckCommand?: string;
     /** Deployment platform (vercel, netlify, fly, railway, none) */
     deployPlatform?: string;
+    /** Project type — determines which command steps apply (default: 'code') */
+    type?: 'code' | 'life' | 'research';
   };
 
   /** Automation tier (0-4), derived from starterPack + customizations */

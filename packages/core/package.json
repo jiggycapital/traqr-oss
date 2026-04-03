@@ -1,6 +1,6 @@
 {
   "name": "@traqr/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Config schema, template engine, and skill templates for the Traqr CLI",
   "type": "module",
   "main": "./dist/index.js",
