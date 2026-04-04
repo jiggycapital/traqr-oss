@@ -7,9 +7,6 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['posthog-js'],
   },
-  images: {
-    unoptimized: true,
-  },
   headers: async () => [
     {
       source: "/:path*",
