@@ -68,12 +68,43 @@ export const PRODUCTION_FIXTURE = buildFixture('production')
 /** Full (Tier 4) — everything enabled */
 export const FULL_FIXTURE = buildFixture('full')
 
+/** GitLab Team (Tier 2) — GitLab VCS, GitLab Issues, no Slack, no daemon */
+export const GITLAB_TEAM_FIXTURE: TraqrConfig = {
+  ...BASE_CONFIG,
+  ...STARTER_PACK_DEFAULTS['smart'],
+  starterPack: 'gitlab-team' as any,
+  project: {
+    ...BASE_PROJECT,
+    ghOrgRepo: 'kiro-sales/Kiro-Sales',
+  },
+  vcs: {
+    provider: 'gitlab',
+    projectId: '152559',
+    baseUrl: 'https://gitlab.aws.dev',
+    mergeStrategy: 'fast-forward',
+    autoMerge: true,
+    primedSession: true,
+    removeSourceBranch: true,
+  },
+  issues: {
+    provider: 'gitlab',
+    planDispatch: true,
+    autoLabels: true,
+  },
+  notifications: {
+    slackLevel: 'none' as const,
+  },
+  automationScore: 0,
+} as TraqrConfig
+GITLAB_TEAM_FIXTURE.automationScore = calculateAutomationScore(GITLAB_TEAM_FIXTURE)
+
 /** All fixtures indexed by pack name */
 export const ALL_FIXTURES: Record<string, TraqrConfig> = {
   solo: SOLO_FIXTURE,
   smart: SMART_FIXTURE,
   production: PRODUCTION_FIXTURE,
   full: FULL_FIXTURE,
+  'gitlab-team': GITLAB_TEAM_FIXTURE,
 }
 
 /** Pack display names for output */
@@ -82,6 +113,7 @@ export const PACK_DISPLAY_NAMES: Record<string, string> = {
   smart: 'SMART DEV (Tier 2)',
   production: 'PRODUCTION (Tier 3)',
   full: 'FULL PLATFORM (Tier 4)',
+  'gitlab-team': 'GITLAB TEAM (Tier 2 — GitLab VCS)',
 }
 
 // ============================================================
@@ -325,6 +357,34 @@ export const CONTENT_EXPECTATIONS: Record<string, ContentExpectation> = {
         file: 'scripts/pre-push-guardrail.sh',
         mustContain: ['TESTPROJECT_SHIP_AUTHORIZED'],
         mustNotContain: ['NOOKTRAQR_SHIP_AUTHORIZED'],
+      },
+    ],
+  },
+
+  'gitlab-team': {
+    requiredFiles: [...CORE_REQUIRED, ...MEMORY_ISSUES_FILES],
+    forbiddenFiles: [
+      '.claude/commands/slack.md',        // no Slack
+      '.claude/commands/inbox.md',        // no Slack
+      '.claude/commands/email.md',        // no email
+      '.claude/commands/analytics.md',    // tier 4 only
+      '.claude/commands/cron.md',         // tier 4 only
+    ],
+    contentChecks: [
+      {
+        file: '.claude/commands/ship.md',
+        mustContain: ['glab', 'gitlab', 'merge_when_pipeline_succeeds', 'PRIVATE-TOKEN', 'merge_requests'],
+        mustNotContain: ['gh pr create', 'gh pr edit', 'gh pr list', 'github.com/test-org'],
+      },
+      {
+        file: 'CLAUDE.md',
+        mustContain: ['Test Project'],
+        mustNotContain: ['LINEAR_API_KEY', 'SLACK_BOT_TOKEN'],
+      },
+      {
+        file: '.claude/commands/sync.md',
+        mustContain: ['git fetch', 'git rebase'],
+        mustNotContain: ['glab', 'gitlab'],  // sync is pure git — no VCS-specific content
       },
     ],
   },

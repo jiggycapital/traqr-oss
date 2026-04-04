@@ -191,6 +191,7 @@ export function shouldIncludeTemplate(
     'commands/traqr-upgrade.md.tmpl',
     'commands/traqr-setup.md.tmpl',
     'commands/traqr-test.md.tmpl',
+    'commands/nextphase.md.tmpl',
     'scripts/setup-worktrees.sh.tmpl',
     'scripts/aliases.sh.tmpl',
     'scripts/pre-push-guardrail.sh.tmpl',

@@ -171,11 +171,11 @@ echo "=== VERIFY ===" && git log origin/<branch> -1 --oneline
 ```
 If still failing → STOP: report error. Common causes: auth expired, branch protection, network.
 
-### 5. Create PR
+### 5. Create {{VCS_PR_NOUN}}
 
 Show progress: `{{RAQR_PROGRESS_6}}`
 
-```bash
+{{#IF_GITHUB}}```bash
 existing=$(gh pr list --head "<branch>" --json number --jq '.[0].number' 2>/dev/null)
 if [ -n "$existing" ]; then
   echo "EXISTING:$existing"
@@ -210,17 +210,74 @@ Shipped from: <slot> | Branch: <branch>
 EOF
 )"
 fi
-```
+```{{/IF_GITHUB}}
 
-{{#IF_GUARDIAN}}**If existing PR found:** If `{{GUARDIAN_PR_LABEL}}` is NOT in the labels output, warn: "{{GUARDIAN_PR_LABEL}} label missing — Guardian won't process this PR. Run `gh pr edit <N> --add-label {{GUARDIAN_PR_LABEL}}` manually."
-
-**Add Guardian label** so Guardian can manage this PR's lifecycle:
+{{#IF_GITLAB}}{{#IF_VCS_PRIMED_SESSION}}**Prime GitLab session** (corporate auth cookie):
 ```bash
-gh pr edit <NUMBER> --add-label "{{GUARDIAN_PR_LABEL}}"
-labels=$(gh pr view <NUMBER> --json labels --jq '.labels[].name')
-echo "Labels: $labels"
+curl -s --max-time 5 "{{VCS_BASE_URL}}/api/v4/projects/{{VCS_PROJECT_ID}}" \
+  -H "PRIVATE-TOKEN: $GITLAB_TOKEN" > /dev/null 2>&1
 ```
-{{/IF_GUARDIAN}}
+{{/IF_VCS_PRIMED_SESSION}}
+
+```bash
+existing=$(glab mr list --source-branch "<branch>" --state opened --json iid --jq '.[0].iid' 2>/dev/null || \
+  curl -s "{{VCS_BASE_URL}}/api/v4/projects/{{VCS_PROJECT_ID}}/merge_requests?source_branch=<branch>&state=opened" \
+  -H "PRIVATE-TOKEN: $GITLAB_TOKEN" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['iid'] if d else '')" 2>/dev/null)
+if [ -n "$existing" ]; then
+  echo "EXISTING:$existing"
+else
+  glab mr create --title "<title>" --target-branch main \
+    --description "## Summary
+<what changed and why>
+
+## Slot
+Shipped from: <slot> | Branch: <branch>
+
+## Files Changed
+<file list with +/- counts>
+{{#IF_TIER_1+}}
+## Memory Loop
+<if memoryLoaded>
+- Context loaded: Yes (task: \"<query>\")
+- Searched: <N> | Cited: <N> | Captured: <N>
+<else>
+- Context loaded: No (quick session)
+- Captured: <N> new learnings
+</if>
+{{/IF_TIER_1+}}
+
+## Test Plan
+- [ ] Verify changes work as expected
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+    {{#IF_VCS_REMOVE_SOURCE_BRANCH}}--remove-source-branch{{/IF_VCS_REMOVE_SOURCE_BRANCH}} \
+    2>&1
+  existing=$(glab mr list --source-branch "<branch>" --state opened --json iid --jq '.[0].iid' 2>/dev/null)
+fi
+echo "MR_IID:$existing"
+```
+
+{{#IF_VCS_AUTO_MERGE}}**Enable auto-merge** (merge when pipeline succeeds):
+```bash
+curl -s -X PUT "{{VCS_BASE_URL}}/api/v4/projects/{{VCS_PROJECT_ID}}/merge_requests/${existing}/merge" \
+  -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"merge_when_pipeline_succeeds": true}' 2>&1 | head -5
+```
+{{/IF_VCS_AUTO_MERGE}}
+
+**GitLab label management** (read-then-append — GitLab replaces all labels on update):
+```bash
+current_labels=$(curl -s "{{VCS_BASE_URL}}/api/v4/projects/{{VCS_PROJECT_ID}}/merge_requests/${existing}" \
+  -H "PRIVATE-TOKEN: $GITLAB_TOKEN" | python3 -c "import json,sys; print(','.join(json.load(sys.stdin).get('labels',[])))" 2>/dev/null)
+{{#IF_GUARDIAN}}new_labels="${current_labels:+$current_labels,}{{GUARDIAN_PR_LABEL}}"
+curl -s -X PUT "{{VCS_BASE_URL}}/api/v4/projects/{{VCS_PROJECT_ID}}/merge_requests/${existing}" \
+  -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"labels\":\"$new_labels\"}" > /dev/null 2>&1
+echo "Labels: $new_labels"{{/IF_GUARDIAN}}
+```
+{{/IF_GITLAB}}
 
 {{#IF_GUARDIAN}}**Signal Guardian — pre-validated by /ship** (fire-and-forget):
 ```bash
@@ -228,7 +285,7 @@ BODY=$(jq -nc --arg k "guardian:ship-validated:<NUMBER>" --argjson v 'true' '{ke
 curl -s --max-time 3 -X POST "{{PROJECT_API_BASE}}/daemon/kv-set" \
   -H "Content-Type: application/json" -d "$BODY" > /dev/null &
 ```
-Agent fills in `<NUMBER>` from the PR number obtained above.
+Agent fills in `<NUMBER>` from the {{VCS_PR_NOUN}} number obtained above.
 {{/IF_GUARDIAN}}
 
 {{#IF_CONTROL_CENTER}}**Set "ready-to-ship" phase:**
@@ -309,6 +366,14 @@ curl -s -X POST "{{PROJECT_API_BASE}}/github/pr?action=notify&pr=<number>"
 If ticket linked:
 {{#IF_LINEAR}}- Linear: `mcp__linear__update_issue` → Done{{/IF_LINEAR}}
 {{#IF_GITHUB_ISSUES}}- GitHub: `gh issue close`{{/IF_GITHUB_ISSUES}}
+{{#IF_GITLAB_ISSUES}}- GitLab: Close issue via API:
+```bash
+curl -s -X PUT "{{VCS_BASE_URL}}/api/v4/projects/{{VCS_PROJECT_ID}}/issues/<issue_iid>" \
+  -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"state_event":"close"}' > /dev/null 2>&1
+```
+{{/IF_GITLAB_ISSUES}}
 {{/IF_TIER_2+}}
 
 ### Report
@@ -342,8 +407,8 @@ Calculate session duration from marker `startedAt` to now.
 
 {{RAQR_PROGRESS_7}}
 
-PR #<number>: <title>
-URL: https://github.com/{{GH_ORG_REPO}}/pull/<number>
+{{VCS_PR_NOUN}} #<number>: <title>
+URL: {{VCS_MR_URL_PREFIX}}<number>
 {{#IF_TIER_3+}}
 Notification sent to #{{SLACK_DEPLOY_CHANNEL}}
   Click "Merge (Squash)" when ready

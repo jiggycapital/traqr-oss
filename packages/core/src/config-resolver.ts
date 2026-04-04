@@ -448,21 +448,190 @@ function buildMinimalConfig(): TraqrConfig {
 }
 
 /**
- * Auto-detect GitHub org/repo from git remote origin URL.
- * Handles both HTTPS and SSH formats:
- *   https://github.com/org/repo.git  →  org/repo
- *   git@github.com:org/repo.git      →  org/repo
+ * VCS detection result from git remote analysis.
  */
-function detectGhOrgRepo(projectRoot?: string): string {
+export interface VcsDetection {
+  provider: 'github' | 'gitlab' | 'codecommit' | 'unknown';
+  remoteUrl: string;
+  orgRepo: string;
+  hostname: string;
+  selfHosted: boolean;
+  protocol: 'ssh' | 'https' | 'unknown';
+  ciConfigDetected: string | null;
+}
+
+/**
+ * Corporate environment detection signals.
+ */
+export interface CorporateDetection {
+  isLikelyCorporate: boolean;
+  signals: string[];
+  awsProfile: string | null;
+  awsRegion: string | null;
+}
+
+/**
+ * Auto-detect VCS provider from git remote origin URL.
+ * Handles GitHub, GitLab (cloud + self-hosted), and CodeCommit.
+ * Falls back to GitHub detection for backward compatibility.
+ *
+ *   https://github.com/org/repo.git        →  github, org/repo
+ *   git@github.com:org/repo.git            →  github, org/repo
+ *   https://gitlab.com/group/project.git   →  gitlab, group/project
+ *   git@gitlab.aws.dev:group/project.git   →  gitlab (self-hosted), group/project
+ *   https://git-codecommit.us-east-1...    →  codecommit
+ */
+export function detectVcsProvider(projectRoot?: string): VcsDetection {
+  const result: VcsDetection = {
+    provider: 'unknown',
+    remoteUrl: '',
+    orgRepo: '',
+    hostname: '',
+    selfHosted: false,
+    protocol: 'unknown',
+    ciConfigDetected: null,
+  };
+
   try {
     const cwd = projectRoot || process.cwd();
     const url = execSync('git remote get-url origin', { cwd, timeout: 5000 })
       .toString().trim();
-    const match = url.match(/github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?$/);
-    return match ? match[1] : '';
+    result.remoteUrl = url;
+    result.protocol = url.startsWith('http') ? 'https' : url.includes('@') ? 'ssh' : 'unknown';
+
+    // GitHub (cloud)
+    const githubMatch = url.match(/github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?$/);
+    if (githubMatch) {
+      result.provider = 'github';
+      result.orgRepo = githubMatch[1];
+      result.hostname = 'github.com';
+      return result;
+    }
+
+    // GitLab (cloud)
+    const gitlabCloudMatch = url.match(/gitlab\.com[/:](.+?)(?:\.git)?$/);
+    if (gitlabCloudMatch) {
+      result.provider = 'gitlab';
+      result.orgRepo = gitlabCloudMatch[1];
+      result.hostname = 'gitlab.com';
+      return result;
+    }
+
+    // CodeCommit
+    const codecommitMatch = url.match(/git-codecommit\.([\w-]+)\.amazonaws\.com.*\/(.+?)(?:\.git)?$/);
+    if (codecommitMatch) {
+      result.provider = 'codecommit';
+      result.orgRepo = codecommitMatch[2];
+      result.hostname = `git-codecommit.${codecommitMatch[1]}.amazonaws.com`;
+      return result;
+    }
+
+    // GitLab (self-hosted) — detect by .gitlab-ci.yml presence or URL pattern
+    // Extract hostname and path from SSH or HTTPS URL
+    const sshMatch = url.match(/git@([\w.-]+):(.+?)(?:\.git)?$/);
+    const httpsMatch = url.match(/https?:\/\/([\w.-]+)\/(.+?)(?:\.git)?$/);
+    const hostMatch = sshMatch || httpsMatch;
+
+    if (hostMatch) {
+      const hostname = hostMatch[1];
+      const orgRepo = hostMatch[2];
+
+      // Check for .gitlab-ci.yml as a signal
+      try {
+        const ciPath = path.join(cwd, '.gitlab-ci.yml');
+        if (fs.existsSync(ciPath)) {
+          result.provider = 'gitlab';
+          result.orgRepo = orgRepo;
+          result.hostname = hostname;
+          result.selfHosted = true;
+          result.ciConfigDetected = '.gitlab-ci.yml';
+          return result;
+        }
+      } catch { /* ignore */ }
+
+      // Check for hostname containing 'gitlab' (e.g., gitlab.aws.dev, gitlab.company.com)
+      if (hostname.includes('gitlab')) {
+        result.provider = 'gitlab';
+        result.orgRepo = orgRepo;
+        result.hostname = hostname;
+        result.selfHosted = hostname !== 'gitlab.com';
+        return result;
+      }
+
+      // Fallback — unknown provider but we have the URL parsed
+      result.orgRepo = orgRepo;
+      result.hostname = hostname;
+    }
+
+    // Check for CI config files as additional signals
+    try {
+      const cwd2 = projectRoot || process.cwd();
+      if (fs.existsSync(path.join(cwd2, '.gitlab-ci.yml'))) {
+        result.ciConfigDetected = '.gitlab-ci.yml';
+      } else if (fs.existsSync(path.join(cwd2, '.github', 'workflows'))) {
+        result.ciConfigDetected = '.github/workflows';
+      }
+    } catch { /* ignore */ }
+
   } catch {
-    return '';
+    // Not in a git repo or no remote
   }
+
+  return result;
+}
+
+/**
+ * Detect corporate environment signals.
+ * Checks for AWS profiles, scoped npm registries, and VPN indicators.
+ */
+export function detectCorporateEnvironment(): CorporateDetection {
+  const signals: string[] = [];
+  let awsProfile: string | null = null;
+  let awsRegion: string | null = null;
+
+  // Check AWS profile
+  if (process.env.AWS_PROFILE) {
+    signals.push(`AWS_PROFILE=${process.env.AWS_PROFILE}`);
+    awsProfile = process.env.AWS_PROFILE;
+  }
+  if (process.env.AWS_DEFAULT_REGION || process.env.AWS_REGION) {
+    awsRegion = process.env.AWS_DEFAULT_REGION || process.env.AWS_REGION || null;
+    signals.push(`AWS_REGION=${awsRegion}`);
+  }
+
+  // Check for scoped npm registry (corporate artifact proxy)
+  try {
+    const npmrcPath = path.join(process.env.HOME || '', '.npmrc');
+    if (fs.existsSync(npmrcPath)) {
+      const npmrc = fs.readFileSync(npmrcPath, 'utf-8');
+      if (npmrc.includes('registry=') && !npmrc.includes('registry.npmjs.org')) {
+        signals.push('Custom npm registry detected');
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Check for AWS config file
+  try {
+    const awsConfigPath = path.join(process.env.HOME || '', '.aws', 'config');
+    if (fs.existsSync(awsConfigPath)) {
+      signals.push('AWS config file present');
+    }
+  } catch { /* ignore */ }
+
+  return {
+    isLikelyCorporate: signals.length >= 2,
+    signals,
+    awsProfile,
+    awsRegion,
+  };
+}
+
+/**
+ * Backward-compatible wrapper — returns org/repo string from VCS detection.
+ * Used by existing code that calls detectGhOrgRepo().
+ */
+function detectGhOrgRepo(projectRoot?: string): string {
+  return detectVcsProvider(projectRoot).orgRepo;
 }
 
 /**

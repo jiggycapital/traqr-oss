@@ -1,23 +1,100 @@
 # @traqr/core
 
-Config schema, template engine, configuration resolver, and template bundling for the Traqr platform.
+Config schema, template engine, VCS abstraction (GitHub + GitLab), and skill templates for TraqrOS.
 
-## Quick Start
+This package powers the Traqr developer platform — worktree-based parallel development, 50+ skill templates, Guardian automated PR lifecycle, and detection-first project setup.
 
-```typescript
-import {
-  STARTER_PACK_DEFAULTS,
-  buildTemplateVars,
-  renderAllTemplates,
-  resolveConfig,
-} from '@traqr/core'
+## AI-First Setup (Recommended)
 
-// Render all templates for a config
-const result = await renderAllTemplates(config)
-console.log(Object.keys(result.files)) // output paths
+The fastest way to set up Traqr is to let your AI assistant do it. Tell Claude:
 
-// Resolve config from 5-level hierarchy
-const resolved = resolveConfig({ projectRoot: '.' })
+> "Set up Traqr for my project."
+
+Claude reads this README, detects your environment, writes `.traqr/config.json`, and runs `npx traqr render` to generate everything. No interactive CLI needed.
+
+### How It Works
+
+1. Claude detects your VCS (GitHub/GitLab), framework, and package manager from the repo
+2. Claude selects a Golden Path preset matching your environment
+3. Claude writes `.traqr/config.json` with the right settings
+4. Claude runs `npx traqr render` — generates all skills, scripts, CLAUDE.md, and config files
+5. Claude runs `npx traqr render --dry-run` to verify
+
+### Config Schema (for AI agents)
+
+Write this to `.traqr/config.json`:
+
+```json
+{
+  "version": "2.0.0",
+  "project": {
+    "name": "my-project",
+    "displayName": "My Project",
+    "description": "What this project does",
+    "repoPath": "/path/to/repo",
+    "ghOrgRepo": "org/repo",
+    "framework": "nextjs",
+    "packageManager": "npm"
+  },
+  "tier": 2,
+  "prefix": "MP",
+  "shipEnvVar": "MY_PROJECT_SHIP_AUTHORIZED",
+  "sessionPrefix": "my-project",
+  "coAuthor": "Claude Opus 4.6",
+  "vcs": {
+    "provider": "github"
+  },
+  "slots": { "feature": 3, "bugfix": 1, "devops": 0 },
+  "ports": { "main": 3000, "featureStart": 3001, "bugfixStart": 3011 }
+}
+```
+
+Then run: `npx traqr render`
+
+## Golden Path Presets
+
+| Preset | VCS | Integrations | Tier | Best For |
+|--------|-----|-------------|------|----------|
+| **GitHub Pro** | GitHub | Linear + Slack + Guardian | 3 | Full automation, open source projects |
+| **GitLab Team** | GitLab | GitLab Issues + Console | 2 | Corporate teams, AWS environments |
+| **GitLab Minimal** | GitLab | None | 0 | Solo developers, minimal setup |
+
+## VCS Support
+
+TraqrOS works with both GitHub and GitLab out of the box. VCS is auto-detected from your git remote.
+
+```json
+{
+  "vcs": {
+    "provider": "gitlab",
+    "projectId": 12345,
+    "baseUrl": "https://gitlab.your-company.com",
+    "mergeStrategy": "ff"
+  }
+}
+```
+
+| Feature | GitHub | GitLab |
+|---------|--------|--------|
+| PR/MR creation | `gh pr create` | `glab mr create` |
+| Auto-merge | Native | API-driven |
+| CI | GitHub Actions | GitLab CI |
+| Labels | Additive | Read-append-write |
+
+## Manual Setup (Fallback)
+
+If you prefer an interactive wizard:
+
+```bash
+npx traqr init
+```
+
+Or non-interactive:
+
+```bash
+npx traqr render              # Generate files from config
+npx traqr render --dry-run    # Preview without writing
+npx traqr render --force      # Overwrite existing files
 ```
 
 ## API
@@ -27,49 +104,13 @@ const resolved = resolveConfig({ projectRoot: '.' })
 | Export | Description |
 |--------|-------------|
 | `TraqrConfig` | Main project configuration type |
-| `DaemonConfig` | Daemon orchestration config type |
-| `GuardianConfig` | Guardian merge config type |
 | `STARTER_PACK_DEFAULTS` | Preset configs for solo/smart/production/full tiers |
-| `getDefaultDaemonConfig(name)` | Build default daemon config for a project |
-| `DEFAULT_GUARDIAN_CONFIG` | Default guardian configuration |
-| `calculateAutomationScore(config)` | Compute 0-100 automation score |
-
-### Template Engine
-
-| Export | Description |
-|--------|-------------|
-| `TemplateVars` | Type for all template variables |
-| `generateSlots(config)` | Derive slot list from config |
+| `resolveConfig(options?)` | Resolve full config from 5-level hierarchy |
 | `buildTemplateVars(config)` | Build all template variables from config |
 | `getFeatureFlags(config)` | Derive feature flags for conditionals |
-| `validateTemplate(template, vars)` | Check for unknown `{{VAR}}` placeholders |
-| `renderTemplate(template, vars, tier, flags)` | Render a single template string |
+| `renderAllTemplates(config)` | Full pipeline: config to rendered files |
 
-### Template Loader
-
-| Export | Description |
-|--------|-------------|
-| `getTemplatesDir()` | Absolute path to bundled `templates/` directory |
-| `listTemplates(dir?)` | List all `.tmpl` files recursively |
-| `loadTemplate(path, dir?)` | Read a single template by relative path |
-| `templateToOutputPath(path, prefix)` | Map template path to output path |
-| `shouldIncludeTemplate(path, tier, flags)` | Tier-gating logic |
-| `renderAllTemplates(config, dir?)` | Full pipeline: config to rendered files |
-| `RenderResult` | Type: `{ files: Record<string, string>, warnings: string[] }` |
-
-### Config Resolver
-
-| Export | Description |
-|--------|-------------|
-| `OrgConfig` | Org-level config type (`~/.traqr/config.json`) |
-| `ResolvedConfig` | Fully resolved config with daemon/guardian guaranteed |
-| `deepMerge(target, source)` | Deep merge utility |
-| `loadOrgConfig()` | Load org config from `~/.traqr/config.json` |
-| `loadProjectConfig(root?)` | Load project config from `.traqr/config.json` |
-| `resolveConfig(options?)` | Resolve full config from 5-level hierarchy |
-| `printConfigSummary(config)` | Human-readable config summary string |
-
-## Configuration Hierarchy
+### Configuration Hierarchy
 
 Priority (highest wins):
 1. Environment variables (`TRAQR_*`, `GUARDIAN_*`)
@@ -80,9 +121,13 @@ Priority (highest wins):
 
 ## Templates
 
-50 `.tmpl` files bundled in `templates/` covering:
-- `commands/` — Claude Code slash commands
+50+ `.tmpl` files bundled covering:
+- `commands/` — Claude Code slash commands (skills)
 - `scripts/` — Shell scripts (aliases, worktree setup, pre-push guard)
 - `agents/` — Agent configuration
 - `CLAUDE.md.tmpl` — Project instructions
 - `settings.json.tmpl` — Claude Code settings
+
+## License
+
+[Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)

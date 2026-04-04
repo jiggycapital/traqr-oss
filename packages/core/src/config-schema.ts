@@ -572,10 +572,16 @@ export interface TraqrConfig {
     crossProject?: boolean;
   };
 
+  /** Obsidian vault configuration */
+  vault?: {
+    /** Absolute path to Obsidian vault root (e.g., '/Users/sean/Documents/Obsidian Vault') */
+    path: string;
+  };
+
   /** Issue tracking configuration */
   issues?: {
     /** Issue tracker provider */
-    provider: 'linear' | 'github' | 'none';
+    provider: 'linear' | 'github' | 'gitlab' | 'none';
     /** Linear team ID (required if provider is linear) */
     linearTeamId?: string;
     /** Linear workspace slug for URLs, e.g. "traqr-enterprises" → linear.app/traqr-enterprises/... */
@@ -590,6 +596,24 @@ export interface TraqrConfig {
     planDispatch?: boolean;
     /** Auto-create labels (agent-ready, has-plan, stale-*) */
     autoLabels?: boolean;
+  };
+
+  /** VCS (Version Control System) provider configuration */
+  vcs?: {
+    /** VCS provider: github or gitlab. Drives template conditionals and CLI tool selection. */
+    provider: 'github' | 'gitlab';
+    /** GitLab numeric project ID (required for GitLab API calls) */
+    projectId?: string;
+    /** Base URL for self-hosted instances (e.g., 'https://gitlab.aws.dev'). Defaults to github.com/gitlab.com */
+    baseUrl?: string;
+    /** Merge strategy: squash, fast-forward, or merge commit */
+    mergeStrategy?: 'squash' | 'fast-forward' | 'merge';
+    /** Enable auto-merge (GitHub: gh pr merge --auto, GitLab: merge_when_pipeline_succeeds) */
+    autoMerge?: boolean;
+    /** Enable primed-session pattern: GET before POST for corporate auth cookie establishment */
+    primedSession?: boolean;
+    /** Delete source branch after merge (GitLab setting) */
+    removeSourceBranch?: boolean;
   };
 
   /** Notification configuration */
@@ -767,7 +791,7 @@ export interface TraqrConfig {
  * All 11 services are represented across 4 tiers.
  */
 export const PROVISIONING_TIERS: Array<{ tier: number; services: string[] }> = [
-  { tier: 1, services: ['github', 'supabase'] },
+  { tier: 1, services: ['github', 'gitlab', 'supabase'] },
   { tier: 2, services: ['linear', 'slack', 'sentry'] },
   { tier: 3, services: ['posthog', 'resend', 'cloudflare', 'firebase', 'clerk'] },
   { tier: 4, services: ['vercel', 'axiom'] },
@@ -783,8 +807,12 @@ export function getProvisioningOrder(config: TraqrConfig): string[] {
     for (const svc of services) {
       switch (svc) {
         case 'github':
-          // Required — always needed
-          needed.push(svc);
+          // Required when VCS is GitHub (or no VCS specified — backward compat)
+          if (!config.vcs?.provider || config.vcs.provider === 'github') needed.push(svc);
+          break;
+        case 'gitlab':
+          // Required when VCS is GitLab
+          if (config.vcs?.provider === 'gitlab') needed.push(svc);
           break;
         case 'supabase':
           // Required — database + memory foundation
@@ -981,6 +1009,40 @@ export const STARTER_PACK_DEFAULTS: Record<
 };
 
 /**
+ * Golden Path presets — opinionated VCS + issues + notifications bundles.
+ * Each path extends a starter pack with VCS-specific defaults.
+ * Used by `traqr init` to suggest the right config based on environment detection.
+ */
+export const GOLDEN_PATH_DEFAULTS: Record<
+  'github-pro' | 'gitlab-team' | 'gitlab-minimal',
+  { starterPack: 'solo' | 'smart' | 'production' | 'full'; vcsOverrides: Partial<TraqrConfig> }
+> = {
+  'github-pro': {
+    starterPack: 'production',
+    vcsOverrides: {
+      vcs: { provider: 'github' },
+      issues: { provider: 'linear', planDispatch: true, autoLabels: true },
+      notifications: { slackLevel: 'standard' },
+    },
+  },
+  'gitlab-team': {
+    starterPack: 'smart',
+    vcsOverrides: {
+      vcs: { provider: 'gitlab', autoMerge: true, primedSession: true, removeSourceBranch: true },
+      issues: { provider: 'gitlab', planDispatch: true, autoLabels: true },
+      notifications: { slackLevel: 'none' as const },
+    },
+  },
+  'gitlab-minimal': {
+    starterPack: 'solo',
+    vcsOverrides: {
+      vcs: { provider: 'gitlab' },
+      issues: { provider: 'none' },
+    },
+  },
+};
+
+/**
  * Calculate automation score (0-100) from config.
  */
 export function calculateAutomationScore(config: TraqrConfig): number {
@@ -1005,6 +1067,9 @@ export function calculateAutomationScore(config: TraqrConfig): number {
     if (config.issues.planDispatch) score += 3;
     if (config.issues.autoLabels) score += 2;
   } else if (config.issues?.provider === 'github') {
+    score += 7;
+    if (config.issues.planDispatch) score += 3;
+  } else if (config.issues?.provider === 'gitlab') {
     score += 7;
     if (config.issues.planDispatch) score += 3;
   }

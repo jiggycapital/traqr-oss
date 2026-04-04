@@ -38,6 +38,9 @@ export interface TemplateVars {
   MEMORY_PROVIDER: string;
   TRAQR_PROJECT_SLUG: string;
 
+  // Vault
+  VAULT_PATH: string;
+
   // Multi-project isolation
   KV_PREFIX: string;
   ALIAS_PREFIX: string;
@@ -55,6 +58,15 @@ export interface TemplateVars {
   LINEAR_TEAM_ID: string;
   LINEAR_WORKSPACE_SLUG: string;
   ISSUE_PROVIDER: string;
+
+  // VCS (Version Control System)
+  VCS_PROVIDER: string;
+  VCS_PROJECT_ID: string;
+  VCS_BASE_URL: string;
+  VCS_REPO_URL: string;
+  VCS_MR_URL_PREFIX: string;
+  VCS_PR_NOUN: string;
+  VCS_PR_NOUN_LONG: string;
 
   // Slack (prefix + channels)
   SLACK_LEVEL: string;
@@ -494,6 +506,7 @@ export function buildTemplateVars(config: TraqrConfig): TemplateVars {
     MEMORY_API_BASE: config.memory?.apiBase ?? '',
     MEMORY_PROVIDER: config.memory?.provider ?? 'none',
     TRAQR_PROJECT_SLUG: config.memory?.projectSlug ?? config.project.name,
+    VAULT_PATH: config.vault?.path ?? '',
     KV_PREFIX: config.kvPrefix ?? config.project.name,
     ALIAS_PREFIX: config.aliasPrefix ?? config.prefix.slice(0, 2),
     CRON_SECRET_VAR: `${P}_CRON_SECRET`,
@@ -504,6 +517,20 @@ export function buildTemplateVars(config: TraqrConfig): TemplateVars {
     LINEAR_TEAM_ID: config.issues?.linearTeamId ?? '',
     LINEAR_WORKSPACE_SLUG: config.issues?.linearWorkspaceSlug ?? '',
     ISSUE_PROVIDER: config.issues?.provider ?? 'none',
+
+    // VCS
+    VCS_PROVIDER: config.vcs?.provider ?? 'github',
+    VCS_PROJECT_ID: config.vcs?.projectId ?? '',
+    VCS_BASE_URL: config.vcs?.baseUrl ?? (config.vcs?.provider === 'gitlab' ? 'https://gitlab.com' : 'https://github.com'),
+    VCS_REPO_URL: config.vcs?.provider === 'gitlab'
+      ? `${config.vcs?.baseUrl ?? 'https://gitlab.com'}/${config.project.ghOrgRepo}`
+      : `https://github.com/${config.project.ghOrgRepo}`,
+    VCS_MR_URL_PREFIX: config.vcs?.provider === 'gitlab'
+      ? `${config.vcs?.baseUrl ?? 'https://gitlab.com'}/${config.project.ghOrgRepo}/-/merge_requests/`
+      : `https://github.com/${config.project.ghOrgRepo}/pull/`,
+    VCS_PR_NOUN: config.vcs?.provider === 'gitlab' ? 'MR' : 'PR',
+    VCS_PR_NOUN_LONG: config.vcs?.provider === 'gitlab' ? 'merge request' : 'pull request',
+
     SLACK_LEVEL: config.notifications?.slackLevel ?? 'none',
     SLACK_CHANNEL_PREFIX: config.notifications?.slackChannelPrefix ?? config.aliasPrefix ?? 'dev',
     SLACK_DEPLOY_CHANNEL: config.notifications?.slackDeployChannel ?? `${chanPrefix}-deployments`,
@@ -629,6 +656,13 @@ export function buildTemplateVars(config: TraqrConfig): TemplateVars {
  */
 export function getFeatureFlags(config: TraqrConfig): Record<string, boolean> {
   return {
+    GITHUB: config.vcs?.provider === 'github' || !config.vcs?.provider,
+    GITLAB: config.vcs?.provider === 'gitlab',
+    GITLAB_ISSUES: config.issues?.provider === 'gitlab',
+    VCS_AUTO_MERGE: config.vcs?.autoMerge === true,
+    VCS_PRIMED_SESSION: config.vcs?.primedSession === true,
+    VCS_REMOVE_SOURCE_BRANCH: config.vcs?.removeSourceBranch === true,
+    OBSIDIAN: !!config.vault?.path,
     SLACK: (config.notifications?.slackLevel ?? 'none') !== 'none',
     MEMORY: (config.memory?.provider ?? 'none') !== 'none',
     MEMORY_FULL: config.memory?.provider === 'supabase',

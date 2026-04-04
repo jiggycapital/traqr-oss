@@ -12,6 +12,7 @@ export {
   DEFAULT_GUARDIAN_CONFIG,
   REQUIRED_SERVICES,
   STARTER_PACK_DEFAULTS,
+  GOLDEN_PATH_DEFAULTS,
   DESIGN_FLAVOR_DEFAULTS,
   BORDER_RADIUS_MAP,
   ANIMATION_PARAMS,
@@ -37,7 +38,7 @@ export {
 } from './template-engine.js'
 
 // Config resolver — org/project config loading, 5-level hierarchy, project registry
-export type { OrgConfig, ResolvedConfig, ProjectRegistryEntry } from './config-resolver.js'
+export type { OrgConfig, ResolvedConfig, ProjectRegistryEntry, VcsDetection, CorporateDetection } from './config-resolver.js'
 export {
   deepMerge,
   mergePreferredStack,
@@ -49,6 +50,8 @@ export {
   registerProject,
   getProjectRegistry,
   detectMonorepo,
+  detectVcsProvider,
+  detectCorporateEnvironment,
 } from './config-resolver.js'
 
 // Skill engine — frontmatter parsing, discovery, dependency validation
@@ -57,6 +60,7 @@ export {
   parseSkillManifest,
   parseSystemSkillManifest,
   loadSkills,
+  loadAllSkills,
   loadSystemSkills,
   topologicalSort,
   resolveSkill,
@@ -64,6 +68,14 @@ export {
   getSkillsByCategory,
   validateDependencies,
 } from './skill-engine.js'
+
+// Skill generator — dual-interface view generation (.claude/ → .kiro/)
+export type { GenerateResult, GenerateOptions } from './skill-generator.js'
+export { generateSkillViews } from './skill-generator.js'
+
+// Vault generator — Obsidian vault initialization
+export type { VaultInitResult } from './vault-generator.js'
+export { initVault } from './vault-generator.js'
 
 // Alias generator — per-project shell alias files for multi-project support
 export type { AliasGeneratorOptions } from './alias-generator.js'

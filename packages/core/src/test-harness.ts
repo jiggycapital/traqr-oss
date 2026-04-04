@@ -57,7 +57,7 @@ function suiteConfigValidation(pack: string, config: TraqrConfig): SuiteResult {
   })
 
   // Tier matches pack
-  const expectedTiers: Record<string, number> = { solo: 0, smart: 2, production: 3, full: 4 }
+  const expectedTiers: Record<string, number> = { solo: 0, smart: 2, production: 3, full: 4, 'gitlab-team': 2 }
   checks++
   results.push({
     name: 'tier',
@@ -82,8 +82,9 @@ function suiteConfigValidation(pack: string, config: TraqrConfig): SuiteResult {
     smart: [20, 50],
     production: [40, 80],
     full: [70, 100],
+    'gitlab-team': [20, 50],
   }
-  const [min, max] = scoreRanges[pack]
+  const [min, max] = scoreRanges[pack] ?? [0, 100]
   checks++
   results.push({
     name: 'automationScore',
@@ -180,9 +181,10 @@ function suiteFeatureFlags(pack: string, config: TraqrConfig): SuiteResult {
     smart: { MEMORY: true, GITHUB_ISSUES: true, SLACK: false, LINEAR: false },
     production: { LINEAR: true, SLACK: true, POSTHOG: true, DAEMON: true, GUARDIAN: false },
     full: { SLACK: true, MEMORY: true, LINEAR: true, POSTHOG: true, DAEMON: true, GUARDIAN: true, EMAIL: true },
+    'gitlab-team': { GITLAB: true, GITLAB_ISSUES: true, MEMORY: true, SLACK: false, LINEAR: false, GITHUB: false, GITHUB_ISSUES: false },
   }
 
-  const expected = expectations[pack]
+  const expected = expectations[pack] ?? {}
   const mismatches: string[] = []
   for (const [flag, expectedVal] of Object.entries(expected)) {
     checks++
@@ -258,9 +260,14 @@ async function suiteTierGating(pack: string, config: TraqrConfig): Promise<Suite
       { template: 'commands/email.md.tmpl', expected: true },
       { template: 'commands/slack.md.tmpl', expected: true },
     ],
+    'gitlab-team': [
+      { template: 'commands/analyze.md.tmpl', expected: true },
+      { template: 'commands/slack.md.tmpl', expected: false },
+      { template: 'commands/ship.md.tmpl', expected: true },
+    ],
   }
 
-  const tests = gatingTests[pack]
+  const tests = gatingTests[pack] ?? []
   const gatingMismatches: string[] = []
   for (const { template, expected } of tests) {
     checks++
@@ -399,8 +406,8 @@ async function suiteSkillEngine(pack: string, config: TraqrConfig): Promise<Suit
     })
 
     // Filter by tier
-    const tierMap: Record<string, SkillTier> = { solo: 'any', smart: '2', production: '3', full: 'any' }
-    const tierSkills = getSkillsByTier(skills, tierMap[pack])
+    const tierMap: Record<string, SkillTier> = { solo: 'any', smart: '2', production: '3', full: 'any', 'gitlab-team': '2' }
+    const tierSkills = getSkillsByTier(skills, tierMap[pack] ?? 'any')
     checks++
     results.push({
       name: 'tierFilter',
@@ -565,7 +572,7 @@ function formatOutput(result: Awaited<ReturnType<typeof runAllSuites>>): string 
   lines.push('╭─────────────────────────────────────────────────────────────╮')
   lines.push('│      /\\___/\\                                                │')
   lines.push(`│     ${mood.padEnd(8)}  Running traqr-init validation suite...      │`)
-  lines.push('│     (  =^=  )   4 packs x 7 suites = 28 test groups        │')
+  lines.push('│     (  =^=  )   5 packs x 7 suites = 35 test groups        │')
   lines.push('│      (______)                                               │')
   lines.push('╰─────────────────────────────────────────────────────────────╯')
   lines.push('')

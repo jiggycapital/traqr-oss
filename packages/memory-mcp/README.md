@@ -1,8 +1,20 @@
 # traqr-memory-mcp
 
-MCP server for persistent AI agent memory. 10 tools, Postgres + pgvector, multi-strategy retrieval (semantic + BM25 + RRF). Works with Claude Code, Cursor, Codex, and any MCP client.
+MCP server for persistent AI agent memory. 11 tools, Postgres + pgvector, multi-strategy retrieval (semantic + BM25 + RRF). Works with Claude Code, Cursor, Codex, and any MCP client.
 
-## Quick Start
+## Fastest Setup
+
+Just tell your AI assistant: **"Set up TraqrDB for persistent memory."** It reads this README, writes your MCP config, and handles everything. Zero terminal interaction needed.
+
+Or run the interactive wizard:
+
+```bash
+npx traqr-memory-mcp --install
+```
+
+The wizard detects your MCP client, asks for your database and embedding provider, and writes the config automatically.
+
+## Manual Setup
 
 ### 1. Set Up Your Database
 
@@ -111,7 +123,7 @@ TraqrDB Memory MCP v0.1.3 | Schema v2 | DB: Supabase | Embeddings: openai/text-e
 
 ---
 
-## 10 MCP Tools
+## 11 MCP Tools
 
 | Tool | Description |
 |------|-------------|
@@ -122,6 +134,7 @@ TraqrDB Memory MCP v0.1.3 | Schema v2 | DB: Supabase | Embeddings: openai/text-e
 | `memory_browse` | Navigate by facet. Domain > category > summaries. Zero embedding cost. |
 | `memory_context` | Load task-relevant context — principles, preferences, gotchas. |
 | `memory_pulse` | Batch: capture multiple learnings + search in one call. |
+| `memory_correct` | Store a correction to an existing memory with context about what changed. |
 | `memory_audit` | System health, stats, quality metrics. |
 | `memory_archive` | Archive stale content that was once correct. |
 | `memory_forget` | Forget incorrect or harmful content permanently. |
@@ -205,4 +218,4 @@ If something goes wrong, the MCP server prints structured error messages with fi
 
 ## License
 
-Apache-2.0
+[FSL-1.1-ALv2](https://fsl.software) — use freely for any purpose except offering a competing commercial memory service. Converts to Apache-2.0 after 2 years.

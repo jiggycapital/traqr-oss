@@ -1,6 +1,6 @@
 {
   "name": "@traqr/memory",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Persistent memory for AI agents. Multi-strategy retrieval (semantic + BM25 + RRF), 3-zone cosine triage, type-aware lifecycle, entity canonicalization. Postgres + pgvector.",
   "type": "module",
   "main": "./dist/index.js",
@@ -43,9 +43,11 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "license": "Apache-2.0",
+  "license": "FSL-1.1-ALv2",
+  "homepage": "https://traqr.dev/memory",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jiggycapital/traqr-oss"
+    "url": "https://github.com/jiggycapital/traqr-oss",
+    "directory": "packages/memory"
   }
 }

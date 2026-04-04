@@ -1,7 +1,7 @@
 {
   "name": "traqr-memory-mcp",
-  "version": "0.1.6",
-  "description": "Memory-as-a-service MCP server for AI agents. 10 tools, Postgres + pgvector, multi-strategy retrieval. Works with Claude Code, Cursor, Codex, and any MCP client.",
+  "version": "0.1.7",
+  "description": "Memory-as-a-service MCP server for AI agents. 11 tools, Postgres + pgvector, multi-strategy retrieval. Works with Claude Code, Cursor, Codex, and any MCP client.",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
@@ -44,9 +44,11 @@
     "cursor",
     "codex"
   ],
-  "license": "Apache-2.0",
+  "license": "FSL-1.1-ALv2",
+  "homepage": "https://traqr.dev/memory",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jiggycapital/traqr-oss"
+    "url": "https://github.com/jiggycapital/traqr-oss",
+    "directory": "packages/memory-mcp"
   }
 }

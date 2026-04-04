@@ -44,6 +44,8 @@ export interface SkillManifest {
   requirements: SkillRequirements
   /** Original file path (set by loadSkills) */
   filePath?: string
+  /** Where this skill was discovered from (set by loadAllSkills) */
+  source?: 'platform' | 'workspace'
 }
 
 /**
@@ -220,6 +222,42 @@ export async function loadSkills(skillsDir: string): Promise<SkillManifest[]> {
   }
 
   return manifests.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * Load skills from multiple directories with workspace-wins-on-collision merging.
+ * Platform skills (.claude/commands/) are loaded first, then workspace skills
+ * (workspaces/<name>/skills/) override on name collision.
+ *
+ * This enables SalesOS skills to coexist with Traqr platform skills
+ * in the same monorepo, with workspace-specific skills taking precedence.
+ */
+export async function loadAllSkills(options: {
+  platformDir: string
+  workspaceDirs?: string[]
+}): Promise<SkillManifest[]> {
+  // Load platform skills
+  const platform = await loadSkills(options.platformDir)
+  for (const s of platform) s.source = 'platform'
+
+  // Load workspace skills
+  const workspace: SkillManifest[] = []
+  for (const dir of options.workspaceDirs ?? []) {
+    try {
+      const skills = await loadSkills(dir)
+      for (const s of skills) s.source = 'workspace'
+      workspace.push(...skills)
+    } catch {
+      // Skip missing workspace dirs — not all workspaces have skills
+    }
+  }
+
+  // Merge: workspace wins on name collision
+  const byName = new Map<string, SkillManifest>()
+  for (const s of platform) byName.set(s.name, s)
+  for (const s of workspace) byName.set(s.name, s)
+
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /**

@@ -35,6 +35,12 @@ async function main() {
     case 'render':
       await import('../commands/render.js')
       break
+    case 'link':
+      await import('../commands/link.js')
+      break
+    case 'scaffold':
+      await import('../commands/scaffold.js')
+      break
     case 'status':
       await import('../commands/status.js')
       break
@@ -82,6 +88,8 @@ function printUsage() {
   Commands:
     init          Interactive project setup wizard
     new           Alias for init (scaffold a new project)
+    scaffold      Create a new DevOS monorepo from scratch
+    link          Connect cloud services (VCS, memory, Slack, etc.)
     setup         Create or update global profile (~/.traqr/config.json)
     projects      List and manage registered projects
     render        Render templates from .traqr/config.json

@@ -123,4 +123,4 @@ psql postgresql://postgres:postgres@localhost:5432/postgres -f node_modules/traq
 
 ## License
 
-Apache-2.0
+[FSL-1.1-ALv2](https://fsl.software) — use freely for any purpose except offering a competing commercial memory service. Converts to Apache-2.0 after 2 years.

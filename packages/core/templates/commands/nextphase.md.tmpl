@@ -1,0 +1,303 @@
+---
+name: nextphase
+description: Pick up the next phase of work from a Linear project and enter plan mode
+tier: any
+category: planning
+autoInvoked: false
+dependencies: []
+relatedSkills: [ship, dispatch, inbox, projectrefresh, auditor]
+requirements:
+  env: []
+  integrations: [linear]
+---
+
+# /nextphase - Pick Up Next Phase from Linear Project
+
+Find the next milestone (phase) with unfinished work in a Linear project, load context from prior phases, and either enter plan mode or launch directly.
+
+## Arguments
+- `<project>` -- **Required**. Linear project name (e.g., "Control Center", "Pokopia", "Memory System")
+- Optional: append milestone name to skip selection (e.g., "Memory Engine v2 Research M4")
+
+## Step 1: Find the Project
+
+Use `mcp__claude_ai_Linear__list_projects` to find the project:
+
+```
+list_projects(query: "<project argument>")
+```
+
+Do NOT pass `includeMilestones: true` -- it causes "Query too complex" errors on Linear's API.
+Do NOT filter by team -- search across all teams so the user doesn't need to remember which team owns the project.
+
+**Guard:** If no project matches, STOP:
+```
+No Linear project matching "<project>" found.
+Available projects: <list first 5 project names>
+```
+
+If multiple matches, pick the closest name match.
+
+## Step 2: List Milestones
+
+Use `mcp__claude_ai_Linear__list_milestones` to get all milestones for the project:
+
+```
+list_milestones(project: "<project name or ID>")
+```
+
+**Guard:** If no milestones exist, STOP:
+```
+Project "<name>" has no milestones/phases defined.
+Create phases in Linear first, then run /nextphase again.
+```
+
+## Step 3: Find the Next Active Phase
+
+If the user specified a milestone name in the arguments (e.g., "M4"), match it directly and skip selection logic.
+
+Otherwise, evaluate milestones in sort order. Use `progress` field from milestones response:
+- `progress: 100` = fully complete, SKIP
+- `progress: 0` = unstarted
+- `progress: 1-99` = partially complete
+
+**Selection logic (pick the FIRST match):**
+
+1. **In-progress phase**: A milestone with progress 1-99 (partially complete, has active work).
+
+2. **Next unstarted phase**: A milestone with progress 0 (all tickets in Backlog/Todo).
+
+Skip milestones with progress 100.
+
+**Confirm selection before proceeding:**
+```
+Selected: <milestone name> (progress: <N>%, <ticket count> tickets)
+
+Is this the right phase to pick up? (a) yes, proceed (b) show me all milestones so I can choose (c) abort
+```
+
+If (b), list all milestones with progress and let Sean choose explicitly.
+
+**Guard:** If all milestones are fully complete, STOP:
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( ^   ^ )   All phases complete!                        │
+│     (  =^=  )   Time to verify the work.                    │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+All phases in "<project>" are complete! No more work to pick up.
+Run /auditor <project> to verify everything shipped correctly.
+```
+
+## Step 4: Gather Phase Details
+
+Fetch only non-done tickets for the selected milestone efficiently:
+
+```
+list_issues(project: "<project>", state: "Backlog", limit: 50)
+```
+
+Then filter results to only tickets belonging to the selected milestone (match `projectMilestone.id`).
+
+If needed, also fetch `state: "In Progress"` and `state: "Todo"` tickets.
+
+For each ticket, note:
+- Identifier (e.g., TD-99)
+- Title
+- Priority (1=Urgent, 2=High, 3=Normal, 4=Low)
+- State (Todo, In Progress, Backlog)
+
+Sort tickets by: priority (highest first), then by identifier (lowest number first).
+
+## Step 5: Load Prior Context + Ticket Freshness Check
+
+**This step is critical for compounding research.** Before showing the summary:
+
+### 5a. Load Prior Context
+
+1. **Count completed phases**: How many milestones have progress 100? Show "Phase N of M" with completed count.
+
+2. **Search memory DB** for the project topic:
+   ```
+   memory_search(query: "<project name> competitive analysis architecture")
+   ```
+   Show the top 3-5 relevant memory summaries as "Prior Findings" in the output.
+
+{{#IF_OBSIDIAN}}
+3. **Check Obsidian** for existing research docs (if research project):
+   ```bash
+   find "{{VAULT_PATH}}/Projects" -maxdepth 3 -name "*.md" -not -name ".*" 2>/dev/null | head -20
+   ```
+   - Count docs in the project's Obsidian folder
+   - List the most recent 3-5 doc titles
+{{/IF_OBSIDIAN}}
+{{^IF_OBSIDIAN}}
+3. **Check for research docs**: If the project has prior research, check the memory DB for document references.
+{{/IF_OBSIDIAN}}
+
+4. **Summarize prior phases** in 1 line each:
+   - "M2 (Mem0): 5 docs, hybrid pipeline recommended, Postgres tables > graph DBs"
+   - "M3 (Supermemory): 5 docs, consolidation myth-busted, MemoryBench 3-5 day integration"
+
+### 5b. Ticket Freshness Check (CRITICAL)
+
+**Linear projects are living plans, not waterfall.** Tickets written at project creation go stale as research progresses.
+
+For each ticket in the selected phase:
+1. Read the ticket description
+2. Check: does it reference findings from prior completed phases?
+3. Check: have any of its assumptions been debunked by prior research?
+4. Check: are there new questions discovered during prior phases that this ticket should address?
+
+**If tickets are stale** (still have day-1 descriptions with no prior-phase context):
+
+Flag this in the output:
+```
+STALE TICKETS DETECTED
+These tickets were written before M2-M4 research.
+Recommend refreshing descriptions before executing:
+  - TD-XXX: Still asks about X, but M3 debunked it
+  - TD-YYY: Doesn't reference Hindsight TEMPR findings
+```
+
+**Then offer to refresh them:**
+```
+Want me to:
+  (a) Refresh stale tickets with prior findings before executing
+  (b) Execute as-is (ticket descriptions are just starting points anyway)
+```
+
+If refreshing, update each ticket's description via `save_issue` with:
+- New questions from prior phase findings
+- References to specific research docs
+- Updated scope if assumptions changed
+- "Informed by: M2, M3, M4, M4.5" tag showing which phases have been incorporated
+
+**Goal:** By Phase 10 of a 15-phase project, Phase 10 tickets should read like they were written YESTERDAY with full knowledge of Phases 1-9.
+
+## Step 6: Show Phase Summary
+
+Display the phase summary with prior context:
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( o   o )   Next phase locked in.                       │
+│     (  =^=  )   Let me build you a plan.                    │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /nextphase                          Traqr · <app>
+────────────────────────────────────────────────────────────
+
+Project:   <project name>
+Phase:     <milestone name> (<N of M> phases)
+Tickets:   <count> remaining (<done count> already shipped)
+{{#IF_OBSIDIAN}}Prior:     <completed phase count> phases complete, <total docs> Obsidian docs{{/IF_OBSIDIAN}}
+{{^IF_OBSIDIAN}}Prior:     <completed phase count> phases complete{{/IF_OBSIDIAN}}
+
+<priority emoji> <identifier> <title> [<state>]
+<priority emoji> <identifier> <title> [<state>]
+<priority emoji> <identifier> <title> [<state>]
+...
+
+────────────────────────────────────────────────────────────
+
+Prior Findings (from memory DB):
+- <memory summary 1>
+- <memory summary 2>
+- <memory summary 3>
+
+────────────────────────────────────────────────────────────
+```
+
+## Step 7: Decide — Plan Mode or Direct Launch
+
+After showing the summary, assess whether to enter plan mode or offer direct launch:
+
+**Enter plan mode when:**
+- This is the FIRST phase of a new project (no prior phases complete)
+- This is an implementation phase (code changes, not research)
+- The phase type is unfamiliar (new kind of work)
+
+**Offer direct launch when:**
+- Prior phases used a validated pattern (e.g., parallel subagents for research)
+- The user has expressed trust in the workflow ("lets launch", "go for it")
+- The phase follows the same structure as completed phases
+
+When offering direct launch, say:
+```
+We have a validated pattern from prior phases. Want me to:
+  (a) Launch directly — parallel subagents with spawn template
+  (b) Plan first — enter plan mode to customize the approach
+
+────────────────────────────────────────────────────────────
+```
+
+If the user chooses (a) or says anything like "launch", "go", "do it" — skip plan mode and execute the validated pattern immediately.
+
+If entering plan mode, call `EnterPlanMode`.
+
+## Step 8: In Plan Mode (if entered)
+
+Present a brief recap:
+- Phase name and goal (from milestone description)
+- Ticket list with priorities
+- Any obvious dependency ordering
+- Prior phase findings that are relevant
+
+Then wait for the user to direct the planning. They may:
+- Ask you to explore specific tickets in depth
+- Ask you to build a full execution plan
+- Ask you to focus on a subset of tickets
+- Start working immediately
+
+Do NOT auto-launch explore agents or build a full plan unprompted.
+
+## Priority Emoji Mapping
+
+| Priority | Emoji | Label |
+|----------|-------|-------|
+| 1 | :rotating_light: | Urgent |
+| 2 | :red_circle: | High |
+| 3 | :large_yellow_circle: | Normal |
+| 4 | :white_circle: | Low |
+| 0 | :white_circle: | None |
+
+## Edge Cases
+
+- **Project has milestones but no tickets in any milestone**: STOP with message suggesting tickets need to be created
+- **All remaining tickets are blocked/on hold**: Note this in the summary, still enter plan mode to assess
+- **Very large phase (20+ tickets)**: Group by sub-category or label in the summary
+- **Tickets with sub-issues**: Show parent tickets with a note about sub-issue count
+- **User specifies milestone that doesn't exist**: Show available milestones and ask for clarification
+- **Multiple milestones partially complete**: Pick the one with highest progress (closest to done) to finish it first
+
+## Error Handling
+
+If Linear API calls fail, show the error with Raqr:
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( !   ! )   Can't reach Linear.                         │
+│     (  =^=  )   Let me explain...                           │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /nextphase                          Traqr
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<translate the raw error to plain English>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+| Raw Error | Plain English | Fix |
+|-----------|--------------|-----|
+| Linear MCP tool not available | Linear integration isn't connected | Check that the Linear MCP server is configured in settings |
+| No projects found | No Linear projects match the team | Verify the team name in .traqr/config.json matches your Linear workspace |
+| No milestones found | Project has no milestones set up | Create milestones in Linear first, then retry |
+| All milestones complete | Every phase is already shipped | Run `/auditor <project>` to verify, then plan the next project |
