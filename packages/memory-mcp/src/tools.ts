@@ -226,7 +226,7 @@ export function registerTools(server: McpServer) {
   // --- memory_pulse ---
   server.tool(
     'memory_pulse',
-    'Batch operation: capture multiple learnings + search + update in one call. Each capture only needs content.',
+    'Batch operation: capture multiple learnings + search + update in one call. Each capture only needs content. Max 5 captures per call — send multiple calls for larger batches.',
     {
       search: z.string().optional(),
       searchLimit: z.number().min(1).max(5).default(3),
@@ -238,12 +238,15 @@ export function registerTools(server: McpServer) {
     },
     async ({ search, searchLimit, captures }) => {
       try {
+        const MAX_CAPTURES = 5
+        const validCaptures = captures.filter((c) => c.content.trim().length >= 20)
+        const tooShort = captures.length - validCaptures.length
+        const dropped = Math.max(0, validCaptures.length - MAX_CAPTURES)
+        const toProcess = validCaptures.slice(0, MAX_CAPTURES)
+
         // Run captures through triage
         const captureResults = await Promise.all(
-          captures
-            .filter((c) => c.content.trim().length >= 20)
-            .slice(0, 5)
-            .map((cap) => {
+          toProcess.map((cap, idx) => {
               const derived = deriveAll(cap.content, {
                 category: cap.category, tags: cap.tags, sourceTool: 'mcp-pulse',
               })
@@ -260,7 +263,7 @@ export function registerTools(server: McpServer) {
                 memoryType: derived.memoryType as any,
                 sourceTool: 'mcp-pulse',
               }
-              return triageAndStore(input).catch(() => null)
+              return triageAndStore(input).then((r) => ({ index: idx, ...r })).catch(() => ({ index: idx, zone: 'error' }))
             }),
         )
 
@@ -271,14 +274,19 @@ export function registerTools(server: McpServer) {
           searchResults = results.map(toSummaryResult)
         }
 
-        const successful = captureResults.filter(Boolean)
+        const successful = captureResults.filter((r: any) => r?.zone !== 'error')
         const zones = {
           noop: successful.filter((r: any) => r?.zone === 'noop').length,
           add: successful.filter((r: any) => r?.zone === 'add').length,
           borderline: successful.filter((r: any) => r?.zone === 'borderline').length,
         }
 
-        const summary = `Captured ${successful.filter((r: any) => !r?.deduplicated).length}, merged ${successful.filter((r: any) => r?.merged).length} | Zones: ${zones.noop} noop, ${zones.add} new, ${zones.borderline} borderline`
+        const parts: string[] = []
+        parts.push(`Captured ${successful.filter((r: any) => !r?.deduplicated).length}, merged ${successful.filter((r: any) => r?.merged).length} | Zones: ${zones.noop} noop, ${zones.add} new, ${zones.borderline} borderline`)
+        if (dropped > 0) parts.push(`WARNING: ${dropped} capture(s) dropped — batch limit is ${MAX_CAPTURES}. Send multiple pulse calls for larger batches.`)
+        if (tooShort > 0) parts.push(`Filtered: ${tooShort} capture(s) skipped (content < 20 chars)`)
+
+        const summary = parts.join('\n')
         const text = searchResults.length > 0
           ? `${summary}\n\nSearch: ${searchResults.length} results\n${JSON.stringify(searchResults, null, 2)}`
           : summary

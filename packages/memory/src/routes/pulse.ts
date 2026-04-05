@@ -57,7 +57,9 @@ app.post('/', async (c) => {
 
     const slot = body.slot.trim()
 
-    const captures = (body.captures || []).slice(0, MAX_CAPTURES)
+    const allCaptures = body.captures || []
+    const droppedCount = Math.max(0, allCaptures.length - MAX_CAPTURES)
+    const captures = allCaptures.slice(0, MAX_CAPTURES)
     const validCaptures = captures.filter(
       (cap) =>
         cap.content &&
@@ -65,6 +67,7 @@ app.post('/', async (c) => {
         cap.content.trim().length >= MIN_CAPTURE_LENGTH &&
         passesIngestionGate(cap.content.trim()).passes
     )
+    const filteredCount = captures.length - validCaptures.length
 
     const searchQuery = typeof body.search === 'string' ? body.search.trim() : null
     const searchLimit = Math.min(
@@ -186,6 +189,8 @@ app.post('/', async (c) => {
       deduplicated,
       updated,
       zones,
+      ...(droppedCount > 0 ? { dropped: droppedCount, batchLimit: MAX_CAPTURES } : {}),
+      ...(filteredCount > 0 ? { filtered: filteredCount } : {}),
       ...(formattedSearch ? { searchResults: formattedSearch } : {}),
     })
   } catch (error) {

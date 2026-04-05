@@ -9,6 +9,8 @@
  *   --force      Overwrite existing files
  */
 
+import fs from 'fs/promises'
+import path from 'path'
 import { loadProjectConfig, renderAllTemplates } from '@traqr/core'
 import { writeFiles } from '../lib/writer.js'
 
@@ -57,6 +59,31 @@ async function run() {
       for (const f of writeResult.skipped) {
         console.log(`  ${f}`)
       }
+    }
+  }
+
+  // Write global skills to ~/.claude/commands/
+  const globalEntries = Object.entries(result.globalFiles)
+  if (globalEntries.length > 0) {
+    const home = process.env.HOME || ''
+    if (dryRun) {
+      console.log(`\n--- Dry run: ${globalEntries.length} global skills ---`)
+      for (const [globalPath, content] of globalEntries) {
+        console.log(`\n=== ${globalPath} ===`)
+        console.log(content)
+      }
+    } else {
+      for (const [globalPath, content] of globalEntries) {
+        const absPath = globalPath.replace(/^~/, home)
+        const exists = await fs.access(absPath).then(() => true).catch(() => false)
+        if (exists && !force) {
+          console.log(`Skipped global: ${globalPath} (use --force to overwrite)`)
+          continue
+        }
+        await fs.mkdir(path.dirname(absPath), { recursive: true })
+        await fs.writeFile(absPath, content as string, 'utf-8')
+      }
+      console.log(`Global:  ${globalEntries.length} skills -> ~/.claude/commands/`)
     }
   }
 
