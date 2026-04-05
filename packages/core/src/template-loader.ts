@@ -131,6 +131,9 @@ export function templateToOutputPath(templatePath: string, prefix: string, appDi
   // schema.sql → .traqr/schema.sql
   if (output === 'schema.sql') return '.traqr/schema.sql'
 
+  // ONBOARDING.md → .traqr/ONBOARDING.md
+  if (output === 'ONBOARDING.md') return '.traqr/ONBOARDING.md'
+
   // Prefix output paths for config files
   if (output === 'CLAUDE.md' || output === 'settings.json') {
     if (output === 'settings.json') output = '.claude/settings.json'
@@ -196,6 +199,7 @@ export function shouldIncludeTemplate(
     'scripts/aliases.sh.tmpl',
     'scripts/pre-push-guardrail.sh.tmpl',
     'CLAUDE.md.tmpl',
+    'ONBOARDING.md.tmpl',
     'settings.json.tmpl',
     'env.local.tmpl',
   ]

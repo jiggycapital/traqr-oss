@@ -21,9 +21,41 @@ This is a multi-app monorepo. Before starting ANY task, determine the target app
 {{/IF_MONOREPO}}
 ---
 
-{{#IF_TIER_1+}}## Memory Feedback Loop (MANDATORY)
+## Getting Started (New to This Project?)
+
+If this is your first time working on this project:
+
+1. **Set up your worktree slots:**
+   ```bash
+   npx traqr render
+   source scripts/{{PREFIX}}-aliases.sh
+   ```
+{{#IF_MEMORY_FULL}}2. **Connect to the shared memory DB:**
+   - Run `npx traqr-memory-mcp --install` (asks for DB credentials)
+   - Or copy `.claude/mcp.json` from the team template (ask your team lead)
+   - Verify: run `/startup` — it should connect and load memories
+{{/IF_MEMORY_FULL}}3. **Jump into a slot and start coding:**
+   ```bash
+   z1 && claude    # Slot 1, open Claude Code
+   ```
+4. **Read the Common Gotchas section** at the bottom of this file
+{{#IF_MEMORY_FULL}}5. **Your first task:** Claude will run `/startup` → `/context` → implement → `/ship`
+{{/IF_MEMORY_FULL}}{{^IF_MEMORY_FULL}}5. **Your first task:** Pick up a ticket → implement → `/ship`
+{{/IF_MEMORY_FULL}}
+---
+
+{{#IF_MEMORY_FULL}}## Memory Feedback Loop (MANDATORY)
 
 Every agent, every session must participate. The vector DB is the portable asset — skip one session and the compound effect breaks.
+
+### Setup Check (First Time?)
+
+Before using memory tools, verify your MCP connection:
+1. Check `.claude/mcp.json` exists with `traqr-memory` configured
+2. Run `/startup` — should connect to the shared memory DB
+3. If it fails: run `npx traqr-memory-mcp --install` or ask your team lead for credentials
+
+If memory is NOT configured yet, you can still code — but learnings won't be captured. Set it up before your next session.
 
 ### The Three Gates
 
@@ -49,7 +81,7 @@ Every agent, every session must participate. The vector DB is the portable asset
 
 Slot agents: fetch ticket (`mcp__linear__get_issue`), IMMEDIATELY fetch comments (`mcp__linear__list_comments`), parse `## Full Implementation Details` comment.
 {{/IF_TIER_2+}}
-{{/IF_TIER_1+}}## Development Workflow
+{{/IF_MEMORY_FULL}}## Development Workflow
 
 This project uses a **multi-slot worktree system**. NEVER push directly to main.
 
