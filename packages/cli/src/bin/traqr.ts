@@ -44,6 +44,9 @@ async function main() {
     case 'status':
       await import('../commands/status.js')
       break
+    case 'verify':
+      await import('../commands/verify.js')
+      break
     case '--help':
     case '-h':
       printUsage()
@@ -93,6 +96,7 @@ function printUsage() {
     setup         Create or update global profile (~/.traqr/config.json)
     projects      List and manage registered projects
     render        Render templates from .traqr/config.json
+    verify        Post-setup health check (config, render, memory, VCS)
     status        Show config summary + health
 
   Options:
