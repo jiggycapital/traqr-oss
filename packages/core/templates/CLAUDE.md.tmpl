@@ -1,10 +1,13 @@
+<!-- traqr:start:project-overview -->
 {{#IF_MONOREPO}}# CLAUDE.md - Traqr Monorepo Intelligence
 {{/IF_MONOREPO}}{{^IF_MONOREPO}}# CLAUDE.md - {{PROJECT_DISPLAY_NAME}} Project Intelligence
 {{/IF_MONOREPO}}
 ## Project Overview
 {{PROJECT_DESCRIPTION}}
+<!-- traqr:end:project-overview -->
 
 {{#IF_MONOREPO}}
+<!-- traqr:start:monorepo-routing -->
 ## Monorepo: App Routing (READ FIRST)
 
 This is a multi-app monorepo. Before starting ANY task, determine the target app.
@@ -17,10 +20,12 @@ This is a multi-app monorepo. Before starting ANY task, determine the target app
 3. **Auth differs by app** — never apply one app's auth patterns to another
 4. **Read the app's CLAUDE.md** (`apps/<name>/CLAUDE.md`) for app-specific conventions
 5. **Use the correct Linear team** when querying tickets: `list_issues(team: "<PREFIX>", ...)`
+<!-- traqr:end:monorepo-routing -->
 
 {{/IF_MONOREPO}}
 ---
 
+<!-- traqr:start:getting-started -->
 ## Getting Started (New to This Project?)
 
 If this is your first time working on this project:
@@ -41,10 +46,13 @@ If this is your first time working on this project:
 4. **Read the Common Gotchas section** at the bottom of this file
 {{#IF_MEMORY_FULL}}5. **Your first task:** Claude will run `/startup` → `/context` → implement → `/ship`
 {{/IF_MEMORY_FULL}}{{^IF_MEMORY_FULL}}5. **Your first task:** Pick up a ticket → implement → `/ship`
-{{/IF_MEMORY_FULL}}
+{{/IF_MEMORY_FULL}}<!-- traqr:end:getting-started -->
+
 ---
 
-{{#IF_MEMORY_FULL}}## Memory Feedback Loop (MANDATORY)
+{{#IF_MEMORY_FULL}}
+<!-- traqr:start:memory-loop -->
+## Memory Feedback Loop (MANDATORY)
 
 Every agent, every session must participate. The vector DB is the portable asset — skip one session and the compound effect breaks.
 
@@ -81,7 +89,11 @@ If memory is NOT configured yet, you can still code — but learnings won't be c
 
 Slot agents: fetch ticket (`mcp__linear__get_issue`), IMMEDIATELY fetch comments (`mcp__linear__list_comments`), parse `## Full Implementation Details` comment.
 {{/IF_TIER_2+}}
-{{/IF_MEMORY_FULL}}## Development Workflow
+<!-- traqr:end:memory-loop -->
+
+{{/IF_MEMORY_FULL}}
+<!-- traqr:start:dev-workflow -->
+## Development Workflow
 
 This project uses a **multi-slot worktree system**. NEVER push directly to main.
 
@@ -119,9 +131,13 @@ z1 && c1          # Jump to slot, open Claude
 4. **Never push to main** — pre-push hook blocks it. Emergency: `{{SHIP_ENV_VAR}}=true git push`
 {{#IF_MEMORY_FULL}}5. **Memory auto-loads** — hooks handle context loading and learning capture
 {{/IF_MEMORY_FULL}}
+<!-- traqr:end:dev-workflow -->
+
 ---
 
-{{#IF_ISSUES}}## Two Workflows, Same Outcome
+{{#IF_ISSUES}}
+<!-- traqr:start:two-workflows -->
+## Two Workflows, Same Outcome
 
 ```
 Slack "Fix This" → Linear ticket (agent-ready) → Slot implements → /ship → PR → Merge
@@ -129,8 +145,11 @@ Slack "Fix This" → Linear ticket (agent-ready) → Slot implements → /ship �
 ```
 
 Both converge on Linear tickets. `agent-ready` label is the universal dispatch mechanism.
+<!-- traqr:end:two-workflows -->
 
-{{/IF_ISSUES}}## Code Conventions
+{{/IF_ISSUES}}
+<!-- traqr:start:code-conventions -->
+## Code Conventions
 
 ### File Structure
 - API routes: `src/app/api/[endpoint]/route.ts`
@@ -146,9 +165,11 @@ Co-authored-by: {{CO_AUTHOR}} <noreply@anthropic.com>
 
 Types: `feat:` | `fix:` | `docs:` | `refactor:` | `chore:`
 Rules: imperative mood, lowercase first letter, max 72 char subject
+<!-- traqr:end:code-conventions -->
 
 ---
 
+<!-- traqr:start:slot-locations -->
 ## Slot Locations
 
 ```
@@ -160,7 +181,9 @@ Worktrees:  {{WORKTREES_PATH}}/
 ### Port Assignments
 
 {{PORT_TABLE}}
+<!-- traqr:end:slot-locations -->
 
+<!-- traqr:start:ticket-investigation -->
 {{#IF_MONOREPO}}## Ticket Investigation
 
 When the user gives specific ticket identifiers (e.g., NTQ-794 or PKT-146):
@@ -179,6 +202,9 @@ When the user gives specific ticket identifiers (e.g., {{TICKET_PREFIX}}-123):
 3. **Read before you run** — understand the ticket content before spawning Explore agents or grepping code
 4. **Don't parallelize fetch + investigation** — tickets inform what code to look at
 {{/IF_MONOREPO}}
+<!-- traqr:end:ticket-investigation -->
+
+<!-- traqr:start:common-gotchas -->
 ## Common Gotchas
 
 1. **Never update a merged PR**: When shipping, ALWAYS verify any existing PR is `OPEN` before editing. If the branch has a merged/closed PR, create a NEW PR. Slot branches persist across PR cycles — a merged PR does NOT mean new commits belong on that PR.
@@ -189,12 +215,17 @@ When the user gives specific ticket identifiers (e.g., {{TICKET_PREFIX}}-123):
 {{#IF_MONOREPO}}6. **Linear `get_issue`**: Takes UUID, not identifier. Use `list_issues` with identifier filter to resolve ticket IDs ({{MONOREPO_TICKET_PREFIXES}}) to UUID
 {{/IF_MONOREPO}}{{^IF_MONOREPO}}6. **Linear `get_issue`**: Takes UUID, not identifier. Use `list_issues` with identifier filter to resolve {{TICKET_PREFIX}}-XXX to UUID
 {{/IF_MONOREPO}}
+<!-- traqr:end:common-gotchas -->
 
+<!-- traqr:start:reference-docs -->
 ## Reference Docs (read on demand)
 
 - `docs/claude/features.md` — Dev Inbox, Vibe Chat, Visual Verification, Agent Mesh
 - `docs/claude/devops.md` — DevOps workflow, testing commands, environment variables
 - `docs/claude/reference.md` — Worktree lifecycle, Slack channels, ports, quick reference
+<!-- traqr:end:reference-docs -->
 
 ---
-*Generated by Traqr CLI — Automation Score: {{AUTOMATION_SCORE}}/100*
+<!-- traqr:start:footer -->
+*Generated by TraqrOS — Automation Score: {{AUTOMATION_SCORE}}/100*
+<!-- traqr:end:footer -->

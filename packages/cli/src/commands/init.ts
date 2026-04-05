@@ -748,7 +748,10 @@ async function run() {
   console.log('  .traqr/config.json')
 
   // Write rendered files
-  const writeResult = await writeFiles(result.files, repoPath, { force: false })
+  const writeResult = await writeFiles(result.files, repoPath, {
+    force: false,
+    mergeableFiles: new Set(['CLAUDE.md']),
+  })
 
   // Write global skills to ~/.claude/commands/
   const globalEntries = Object.entries(result.globalFiles)

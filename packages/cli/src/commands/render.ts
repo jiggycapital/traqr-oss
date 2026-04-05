@@ -36,10 +36,22 @@ async function run() {
     console.log(`--- Dry run: ${fileCount} files ---\n`)
   }
 
-  const writeResult = await writeFiles(result.files, process.cwd(), { dryRun, force })
+  const MERGEABLE_FILES = new Set(['CLAUDE.md'])
+
+  const writeResult = await writeFiles(result.files, process.cwd(), {
+    dryRun,
+    force,
+    mergeableFiles: force ? undefined : MERGEABLE_FILES,
+  })
 
   if (!dryRun) {
     console.log(`Written: ${writeResult.written.length} files`)
+    if (writeResult.merged.length > 0) {
+      console.log(`Merged:  ${writeResult.merged.length} files (Traqr sections updated, user content preserved)`)
+      for (const f of writeResult.merged) {
+        console.log(`  ${f}`)
+      }
+    }
     if (writeResult.skipped.length > 0) {
       console.log(`Skipped: ${writeResult.skipped.length} files (use --force to overwrite)`)
       for (const f of writeResult.skipped) {
