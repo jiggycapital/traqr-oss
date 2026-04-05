@@ -576,6 +576,60 @@ export interface TraqrConfig {
   vault?: {
     /** Absolute path to Obsidian vault root (e.g., '/Users/sean/Documents/Obsidian Vault') */
     path: string;
+    /** Folder names for PARA-style promotion workflow (defaults shown) */
+    inboxFolder?: string;      // default: '00 Inbox'
+    wikiFolder?: string;       // default: '10 Wiki'
+    referenceFolder?: string;  // default: '20 Reference'
+    canvasFolder?: string;     // default: '80 Canvas'
+    basesFolder?: string;      // default: '90 Bases'
+  };
+
+  /** Daily brief configuration — config-driven data source synthesis */
+  dailyBrief?: {
+    /** Data sources to query for the brief */
+    sources: Array<{
+      /** Source type identifier (linear, posthog, github, slack, calendar, memory, vault-inbox, vercel, salesforce, outlook, gitlab) */
+      type: string;
+      /** Whether this source is active */
+      enabled: boolean;
+      /** If true, brief fails when this source is unavailable (default: false = skip with note) */
+      required?: boolean;
+      /** Source-specific configuration (teams, projects, filters, etc.) */
+      config?: Record<string, unknown>;
+    }>;
+    /** Output destinations */
+    output?: {
+      /** Slack DM delivery */
+      slack?: { target: string; format: 'summary' | 'full' };
+      /** Obsidian vault report */
+      obsidian?: { folder: string; format: 'full-report' | 'summary' };
+    };
+    /** Cron schedule expression (e.g., '0 7 * * *' for 7am daily) */
+    schedule?: string;
+    /** Pipeline mode — sequential enables cross-source entity linking in final step */
+    pipeline?: 'sequential' | 'parallel';
+    /** Maximum word count for the brief (default: 400) */
+    maxWords?: number;
+  };
+
+  /** Heartbeat agent configuration — proactive monitoring via HEARTBEAT.md */
+  heartbeat?: {
+    /** Enable the heartbeat agent */
+    enabled: boolean;
+    /** Check interval (e.g., '30m', '1h', '6h') */
+    interval?: string;
+    /** Restrict monitoring to specific hours */
+    activeHours?: {
+      start: string;     // e.g., '07:00'
+      end: string;       // e.g., '22:00'
+      timezone: string;  // e.g., 'America/New_York'
+    };
+    /** Response char threshold — below this, daemon swallows as HEARTBEAT_OK (default: 300) */
+    suppressionThreshold?: number;
+    /** Run heartbeat tasks in isolated sessions (reduces token cost ~95%) */
+    isolatedSession?: boolean;
+    /** Strip non-essential context from heartbeat sessions */
+    lightContext?: boolean;
   };
 
   /** Issue tracking configuration */

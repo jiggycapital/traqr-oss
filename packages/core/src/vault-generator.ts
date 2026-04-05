@@ -62,8 +62,35 @@ export async function initVault(
   const absVault = resolve(vaultPath)
   const bundledDir = getVaultTemplatesDir()
 
-  // Create top-level vault dirs
-  for (const dir of ['Projects', 'Templates']) {
+  // Create PARA-style vault directories + CRM structure
+  const dirs = [
+    // PARA-style numbered folders
+    '00 Inbox',
+    '00 Inbox/Briefs',
+    '00 Inbox/Clips',
+    '00 Inbox/Research',
+    '00 Inbox/Calls',
+    '10 Wiki',
+    '10 Wiki/Projects',
+    '10 Wiki/Decisions',
+    '10 Wiki/Learnings',
+    '20 Reference',
+    '20 Reference/APIs',
+    '20 Reference/Architecture',
+    '80 Canvas',
+    '90 Bases',
+    // CRM structure (for consulting pipeline)
+    'CRM',
+    'CRM/Clients',
+    'CRM/Contacts',
+    'CRM/Call Logs',
+    'CRM/Projects',
+    'CRM/Proposals',
+    // Original directories (preserved)
+    'Projects',
+    'Templates',
+  ]
+  for (const dir of dirs) {
     const target = join(absVault, dir)
     if (!existsSync(target)) {
       if (!options?.dryRun) {
@@ -75,26 +102,51 @@ export async function initVault(
     }
   }
 
-  // Copy bundled template files
+  // Copy bundled template files from each subdirectory
+  const templateDirs = ['Templates', 'Bases']
+  for (const tmplDir of templateDirs) {
+    try {
+      const files = await listFiles(join(bundledDir, tmplDir))
+      for (const file of files) {
+        const vaultDir = tmplDir === 'Bases' ? '90 Bases' : tmplDir
+        const target = join(absVault, vaultDir, file)
+        const source = join(bundledDir, tmplDir, file)
+
+        if (existsSync(target)) {
+          result.skipped.push(`${vaultDir}/${file}`)
+        } else {
+          if (!options?.dryRun) {
+            await mkdir(dirname(target), { recursive: true })
+            const content = await readFile(source, 'utf-8')
+            await writeFile(target, content, 'utf-8')
+          }
+          result.created.push(`${vaultDir}/${file}`)
+        }
+      }
+    } catch (err) {
+      result.errors.push(`${tmplDir}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  // Copy root-level vault templates (AGENTS.md, etc.)
   try {
-    const templateFiles = await listFiles(join(bundledDir, 'Templates'))
-    for (const file of templateFiles) {
-      const target = join(absVault, 'Templates', file)
-      const source = join(bundledDir, 'Templates', file)
+    const rootFiles = await listFiles(bundledDir)
+    for (const file of rootFiles) {
+      const target = join(absVault, file)
+      const source = join(bundledDir, file)
 
       if (existsSync(target)) {
-        result.skipped.push(`Templates/${file}`)
+        result.skipped.push(file)
       } else {
         if (!options?.dryRun) {
-          await mkdir(dirname(target), { recursive: true })
           const content = await readFile(source, 'utf-8')
           await writeFile(target, content, 'utf-8')
         }
-        result.created.push(`Templates/${file}`)
+        result.created.push(file)
       }
     }
   } catch (err) {
-    result.errors.push(`Templates: ${err instanceof Error ? err.message : String(err)}`)
+    result.errors.push(`Root templates: ${err instanceof Error ? err.message : String(err)}`)
   }
 
   return result
