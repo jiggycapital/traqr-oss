@@ -118,7 +118,7 @@ Use `memory_audit` to check health, then `memory_store` to create your first mem
 
 On startup you should see:
 ```
-TraqrDB Memory MCP v0.1.3 | Schema v2 | DB: Supabase | Embeddings: openai/text-embedding-3-small | Ready
+TraqrDB Memory MCP v0.2.3 | Schema v2 | DB: Supabase | Embeddings: openai/text-embedding-3-small | Ready
 ```
 
 ---

@@ -412,10 +412,9 @@ User-facing (you install these):
 Internal (dependencies, don't install directly):
   @traqr/memory ─────── memory DB client (used by MCP server)
   @traqr/cli ────────── CLI commands (depends on core)
-  @traqr/daemon ─────── orchestration + Guardian
+  @traqr/daemon ─────── orchestration + Guardian PR lifecycle
   @traqr/server ─────── platform API
   @traqr/kv ─────────── key-value store
-  @traqr/mesh ────────── inter-agent communication
 ```
 
 ## License

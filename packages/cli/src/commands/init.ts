@@ -887,7 +887,7 @@ async function run() {
   console.log('    1. Reload shell:       source ~/.traqr/shell-init.sh')
   console.log('    2. Open Claude Code:   claude')
   console.log('    3. Set up integrations: /alpha-onboard')
-  console.log('    4. Check connections:   /doctor')
+  console.log('    4. Check connections:   npx traqr verify')
   console.log('')
   console.log(RAQR_HR)
 

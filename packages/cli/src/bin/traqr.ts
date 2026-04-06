@@ -18,6 +18,10 @@
  *   traqr status         Show config summary + health
  */
 
+import { createRequire } from 'node:module'
+const require = createRequire(import.meta.url)
+const { version: CLI_VERSION } = require('../../package.json')
+
 const command = process.argv[2]
 
 async function main() {
@@ -72,7 +76,7 @@ async function main() {
     }
     case '--version':
     case '-v':
-      console.log('0.0.1')
+      console.log(CLI_VERSION)
       break
     default:
       console.error(`Unknown command: ${command}`)
@@ -84,7 +88,7 @@ async function main() {
 
 function printUsage() {
   console.log(`
-  @traqr/cli v0.0.1
+  @traqr/cli v${CLI_VERSION}
 
   Usage: traqr <command> [options]
 

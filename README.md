@@ -49,7 +49,7 @@ TraqrOS (npm packages)          Your Product              Feedback Loop
 @traqr/memory                   Your app code             PostHog events
 @traqr/core                     Your skills               Slack alerts
 @traqr/cli                      Your CLAUDE.md            Memory captures
-@traqr/guardian                  Your workflows            Guardian learnings
+@traqr/daemon                    Your workflows            Guardian learnings
 ```
 
 **TraqrOS** is the infrastructure layer — install via npm, configure for your VCS (GitHub or GitLab), and build your product on top. Your code stays yours. TraqrOS handles the automation, memory, and developer experience.
@@ -65,7 +65,7 @@ VCS is auto-detected from your git remote. No configuration needed.
 
 ## License
 
-- **@traqr/memory, traqr-memory-mcp, @traqr/guardian, @traqr/daemon, @traqr/server:** [FSL-1.1-ALv2](./LICENSE) — use freely for any purpose except offering a competing commercial service. Converts to Apache-2.0 after 2 years.
+- **@traqr/memory, traqr-memory-mcp, @traqr/daemon, @traqr/server:** [FSL-1.1-ALv2](./LICENSE) — use freely for any purpose except offering a competing commercial service. Converts to Apache-2.0 after 2 years.
 - **@traqr/core, @traqr/cli, @traqr/kv:** [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
 
 **What this means:** Install it, use it, modify it, build products on it — all permitted. The only restriction: don't fork it and sell it as a competing memory-as-a-service product.

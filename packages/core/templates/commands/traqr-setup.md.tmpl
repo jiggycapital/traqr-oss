@@ -19,7 +19,7 @@ Set up your global Traqr developer profile. This runs ONCE and connects your ser
 ---
 ## Metadata
 - **Agent Compatibility**: Claude Code (any session)
-- **Related Skills**: `/traqr-init`, `/traqr-projects`, `/traqr-upgrade`
+- **Related Skills**: `/traqr-init`, `/traqr-projects`, `/traqr-update`
 - **Delivery**: Claude Code Max personal subscription — no API keys needed
 ---
 
@@ -687,13 +687,13 @@ mkdir -p ~/.claude/commands
 Copy these 5 commands from `.claude/commands/` to `~/.claude/commands/`:
 - `traqr-init.md`
 - `traqr-setup.md`
-- `traqr-upgrade.md`
+- `traqr-update.md`
 - `traqr-test.md`
 - `traqr-projects.md`
 
 ```bash
 TRAQR_ROOT="$(git rev-parse --show-toplevel)"
-for cmd in traqr-init.md traqr-setup.md traqr-upgrade.md traqr-test.md traqr-projects.md; do
+for cmd in traqr-init.md traqr-setup.md traqr-update.md traqr-test.md traqr-projects.md; do
   cp "$TRAQR_ROOT/.claude/commands/$cmd" "$HOME/.claude/commands/$cmd"
 done
 echo "Installed 5 global commands to ~/.claude/commands/"
@@ -708,7 +708,7 @@ Display result:
 Global commands installed:
   ~/.claude/commands/traqr-init.md
   ~/.claude/commands/traqr-setup.md
-  ~/.claude/commands/traqr-upgrade.md
+  ~/.claude/commands/traqr-update.md
   ~/.claude/commands/traqr-test.md
   ~/.claude/commands/traqr-projects.md
 
