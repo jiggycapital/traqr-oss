@@ -129,7 +129,7 @@ Respond with JSON only:
       "content": "...",
       "category": "gotcha|pattern|fix|insight",
       "tags": ["tag1", "tag2"],
-      "confidence": 0.8
+      "confidence": 0.6
     }
   ]
 }
@@ -443,7 +443,7 @@ Respond with JSON:
       "content": "...",
       "category": "gotcha|pattern|fix|insight|preference|convention",
       "tags": ["tag1", "tag2"],
-      "confidence": 0.8
+      "confidence": 0.6
     }
   ]
 }
@@ -532,7 +532,7 @@ Respond with JSON only:
       "content": "...",
       "category": "gotcha|pattern|fix|insight",
       "tags": ["tag1", "tag2"],
-      "confidence": 0.8
+      "confidence": 0.6
     }
   ]
 }
@@ -694,7 +694,7 @@ Respond with JSON only:
       "content": "...",
       "category": "gotcha|pattern|fix|insight|preference|convention",
       "tags": ["tag1", "tag2"],
-      "confidence": 0.8
+      "confidence": 0.6
     }
   ]
 }
@@ -850,7 +850,7 @@ Respond with JSON only:
       "content": "...",
       "category": "preference|convention|pattern|insight",
       "tags": ["tag1", "tag2"],
-      "confidence": 0.8
+      "confidence": 0.6
     }
   ]
 }
@@ -1054,7 +1054,7 @@ Respond with JSON only:
       "content": "...",
       "category": "preference|convention|pattern|insight",
       "tags": ["voice", "audience:user-facing", "tone"],
-      "confidence": 0.8
+      "confidence": 0.6
     }
   ]
 }

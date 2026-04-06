@@ -831,7 +831,10 @@ export class SupabaseVectorProvider implements VectorDBProvider {
   async ping(): Promise<boolean> {
     try {
       const client = getMemoryClient()
-      const { error } = await (client.from('traqr_users') as any).select('id').limit(1)
+      // Use traqr_memories — the same table store/search use.
+      // Previously queried traqr_users which has different RLS policies,
+      // causing false "failed" health while store/search worked fine.
+      const { error } = await (client.from('traqr_memories') as any).select('id').limit(1)
       return !error
     } catch {
       return false

@@ -10,30 +10,5 @@
       "Bash(gh *)",
       "Bash(curl *)"
     ]
-  },
-  "hooks": {
-{{#IF_MEMORY_FULL}}    "SessionStart": [{
-      "matcher": "",
-      "hooks": [{
-        "type": "command",
-        "command": "curl -sf '{{MEMORY_API_BASE}}/memory/assemble-context?project={{TRAQR_PROJECT_SLUG}}&slot='$(basename \"$PWD\") 2>/dev/null || true"
-      }]
-    }],
-    "Stop": [{
-      "matcher": "",
-      "hooks": [{
-        "type": "command",
-        "command": "printf '{\"slot\":\"%s\",\"project\":\"{{TRAQR_PROJECT_SLUG}}\"}' \"$(basename \"$PWD\")\" | curl -sf -X POST '{{MEMORY_API_BASE}}/memory/capture-session' -H 'Content-Type: application/json' -d @- 2>/dev/null || true"
-      }]
-    }]
-{{/IF_MEMORY_FULL}}  }{{#IF_MEMORY_FULL}},
-  "mcpServers": {
-    "traqr-memory": {
-      "type": "sse",
-      "url": "{{MEMORY_API_BASE}}/memory/mcp",
-      "headers": {
-        "x-project-slug": "{{TRAQR_PROJECT_SLUG}}"
-      }
-    }
-  }{{/IF_MEMORY_FULL}}
+  }
 }

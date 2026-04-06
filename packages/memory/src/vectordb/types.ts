@@ -60,6 +60,9 @@ export interface MemoryInput {
   validAt?: Date
   forgetAfter?: Date
   sourceTool?: string
+  // Source reliability — how trustworthy is the origin of this memory?
+  // direct-user > deliberate-store > granola-single > granola-multi > inferred > auto-derived
+  sourceReliability?: 'direct-user' | 'deliberate-store' | 'granola-single' | 'granola-multi' | 'inferred' | 'auto-derived'
   // Pre-computed embedding (skip re-generation in store)
   precomputedEmbedding?: string
 }

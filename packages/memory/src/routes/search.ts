@@ -36,9 +36,7 @@ app.get('/', async (c) => {
     let category: MemoryCategory | undefined
     const categoryParam = c.req.query('category')
     if (categoryParam) {
-      if (!VALID_CATEGORIES.includes(categoryParam as MemoryCategory)) {
-        return c.json({ success: false, error: `category must be one of: ${VALID_CATEGORIES.join(', ')}` }, 400)
-      }
+      // Accept any category string — the system learns the user's taxonomy
       category = categoryParam as MemoryCategory
     }
 

@@ -123,7 +123,7 @@ app.post('/', async (c) => {
       sourceType: 'manual',
       sourceRef: link || undefined,
       sourceProject: getSourceProject(),
-      confidence: 0.8,
+      confidence: 0.6,
       relatedTo: [],
       isContradiction: false,
     }

@@ -84,7 +84,7 @@ app.post('/', async (c) => {
             sourceType: 'bootstrap',
             sourceRef: section.sourceRef,
             sourceProject,
-            confidence: section.confidence ?? 0.8,
+            confidence: section.confidence ?? 0.7,
           })
           if (result.deduplicated) {
             deduplicated++

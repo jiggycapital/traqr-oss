@@ -108,7 +108,7 @@ app.post('/', async (c) => {
                 sourceType: 'session',
                 sourceRef: capAny.sourceRef || `pulse:${slot}`,
                 sourceProject,
-                confidence: 0.8,
+                confidence: 0.6,
                 relatedTo: [],
                 isContradiction: false,
                 domain: derived.domain,

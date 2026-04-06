@@ -53,7 +53,7 @@ app.post('/', async (c) => {
           sourceType: 'session',
           sourceRef,
           sourceProject,
-          confidence: learning.confidence ?? 0.8,
+          confidence: learning.confidence ?? 0.6,
           sourceTool: 'capture-session',
         })
         if (result.deduplicated) {

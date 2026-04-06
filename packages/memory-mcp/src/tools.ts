@@ -28,7 +28,7 @@ import type { MemoryInput, MemoryCategory, SearchOptions } from '@traqr/memory'
 // Shared schemas
 // ---------------------------------------------------------------------------
 
-const categoryEnum = z.enum(['gotcha', 'pattern', 'fix', 'insight', 'question', 'preference', 'convention'])
+const categoryEnum = z.string().describe('Suggested: gotcha, pattern, fix, insight, question, preference, convention. Any string accepted — the system learns your taxonomy.')
 const controlledTagEnum = z.enum(['critical', 'important', 'nice-to-know', 'evergreen', 'active', 'stale-risk', 'from-incident', 'from-decision', 'from-observation'])
 
 // ---------------------------------------------------------------------------
@@ -67,9 +67,11 @@ export function registerTools(server: McpServer) {
       category: categoryEnum.optional().describe('Override auto-category'),
       topic: z.string().optional().describe('Override auto-topic'),
       tags: z.array(controlledTagEnum).optional().describe('Override auto-tags'),
-      confidence: z.number().min(0).max(1).default(0.8),
+      confidence: z.number().min(0).max(1).default(0.6).describe('0-1. Default 0.6 — raise to 0.8+ only for facts you are confident about. Bad context is worse than no context.'),
+      sourceReliability: z.enum(['direct-user', 'deliberate-store', 'granola-single', 'granola-multi', 'inferred', 'auto-derived']).optional()
+        .describe('How trustworthy is the source? direct-user (Sean said it) > deliberate-store > granola-single > granola-multi (speaker confusion risk) > inferred > auto-derived'),
     },
-    async ({ content, summary, category, topic, tags, confidence }) => {
+    async ({ content, summary, category, topic, tags, confidence, sourceReliability }) => {
       try {
         const derived = deriveAll(content, { summary, category, topic, tags, sourceTool: 'mcp-store' })
         const input: MemoryInput = {
@@ -84,6 +86,7 @@ export function registerTools(server: McpServer) {
           topic: derived.topic as string,
           memoryType: derived.memoryType as any,
           sourceTool: 'mcp-store',
+          ...(sourceReliability ? { sourceReliability } : {}),
         }
         const memory = await storeMemory(input)
         return {
@@ -108,7 +111,7 @@ export function registerTools(server: McpServer) {
       try {
         const options: SearchOptions = {
           limit,
-          category,
+          category: category as any,
           memoryType: memoryType as any,
           similarityThreshold: threshold,
         }
@@ -257,7 +260,7 @@ export function registerTools(server: McpServer) {
                 tags: [...(derived.tags as string[] || []), 'pulse'],
                 sourceType: 'session',
                 sourceProject: 'default',
-                confidence: 0.8,
+                confidence: 0.6,
                 domain: derived.domain as string,
                 topic: derived.topic as string,
                 memoryType: derived.memoryType as any,

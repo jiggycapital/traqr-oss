@@ -37,9 +37,8 @@ app.post('/', async (c) => {
       return c.json({ success: false, error: `sourceType must be one of: ${VALID_SOURCE_TYPES.join(', ')}` }, 400)
     }
 
-    if (body.category && !VALID_CATEGORIES.includes(body.category)) {
-      return c.json({ success: false, error: `category must be one of: ${VALID_CATEGORIES.join(', ')}` }, 400)
-    }
+    // Accept any category string — the system learns the user's taxonomy
+    // VALID_CATEGORIES are suggestions for auto-derive, not restrictions
 
     if (body.confidence !== undefined) {
       const conf = Number(body.confidence)
