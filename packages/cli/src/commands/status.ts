@@ -43,14 +43,34 @@ async function run() {
   console.log('')
   console.log(printConfigSummary(resolved))
 
-  // Ping services
+  // Check services — prefer MCP check over HTTP ping
   console.log('')
-  const pings = await Promise.all([
-    pingEndpoint('http://localhost:4200/health', 'Daemon'),
-    pingEndpoint('http://localhost:4100/health', 'Memory'),
-  ])
-  for (const p of pings) {
-    console.log(`  ${p}`)
+
+  // Memory: check if traqr-memory MCP is registered (user-level stdio is the default)
+  try {
+    const { execSync } = await import('child_process')
+    const mcpOutput = execSync('claude mcp get traqr-memory 2>&1', { encoding: 'utf-8', timeout: 5000 })
+    if (mcpOutput.includes('Connected')) {
+      console.log('  Memory: UP (user-level stdio MCP)')
+    } else if (mcpOutput.includes('traqr-memory')) {
+      console.log('  Memory: REGISTERED but not connected (restart Claude Code to activate)')
+    } else {
+      // Fallback to HTTP check if MCP not found
+      const httpResult = await pingEndpoint(`${resolved.daemon.apiBase}/memory/health`, 'Memory')
+      console.log(`  ${httpResult}`)
+    }
+  } catch {
+    // claude mcp command not available — try HTTP
+    const httpResult = await pingEndpoint(`${resolved.daemon.apiBase}/memory/health`, 'Memory')
+    console.log(`  ${httpResult}`)
+  }
+
+  // Daemon: only check if daemon is expected for this config
+  if (config.guardian?.enabled || config.heartbeat?.enabled) {
+    const daemonResult = await pingEndpoint(`${resolved.daemon.apiBase}/daemon/health`, 'Daemon')
+    console.log(`  ${daemonResult}`)
+  } else {
+    console.log('  Daemon: not configured (Guardian/Heartbeat disabled)')
   }
 }
 
