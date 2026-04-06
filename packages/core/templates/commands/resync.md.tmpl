@@ -98,3 +98,16 @@ Conflicting files:
 {{RAQR_HR}}
 Next: resolve conflicts in each file, then `git rebase --continue` and re-run `/resync`.
 {{/IF_CONFLICTS}}
+
+## Relay to #control-center
+
+Post after resync if risk was YELLOW or RED:
+
+```
+slack_send_message(
+  channel_id: "C0AGTB4Q30S",
+  message: "[<SlotName>] /resync: <N> commits behind main → rebased. Risk: <GREEN/YELLOW/RED>\n*Overlap:* <files touched by both>"
+)
+```
+
+Skip on GREEN (routine). Always post on YELLOW/RED.

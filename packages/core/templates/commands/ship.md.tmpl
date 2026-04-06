@@ -376,6 +376,19 @@ curl -s -X PUT "{{VCS_BASE_URL}}/api/v4/projects/{{VCS_PROJECT_ID}}/issues/<issu
 {{/IF_GITLAB_ISSUES}}
 {{/IF_TIER_2+}}
 
+### Relay to #control-center
+
+Post a structured update so other worktree slots know what shipped:
+
+```
+slack_send_message(
+  channel_id: "C0AGTB4Q30S",
+  message: "[<SlotName>] Shipped PR #<number> — <title>\n\n*What changed:* <1-2 sentence summary>\n*Affected:* <apps/packages touched>\n*Key insight:* <if anything was learned that other slots should know>"
+)
+```
+
+Skip if Slack MCP unavailable.
+
 ### Report
 
 Show progress: `{{RAQR_PROGRESS_7}}`

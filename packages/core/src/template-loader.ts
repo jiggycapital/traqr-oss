@@ -162,7 +162,7 @@ export function templateToGlobalOutputPath(templatePath: string): string {
  * Post-audit skill catalog (13 skills):
  * - Global (4): ship, sync, resync, inbox
  * - Project-local (4): status, analyze, slack, doctor (validate-config)
- * - Traqr infra (5): traqr-init, traqr-setup, traqr-test, traqr-upgrade, bootstrap-skills
+ * - Traqr infra (4): traqr-init, traqr-setup, traqr-test, bootstrap-skills
  *
  * Removed (replaced by MCP tools / plan mode):
  * startup, context, memory, think, dispatch, draft, verify
@@ -188,7 +188,6 @@ export function shouldIncludeTemplate(
     'commands/sync.md.tmpl',
     'commands/resync.md.tmpl',
     'commands/traqr-init.md.tmpl',
-    'commands/traqr-upgrade.md.tmpl',
     'commands/traqr-setup.md.tmpl',
     'commands/traqr-test.md.tmpl',
     'commands/nextphase.md.tmpl',

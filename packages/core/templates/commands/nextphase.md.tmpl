@@ -301,3 +301,16 @@ Raqr · /nextphase                          Traqr
 | No projects found | No Linear projects match the team | Verify the team name in .traqr/config.json matches your Linear workspace |
 | No milestones found | Project has no milestones set up | Create milestones in Linear first, then retry |
 | All milestones complete | Every phase is already shipped | Run `/auditor <project>` to verify, then plan the next project |
+
+## Relay to #control-center
+
+Post a structured update so other slots know a phase was picked up:
+
+```
+slack_send_message(
+  channel_id: "C0AGTB4Q30S",
+  message: "[<SlotName>] /nextphase: picked up <Milestone Name> in <Project>\n\n*Tickets:* <N> total\n*Focus:* <top 2-3 ticket titles>\n*Mode:* plan mode / direct launch"
+)
+```
+
+Skip if Slack MCP unavailable.

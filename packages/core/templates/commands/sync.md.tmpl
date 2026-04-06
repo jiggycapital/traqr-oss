@@ -168,6 +168,19 @@ Worktrees: {{WORKTREES_PATH}}/
 {{SLOT_PATHS}}
 ```
 
+## Relay to #control-center
+
+Post after sync completes:
+
+```
+slack_send_message(
+  channel_id: "C0AGTB4Q30S",
+  message: "[<SlotName>] /sync complete — <N> slots synced to main, <M> skipped (dirty/active)"
+)
+```
+
+Skip if Slack MCP unavailable.
+
 ## The Golden Rule
 
 **NEVER discard uncommitted changes. If `git status --porcelain` has output, SKIP the slot. Period. No "abandoned" detection, no "orphaned" heuristics, no stashing. ALWAYS verify.**

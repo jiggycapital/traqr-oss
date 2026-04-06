@@ -1,6 +1,6 @@
 {
   "name": "@traqr/core",
-  "version": "0.1.11",
+  "version": "0.1.14",
   "description": "Config schema, template engine, VCS abstraction (GitHub + GitLab), and skill templates for TraqrOS",
   "type": "module",
   "main": "./dist/index.js",

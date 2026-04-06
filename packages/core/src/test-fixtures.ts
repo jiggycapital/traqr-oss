@@ -148,7 +148,6 @@ const CORE_REQUIRED = [
   '.claude/commands/browser.md',
   '.claude/commands/plan.md',
   '.claude/commands/traqr-init.md',
-  '.claude/commands/traqr-upgrade.md',
   '.claude/commands/traqr-setup.md',
   'scripts/tp-aliases.sh',
   'scripts/setup-worktrees.sh',
