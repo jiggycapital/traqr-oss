@@ -37,14 +37,14 @@ If this is your first time working on this project:
    ```
 {{#IF_MEMORY_FULL}}2. **Connect to the shared memory DB:**
    - Run `npx traqr-memory-mcp --install` (asks for DB credentials)
-   - Or copy `.claude/mcp.json` from the team template (ask your team lead)
-   - Verify: run `/startup` — it should connect and load memories
+   - Or use `claude mcp add traqr-memory --scope user` for cross-project memory
+   - Verify: run `memory_audit` in a new session — should show memory count and health
 {{/IF_MEMORY_FULL}}3. **Jump into a slot and start coding:**
    ```bash
    z1 && claude    # Slot 1, open Claude Code
    ```
 4. **Read the Common Gotchas section** at the bottom of this file
-{{#IF_MEMORY_FULL}}5. **Your first task:** Claude will run `/startup` → `/context` → implement → `/ship`
+{{#IF_MEMORY_FULL}}5. **Your first task:** `memory_search("your task")` → implement → `/ship`
 {{/IF_MEMORY_FULL}}{{^IF_MEMORY_FULL}}5. **Your first task:** Pick up a ticket → implement → `/ship`
 {{/IF_MEMORY_FULL}}<!-- traqr:end:getting-started -->
 
@@ -52,42 +52,34 @@ If this is your first time working on this project:
 
 {{#IF_MEMORY_FULL}}
 <!-- traqr:start:memory-loop -->
-## Memory Feedback Loop (MANDATORY)
+## Memory System
 
-Every agent, every session must participate. The vector DB is the portable asset — skip one session and the compound effect breaks.
+The vector DB is the portable asset that compounds across sessions. Every session should search before working and capture before finishing.
 
-### Setup Check (First Time?)
+### Setup Check
 
-Before using memory tools, verify your MCP connection:
-1. Check `.claude/mcp.json` exists with `traqr-memory` configured
-2. Run `/startup` — should connect to the shared memory DB
-3. If it fails: run `npx traqr-memory-mcp --install` or ask your team lead for credentials
+Verify your MCP connection: run `memory_audit` in any session. If it returns stats, you're connected. If not: run `npx traqr-memory-mcp --install` or use `claude mcp add traqr-memory --scope user` with your Supabase + OpenAI credentials.
 
-If memory is NOT configured yet, you can still code — but learnings won't be captured. Set it up before your next session.
+### Session Rhythm
 
-### The Three Gates
-
-| Gate | Skill | What It Does | If Skipped |
-|------|-------|-------------|------------|
-| **Entry** | `/startup` | Sync + session marker | `/ship` BLOCKS |
-| **Context** | `/context` | Task-targeted memory search | Flying blind |
-| **Exit** | `/ship` | Capture learnings, create PR | No PR |
+| When | What | How |
+|------|------|-----|
+| **Session start** | Load context for your task | `memory_search("your task topic")` or `memory_context(taskDescription: "...")` |
+| **During work** | Search before investigating unfamiliar code | `memory_search("topic gotchas patterns")` |
+| **When you learn something** | Capture it immediately | `memory_store(content: "what you learned — be specific")` |
+| **Before /ship** | Batch-capture session learnings | `memory_pulse(captures: [...], sourceProject: "{{PROJECT_NAME}}")` |
 
 ### Rules
 
-1. `/startup` before any work — writes the marker `/ship` requires
-2. `/context "<task>"` when you know your task — targeted memory search
-3. `/ship` blocks without marker, warns without `/context`
-4. Reference learnings explicitly: "Based on [MEM-xxx], doing Y"
-5. Every PR includes `## Memory Loop` section
-
-### Execution Slot Flow
-
-`/startup` → finds ticket? auto `/context` : user describes task → `/context` → implement → build → `/ship`
+1. **Search before working** — 30 seconds of `memory_search` can save 30 minutes of re-discovery
+2. **Capture root causes, decisions, and gotchas** — not generic observations
+3. **Be specific** — include file paths, function names, and WHY, not just WHAT
+4. **Reference learnings explicitly** — "Based on prior memory about X, doing Y"
+5. **Don't capture what's obvious from reading the code** — only non-obvious insights
 
 {{#IF_TIER_2+}}### Getting Plans from Tickets
 
-Slot agents: fetch ticket (`mcp__linear__get_issue`), IMMEDIATELY fetch comments (`mcp__linear__list_comments`), parse `## Full Implementation Details` comment.
+Slot agents: fetch ticket via `list_issues(team: "{{TICKET_PREFIX}}")`, IMMEDIATELY fetch comments (`list_comments`), parse `## Full Implementation Details` comment.
 {{/IF_TIER_2+}}
 <!-- traqr:end:memory-loop -->
 
@@ -113,14 +105,14 @@ z1 && c1          # Jump to slot, open Claude
 
 | Command | What it does |
 |---------|--------------|
-| `/ship "Title"` | Commit, push, create PR |
-| `/sync` | Sync all slots with main |
-| `/worktrees` | Show status dashboard of all slots |
-| `/pr list` | List open PRs |
-{{#IF_MEMORY_FULL}}| `/startup` | Load memories, claim tickets |
-| `/learn` | Capture learnings to vector DB |
-{{/IF_MEMORY_FULL}}{{#IF_ISSUES}}| `/advisor` | Generate implementation plans |
-| `/dispatch` | Send plan to execution slot |
+| `/ship "Title"` | Commit, build, push, create PR, capture learnings |
+| `/sync` | Sync all slots with main after merge |
+| `/resync` | Pre-flight rebase with impact analysis |
+| `/nextphase "Project"` | Pick up next phase of work from Linear |
+| `/status` | Project status report |
+{{#IF_MEMORY_FULL}}| `memory_search("query")` | Search the shared memory DB for context |
+| `memory_store(content: "...")` | Capture a learning to the memory DB |
+{{/IF_MEMORY_FULL}}{{#IF_ISSUES}}| `list_issues(team: "{{TICKET_PREFIX}}")` | Fetch tickets from Linear |
 {{/IF_ISSUES}}
 
 ### Golden Rules
@@ -129,7 +121,7 @@ z1 && c1          # Jump to slot, open Claude
 2. **Use `/ship` to deploy** — creates PR automatically
 3. **Run `/sync` after merging** — keeps all slots current
 4. **Never push to main** — pre-push hook blocks it. Emergency: `{{SHIP_ENV_VAR}}=true git push`
-{{#IF_MEMORY_FULL}}5. **Memory auto-loads** — hooks handle context loading and learning capture
+{{#IF_MEMORY_FULL}}5. **Search memory before working** — `memory_search` on your task topic is the first step of every session
 {{/IF_MEMORY_FULL}}
 <!-- traqr:end:dev-workflow -->
 
@@ -137,14 +129,13 @@ z1 && c1          # Jump to slot, open Claude
 
 {{#IF_ISSUES}}
 <!-- traqr:start:two-workflows -->
-## Two Workflows, Same Outcome
+## Workflow
 
 ```
-Slack "Fix This" → Linear ticket (agent-ready) → Slot implements → /ship → PR → Merge
-/advisor plan    → /dispatch → Linear ticket    → Slot implements → /ship → PR → Merge
+Linear ticket (agent-ready) → Slot claims → Implement → /ship → PR → Guardian auto-merges → /sync
 ```
 
-Both converge on Linear tickets. `agent-ready` label is the universal dispatch mechanism.
+All work flows through Linear tickets. Use `save_issue` to create tickets, `agent-ready` label to queue for slot dispatch.
 <!-- traqr:end:two-workflows -->
 
 {{/IF_ISSUES}}

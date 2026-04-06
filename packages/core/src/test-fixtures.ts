@@ -158,7 +158,6 @@ const CORE_REQUIRED = [
 
 /** Memory + issues files added at Tier 2 (Smart Dev) */
 const MEMORY_ISSUES_FILES = [
-  '.traqr/schema.sql',
   '.claude/commands/analyze.md',
   '.claude/commands/status.md',
   '.claude/commands/validate-config.md',
@@ -192,7 +191,6 @@ export const CONTENT_EXPECTATIONS: Record<string, ContentExpectation> = {
   solo: {
     requiredFiles: [...CORE_REQUIRED],
     forbiddenFiles: [
-      '.traqr/schema.sql',              // tier 1+ MEMORY
       '.claude/commands/analyze.md',     // tier 1+ MEMORY
       '.claude/commands/validate-config.md', // tier 1+ MEMORY
       '.claude/commands/slack.md',       // tier 3+ SLACK

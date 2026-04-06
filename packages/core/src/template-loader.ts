@@ -128,9 +128,6 @@ export function templateToOutputPath(templatePath: string, prefix: string, appDi
   // env.local.tmpl → .env.local.example
   if (output === 'env.local') return '.env.local.example'
 
-  // schema.sql → .traqr/schema.sql
-  if (output === 'schema.sql') return '.traqr/schema.sql'
-
   // ONBOARDING.md → .traqr/ONBOARDING.md
   if (output === 'ONBOARDING.md') return '.traqr/ONBOARDING.md'
 
@@ -210,7 +207,6 @@ export function shouldIncludeTemplate(
     'commands/analyze.md.tmpl',
     'commands/status.md.tmpl',
     'commands/validate-config.md.tmpl',
-    'schema.sql.tmpl',
   ]
   if (tier1Memory.includes(templatePath)) return tier >= 1 && flags.MEMORY
 
