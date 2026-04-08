@@ -8,7 +8,11 @@ import { Hono } from 'hono'
 import { storeMemory } from '../lib/memory.js'
 import { passesIngestionGate } from '../lib/quality-gate.js'
 import { deriveAll } from '../lib/auto-derive.js'
-import type { MemoryInput, MemoryCategory } from '../vectordb/types.js'
+import { detectPii } from '../lib/pii-detection.js'
+import type { MemoryInput, MemoryCategory, MemoryClassification } from '../vectordb/types.js'
+import { CLASSIFICATION_RANK } from '../vectordb/types.js'
+
+const VALID_CLASSIFICATIONS: MemoryClassification[] = ['public', 'internal', 'confidential', 'restricted']
 
 const VALID_CATEGORIES: MemoryCategory[] = ['gotcha', 'pattern', 'fix', 'insight', 'question', 'preference', 'convention']
 const VALID_SOURCE_TYPES = ['pr', 'manual', 'extracted', 'bootstrap', 'advisor_session', 'plan', 'web_research', 'session', 'codebase_analysis']
@@ -58,6 +62,14 @@ app.post('/', async (c) => {
       }
     }
 
+    // PII detection — auto-classify before storage (TD-714)
+    const piiResult = detectPii(body.content.trim())
+    const requestedClassification = (VALID_CLASSIFICATIONS.includes(body.classification) ? body.classification : 'internal') as MemoryClassification
+    // PII detection can ELEVATE classification but never lower it
+    const finalClassification = CLASSIFICATION_RANK[piiResult.suggestedClassification] > CLASSIFICATION_RANK[requestedClassification]
+      ? piiResult.suggestedClassification
+      : requestedClassification
+
     // Auto-derive missing fields from content
     const content = body.content.trim()
     const derived = deriveAll(content, {
@@ -88,6 +100,10 @@ app.post('/', async (c) => {
       topic: derived.topic,
       memoryType: derived.memoryType,
       sourceTool: derived.sourceTool,
+      // v3: Security classification (Glasswing Red Alert)
+      classification: finalClassification,
+      clientNamespace: body.clientNamespace?.trim() || undefined,
+      containsPii: piiResult.containsPii || body.containsPii || false,
     }
 
     const memory = await storeMemory(input)

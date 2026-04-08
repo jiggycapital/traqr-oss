@@ -7,7 +7,10 @@
 import { Hono } from 'hono'
 import { searchMemories } from '../lib/memory.js'
 import { searchMemoriesV2 } from '../lib/retrieval.js'
-import type { MemoryCategory, MemoryDurability, SearchOptions } from '../vectordb/types.js'
+import type { MemoryCategory, MemoryClassification, MemoryAccessLevel, MemoryDurability, SearchOptions } from '../vectordb/types.js'
+
+const VALID_CLASSIFICATIONS: MemoryClassification[] = ['public', 'internal', 'confidential', 'restricted']
+const VALID_ACCESS_LEVELS: MemoryAccessLevel[] = ['exploration', 'standard', 'privileged', 'admin']
 
 const VALID_CATEGORIES: MemoryCategory[] = ['gotcha', 'pattern', 'fix', 'insight', 'question', 'preference', 'convention']
 const MAX_LIMIT = 50
@@ -75,6 +78,27 @@ app.get('/', async (c) => {
     const latestOnly = c.req.query('latestOnly') !== 'false'
     const memoryType = c.req.query('memoryType') as 'fact' | 'preference' | 'pattern' | undefined
 
+    // v3: security filters (Glasswing Red Alert)
+    const maxClassificationParam = c.req.query('maxClassification')
+    let maxClassification: MemoryClassification | undefined
+    if (maxClassificationParam) {
+      if (!VALID_CLASSIFICATIONS.includes(maxClassificationParam as MemoryClassification)) {
+        return c.json({ success: false, error: `maxClassification must be one of: ${VALID_CLASSIFICATIONS.join(', ')}` }, 400)
+      }
+      maxClassification = maxClassificationParam as MemoryClassification
+    }
+
+    const accessLevelParam = c.req.query('accessLevel')
+    let accessLevel: MemoryAccessLevel | undefined
+    if (accessLevelParam) {
+      if (!VALID_ACCESS_LEVELS.includes(accessLevelParam as MemoryAccessLevel)) {
+        return c.json({ success: false, error: `accessLevel must be one of: ${VALID_ACCESS_LEVELS.join(', ')}` }, 400)
+      }
+      accessLevel = accessLevelParam as MemoryAccessLevel
+    }
+
+    const clientNamespace = c.req.query('clientNamespace') || undefined
+
     const options: SearchOptions = {
       limit,
       category,
@@ -87,6 +111,10 @@ app.get('/', async (c) => {
       includeUniversal: crossProject || !!projectParam,
       latestOnly,
       memoryType: memoryType || undefined,
+      // Security
+      maxClassification,
+      accessLevel,
+      clientNamespace,
     }
 
     // Fetch more results than requested if domain filter is active (post-filter)

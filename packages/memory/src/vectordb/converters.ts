@@ -9,6 +9,7 @@ import type {
   Memory,
   MemorySearchResult,
   MemoryCategory,
+  MemoryClassification,
   MemoryDurability,
   MemoryType,
 } from './types.js'
@@ -58,6 +59,10 @@ export interface MemoryRow {
   forgotten_at?: string | null
   forget_after?: string | null
   source_tool?: string | null
+  // v3: Security classification (Glasswing Red Alert)
+  classification?: string | null
+  client_namespace?: string | null
+  contains_pii?: boolean | null
 }
 
 export interface SearchResultRow extends MemoryRow {
@@ -106,6 +111,10 @@ export function rowToMemory(row: MemoryRow): Memory {
     forgottenAt: row.forgotten_at ? new Date(row.forgotten_at) : undefined,
     forgetAfter: row.forget_after ? new Date(row.forget_after) : undefined,
     sourceTool: row.source_tool ?? undefined,
+    // v3: Security classification
+    classification: (row.classification as MemoryClassification) ?? 'internal',
+    clientNamespace: row.client_namespace ?? undefined,
+    containsPii: row.contains_pii ?? false,
   }
 }
 

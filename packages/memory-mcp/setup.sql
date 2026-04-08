@@ -751,9 +751,14 @@ LANGUAGE plpgsql AS $$
 DECLARE
   tsquery_en tsquery;
   tsquery_simple tsquery;
+  or_query TEXT;
 BEGIN
-  tsquery_en := plainto_tsquery('english', p_query_text);
-  tsquery_simple := plainto_tsquery('simple', p_query_text);
+  -- Split query words into OR terms for better recall.
+  -- "engagement ring proposal" -> "engagement | ring | proposal"
+  -- ts_rank_cd naturally ranks docs with MORE matching terms higher.
+  or_query := regexp_replace(trim(p_query_text), '\s+', ' | ', 'g');
+  tsquery_en := to_tsquery('english', or_query);
+  tsquery_simple := to_tsquery('simple', or_query);
 
   RETURN QUERY
   SELECT

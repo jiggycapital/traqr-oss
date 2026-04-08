@@ -25,9 +25,34 @@ import type {
   BM25SearchResult,
   TemporalSearchResult,
   GraphSearchResult,
+  MemoryClassification,
 } from './types.js'
+import { ACCESS_LEVEL_MAX_CLASSIFICATION } from './types.js'
 
 export class SupabaseVectorProvider implements VectorDBProvider {
+  // Audit logging — fire-and-forget, never blocks the operation
+  private async auditLog(operation: string, opts: {
+    agentId?: string, queryText?: string, memoryIds?: string[],
+    resultCount?: number, clientNamespace?: string, classificationLevel?: string, accessLevel?: string
+  } = {}): Promise<void> {
+    try {
+      const client = getMemoryClient()
+      await (client.rpc as any)('log_memory_operation', {
+        p_operation: operation,
+        p_agent_id: opts.agentId || process.env.TRAQR_SLOT_NAME || null,
+        p_session_id: process.env.TRAQR_SESSION_ID || null,
+        p_query_text: opts.queryText || null,
+        p_memory_ids: opts.memoryIds || null,
+        p_result_count: opts.resultCount || 0,
+        p_client_namespace: opts.clientNamespace || null,
+        p_classification_level: opts.classificationLevel || null,
+        p_access_level: opts.accessLevel || null,
+      })
+    } catch {
+      // Audit logging must NEVER block operations
+    }
+  }
+
   async store(input: MemoryInput, domainId?: string): Promise<Memory> {
     const client = getMemoryClient()
     const projectId = domainId || getProjectId()
@@ -76,6 +101,10 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       forget_after: input.forgetAfter ? input.forgetAfter.toISOString() : null,
       is_latest: true,
       is_forgotten: false,
+      // v3: Security classification (Glasswing Red Alert)
+      classification: input.classification || 'internal',
+      client_namespace: input.clientNamespace || null,
+      contains_pii: input.containsPii || false,
     }
 
     const { data, error } = await (client
@@ -89,7 +118,13 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       throw new Error(`Failed to store memory: ${error.message}`)
     }
 
-    return rowToMemory(data as MemoryRow)
+    const memory = rowToMemory(data as MemoryRow)
+    this.auditLog('store', {
+      memoryIds: [memory.id],
+      clientNamespace: input.clientNamespace,
+      classificationLevel: input.classification || 'internal',
+    })
+    return memory
   }
 
   async search(query: string, options: SearchOptions & { precomputedEmbedding?: string } = {}): Promise<MemorySearchResult[]> {
@@ -119,6 +154,10 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       }
     }
 
+    // Resolve access level to max classification
+    const maxClassification: MemoryClassification = options.maxClassification
+      || (options.accessLevel ? ACCESS_LEVEL_MAX_CLASSIFICATION[options.accessLevel] : 'restricted')
+
     const { data, error } = await (client.rpc as any)('search_memories', {
       p_query_embedding: embeddingStr,
       p_project_id: options.domainId || null,
@@ -128,6 +167,9 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       p_limit: options.limit || 10,
       p_similarity_threshold: options.similarityThreshold || 0.3,
       p_latest_only: options.latestOnly ?? true,
+      // Security parameters
+      p_max_classification: maxClassification,
+      p_client_namespace: options.clientNamespace || null,
     })
 
     if (error) {
@@ -135,7 +177,16 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       throw new Error(`Failed to search memories: ${error.message}`)
     }
 
-    return (data || []).map((row: SearchResultRow) => rowToSearchResult(row))
+    const results = (data || []).map((row: SearchResultRow) => rowToSearchResult(row))
+    this.auditLog('search', {
+      queryText: query,
+      memoryIds: results.map((r: MemorySearchResult) => r.id),
+      resultCount: results.length,
+      clientNamespace: options.clientNamespace,
+      classificationLevel: maxClassification,
+      accessLevel: options.accessLevel,
+    })
+    return results
   }
 
   async getById(id: string): Promise<Memory | null> {
@@ -153,6 +204,7 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       throw new Error(`Failed to get memory: ${error.message}`)
     }
 
+    this.auditLog('read', { memoryIds: [id], resultCount: 1 })
     return rowToMemory(data as MemoryRow)
   }
 
@@ -292,6 +344,7 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       throw new Error(`Failed to archive memory: ${error.message}`)
     }
 
+    this.auditLog('archive', { memoryIds: [id] })
     return rowToMemory(data as MemoryRow)
   }
 
@@ -775,6 +828,7 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       })
       .eq('id', id)
     if (error) throw new Error(error.message)
+    this.auditLog('forget', { memoryIds: [id] })
   }
 
   async createRelationship(

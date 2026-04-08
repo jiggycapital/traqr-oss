@@ -31,6 +31,28 @@ export type MemorySourceType =
 // Durability levels for memory lifecycle management
 export type MemoryDurability = 'permanent' | 'temporary' | 'session'
 
+// Security classification levels (Glasswing Red Alert)
+export type MemoryClassification = 'public' | 'internal' | 'confidential' | 'restricted'
+
+// Agent access levels for mode-specific memory access control
+export type MemoryAccessLevel = 'exploration' | 'standard' | 'privileged' | 'admin'
+
+// Classification rank for comparison (higher = more sensitive)
+export const CLASSIFICATION_RANK: Record<MemoryClassification, number> = {
+  public: 1,
+  internal: 2,
+  confidential: 3,
+  restricted: 4,
+}
+
+// Access level to max classification mapping
+export const ACCESS_LEVEL_MAX_CLASSIFICATION: Record<MemoryAccessLevel, MemoryClassification> = {
+  exploration: 'internal',     // /bethesda, default — public + internal only
+  standard: 'confidential',    // /consultant, /lore — + confidential with namespace
+  privileged: 'restricted',    // /call — can see restricted (raw transcripts)
+  admin: 'restricted',         // /cos — full cross-namespace visibility
+}
+
 // Memory types for type-aware lifecycle (v2)
 export type MemoryType = 'fact' | 'preference' | 'pattern'
 
@@ -65,6 +87,10 @@ export interface MemoryInput {
   sourceReliability?: 'direct-user' | 'deliberate-store' | 'granola-single' | 'granola-multi' | 'inferred' | 'auto-derived'
   // Pre-computed embedding (skip re-generation in store)
   precomputedEmbedding?: string
+  // Security classification (Glasswing Red Alert)
+  classification?: MemoryClassification
+  clientNamespace?: string
+  containsPii?: boolean
 }
 
 // Full memory record from the database
@@ -111,6 +137,10 @@ export interface Memory {
   forgottenAt?: Date
   forgetAfter?: Date
   sourceTool?: string
+  // v3: Security classification (Glasswing Red Alert)
+  classification?: MemoryClassification
+  clientNamespace?: string
+  containsPii?: boolean
 }
 
 // Memory with computed fields from search
@@ -166,6 +196,10 @@ export interface SearchOptions {
   // v2: Lifecycle filters
   latestOnly?: boolean
   memoryType?: MemoryType
+  // v3: Security filters (Glasswing Red Alert)
+  maxClassification?: MemoryClassification
+  clientNamespace?: string
+  accessLevel?: MemoryAccessLevel
 }
 
 // Update options
