@@ -23,13 +23,16 @@ export type {
   MemorySourceType,
   MemoryDurability,
   MemoryType,
+  MemoryClassification,
+  MemoryAccessLevel,
+  MemoryRetentionPolicy,
   BM25SearchResult,
   TemporalSearchResult,
   GraphSearchResult,
   BrowseResult,
   ProviderConfig,
 } from './vectordb/types.js'
-export { BOOTSTRAP_CONFIDENCE, DECAY_CONFIG } from './vectordb/types.js'
+export { BOOTSTRAP_CONFIDENCE, DECAY_CONFIG, ACCESS_LEVEL_MAX_CLASSIFICATION, CLASSIFICATION_RANK } from './vectordb/types.js'
 
 // Auto-derive v2
 export {

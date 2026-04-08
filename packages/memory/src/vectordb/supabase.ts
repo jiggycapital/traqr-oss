@@ -27,7 +27,8 @@ import type {
   GraphSearchResult,
   MemoryClassification,
 } from './types.js'
-import { ACCESS_LEVEL_MAX_CLASSIFICATION } from './types.js'
+import { ACCESS_LEVEL_MAX_CLASSIFICATION, CLASSIFICATION_RANK } from './types.js'
+import { encrypt, isEncryptionEnabled } from '../lib/encryption.js'
 
 export class SupabaseVectorProvider implements VectorDBProvider {
   // Audit logging — fire-and-forget, never blocks the operation
@@ -70,10 +71,16 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       embeddingModelVersion = result.modelVersion
     }
 
+    // TD-715: Encrypt content for confidential/restricted memories
+    const classification = input.classification || 'internal'
+    const shouldEncrypt = isEncryptionEnabled() &&
+      CLASSIFICATION_RANK[classification] >= CLASSIFICATION_RANK['confidential']
+    const encrypted = shouldEncrypt ? encrypt(input.content) : null
+
     const insertData = {
       user_id: getUserId(),
       project_id: projectId,
-      content: input.content,
+      content: encrypted ? '[ENCRYPTED]' : input.content,
       summary: input.summary,
       category: input.category,
       tags: input.tags || [],
@@ -102,9 +109,17 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       is_latest: true,
       is_forgotten: false,
       // v3: Security classification (Glasswing Red Alert)
-      classification: input.classification || 'internal',
+      classification,
       client_namespace: input.clientNamespace || null,
       contains_pii: input.containsPii || false,
+      // v3: Application-level encryption (TD-715)
+      encrypted_content: encrypted?.ciphertext || null,
+      encryption_iv: encrypted?.iv || null,
+      encryption_tag: encrypted?.authTag || null,
+      encryption_key_version: encrypted?.keyVersion || null,
+      // v4: Retention policies (Glasswing TD-716)
+      retention_policy: input.retentionPolicy || (input.clientNamespace ? 'client_engagement' : 'permanent'),
+      retention_expires_at: input.retentionExpiresAt ? input.retentionExpiresAt.toISOString() : null,
     }
 
     const { data, error } = await (client
@@ -221,7 +236,20 @@ export class SupabaseVectorProvider implements VectorDBProvider {
     }
 
     if (updates.content !== undefined) {
-      updateData.content = updates.content
+      // TD-715: Re-encrypt if the memory is confidential/restricted
+      const memClassification = (current.classification || 'internal') as MemoryClassification
+      const shouldEncrypt = isEncryptionEnabled() &&
+        CLASSIFICATION_RANK[memClassification] >= CLASSIFICATION_RANK['confidential']
+      const encrypted = shouldEncrypt ? encrypt(updates.content) : null
+
+      updateData.content = encrypted ? '[ENCRYPTED]' : updates.content
+      if (encrypted) {
+        updateData.encrypted_content = encrypted.ciphertext
+        updateData.encryption_iv = encrypted.iv
+        updateData.encryption_tag = encrypted.authTag
+        updateData.encryption_key_version = encrypted.keyVersion
+      }
+
       const embeddingResult = await generateEmbedding(updates.content)
       updateData.embedding = formatEmbeddingForPgVector(embeddingResult.embedding)
       updateData.embedding_model = embeddingResult.model
@@ -820,15 +848,67 @@ export class SupabaseVectorProvider implements VectorDBProvider {
 
   async forget(id: string): Promise<void> {
     const client = getMemoryClient()
-    const { error } = await (client.from(getTableName()) as any)
-      .update({
-        is_forgotten: true,
-        forgotten_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
+    // GDPR Article 17: hard-delete via RPC (removes row + embedding + relationships)
+    const { data, error } = await (client.rpc as any)('hard_delete_memory', {
+      p_memory_id: id,
+      p_agent_id: process.env.TRAQR_SLOT_NAME || null,
+      p_reason: 'forgotten',
+    })
+    if (error) {
+      // Fallback to soft-delete if RPC not yet deployed
+      const { error: fallbackError } = await (client.from(getTableName()) as any)
+        .update({
+          is_forgotten: true,
+          forgotten_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+      if (fallbackError) throw new Error(fallbackError.message)
+      this.auditLog('forget', { memoryIds: [id] })
+      return
+    }
+    // RPC handles its own audit logging
+  }
+
+  async purgeNamespace(namespace: string, reason?: string): Promise<number> {
+    const client = getMemoryClient()
+    const { data, error } = await (client.rpc as any)('purge_client_namespace', {
+      p_client_namespace: namespace,
+      p_agent_id: process.env.TRAQR_SLOT_NAME || null,
+      p_reason: reason || 'right-to-delete',
+    })
     if (error) throw new Error(error.message)
-    this.auditLog('forget', { memoryIds: [id] })
+    return data ?? 0
+  }
+
+  async exportNamespace(namespace: string): Promise<MemoryExport[]> {
+    const client = getMemoryClient()
+    const { data, error } = await (client.rpc as any)('export_client_namespace', {
+      p_client_namespace: namespace,
+    })
+    if (error) throw new Error(error.message)
+    return (data || []).map((r: any) => ({
+      id: r.id,
+      content: r.content,
+      summary: r.summary,
+      category: r.category,
+      tags: r.tags || [],
+      contextTags: [],
+      sourceType: r.source_type,
+      sourceRef: r.source_ref,
+      sourceProject: '',
+      originalConfidence: 1,
+      lastValidated: r.updated_at,
+      relatedTo: [],
+      isContradiction: false,
+      isArchived: false,
+      durability: 'permanent',
+      embeddingModel: '',
+      embeddingModelVersion: '',
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      domainName: r.domain,
+    }))
   }
 
   async createRelationship(

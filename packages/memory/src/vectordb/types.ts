@@ -53,6 +53,9 @@ export const ACCESS_LEVEL_MAX_CLASSIFICATION: Record<MemoryAccessLevel, MemoryCl
   admin: 'restricted',         // /cos — full cross-namespace visibility
 }
 
+// Retention policies for data lifecycle (Glasswing TD-716)
+export type MemoryRetentionPolicy = 'permanent' | 'client_engagement' | 'session' | 'manual'
+
 // Memory types for type-aware lifecycle (v2)
 export type MemoryType = 'fact' | 'preference' | 'pattern'
 
@@ -91,6 +94,9 @@ export interface MemoryInput {
   classification?: MemoryClassification
   clientNamespace?: string
   containsPii?: boolean
+  // Retention policy (Glasswing TD-716)
+  retentionPolicy?: MemoryRetentionPolicy
+  retentionExpiresAt?: Date
 }
 
 // Full memory record from the database
@@ -141,6 +147,9 @@ export interface Memory {
   classification?: MemoryClassification
   clientNamespace?: string
   containsPii?: boolean
+  // v4: Retention policies (Glasswing TD-716)
+  retentionPolicy?: MemoryRetentionPolicy
+  retentionExpiresAt?: Date
 }
 
 // Memory with computed fields from search

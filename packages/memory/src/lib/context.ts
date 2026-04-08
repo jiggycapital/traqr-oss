@@ -9,7 +9,8 @@
 import { searchMemories } from './memory.js'
 import { CATEGORY_EMOJI } from './formatting.js'
 import { getMemoryClient } from './client.js'
-import type { MemorySearchResult } from '../vectordb/types.js'
+import type { MemorySearchResult, MemoryAccessLevel } from '../vectordb/types.js'
+import { ACCESS_LEVEL_MAX_CLASSIFICATION } from '../vectordb/types.js'
 
 // ============================================================
 // Types
@@ -20,6 +21,7 @@ export interface SessionContextParams {
   taskDescription?: string
   filesExpected?: string[]
   sourceProject?: string
+  accessLevel?: import('../vectordb/types.js').MemoryAccessLevel
 }
 
 export interface MemoryWithShortCode extends MemorySearchResult {
@@ -127,18 +129,23 @@ async function timedSearch(
 export async function assembleSessionContext(
   params: SessionContextParams
 ): Promise<SessionContext> {
-  const { slotName, taskDescription, filesExpected } = params
+  const { slotName, taskDescription, filesExpected, accessLevel } = params
+
+  // Security: if accessLevel is provided, resolve to max classification for all searches
+  const securityOpts = accessLevel ? { accessLevel } : {}
 
   const searches = await Promise.all([
     timedSearch('principles', 'critical rules conventions best practices gotchas', {
       limit: 5,
       similarityThreshold: 0.45,
+      ...securityOpts,
     }),
 
     taskDescription
       ? timedSearch('task-relevant', taskDescription, {
           limit: 7,
           similarityThreshold: 0.4,
+          ...securityOpts,
         })
       : Promise.resolve({ results: [], timing: { query: 'task-relevant (skipped)', ms: 0 } }),
 
@@ -147,28 +154,33 @@ export async function assembleSessionContext(
           limit: 3,
           category: 'gotcha',
           similarityThreshold: 0.4,
+          ...securityOpts,
         })
       : timedSearch('gotchas', `${slotName} common gotchas pitfalls`, {
           limit: 3,
           category: 'gotcha',
           similarityThreshold: 0.4,
+          ...securityOpts,
         }),
 
     timedSearch('preferences', 'design preference convention style naming file structure', {
       limit: 3,
       similarityThreshold: 0.4,
+      ...securityOpts,
     }),
 
     timedSearch('voice', 'writing voice tone style audience', {
       limit: 2,
       tags: ['voice'],
       similarityThreshold: 0.4,
+      ...securityOpts,
     }),
 
     timedSearch('identity', 'Sean preferences priorities values target audience decision-making style', {
       limit: 3,
       tags: ['identity'],
       similarityThreshold: 0.35,
+      ...securityOpts,
     }),
   ])
 

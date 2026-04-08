@@ -23,7 +23,7 @@
     "dist"
   ],
   "dependencies": {
-    "@traqr/core": "^0.1.0"
+    "@traqr/core": "*"
   },
   "repository": {
     "type": "git",

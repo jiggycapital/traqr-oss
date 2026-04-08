@@ -11,8 +11,10 @@ import type {
   MemoryCategory,
   MemoryClassification,
   MemoryDurability,
+  MemoryRetentionPolicy,
   MemoryType,
 } from './types.js'
+import { decrypt } from '../lib/encryption.js'
 
 // Database row type matching traqr_memories schema
 export interface MemoryRow {
@@ -63,6 +65,14 @@ export interface MemoryRow {
   classification?: string | null
   client_namespace?: string | null
   contains_pii?: boolean | null
+  // v3: Application-level encryption (TD-715)
+  encrypted_content?: string | null
+  encryption_iv?: string | null
+  encryption_tag?: string | null
+  encryption_key_version?: number | null
+  // v4: Retention policies (Glasswing TD-716)
+  retention_policy?: string | null
+  retention_expires_at?: string | null
 }
 
 export interface SearchResultRow extends MemoryRow {
@@ -72,9 +82,24 @@ export interface SearchResultRow extends MemoryRow {
 }
 
 export function rowToMemory(row: MemoryRow): Memory {
+  // Transparent decryption: if encrypted_content exists, decrypt it
+  let content = row.content
+  if (row.encrypted_content && row.encryption_iv && row.encryption_tag) {
+    const decrypted = decrypt({
+      ciphertext: row.encrypted_content,
+      iv: row.encryption_iv,
+      authTag: row.encryption_tag,
+      keyVersion: row.encryption_key_version || 1,
+    })
+    if (decrypted) {
+      content = decrypted
+    }
+    // If decryption fails (key missing/rotated), content stays as placeholder
+  }
+
   return {
     id: row.id,
-    content: row.content,
+    content,
     summary: row.summary ?? undefined,
     category: row.category as MemoryCategory | undefined,
     tags: row.tags || [],
@@ -115,6 +140,9 @@ export function rowToMemory(row: MemoryRow): Memory {
     classification: (row.classification as MemoryClassification) ?? 'internal',
     clientNamespace: row.client_namespace ?? undefined,
     containsPii: row.contains_pii ?? false,
+    // v4: Retention policies
+    retentionPolicy: (row.retention_policy as MemoryRetentionPolicy) ?? 'permanent',
+    retentionExpiresAt: row.retention_expires_at ? new Date(row.retention_expires_at) : undefined,
   }
 }
 

@@ -34,7 +34,9 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 CREATE OR REPLACE FUNCTION traqr_tsvector_en(content text, summary text, tags text[])
 RETURNS tsvector
-LANGUAGE sql IMMUTABLE AS $$
+LANGUAGE sql IMMUTABLE
+SET search_path = ''
+AS $$
   SELECT to_tsvector('english',
     COALESCE(content, '') || ' ' ||
     COALESCE(summary, '') || ' ' ||
@@ -44,7 +46,9 @@ $$;
 
 CREATE OR REPLACE FUNCTION traqr_tsvector_simple(content text, summary text, tags text[])
 RETURNS tsvector
-LANGUAGE sql IMMUTABLE AS $$
+LANGUAGE sql IMMUTABLE
+SET search_path = ''
+AS $$
   SELECT to_tsvector('simple',
     COALESCE(content, '') || ' ' ||
     COALESCE(summary, '') || ' ' ||
@@ -494,7 +498,9 @@ CREATE OR REPLACE FUNCTION calculate_current_confidence(
   p_memory_type VARCHAR DEFAULT 'pattern'
 )
 RETURNS FLOAT
-LANGUAGE plpgsql STABLE AS $$
+LANGUAGE plpgsql STABLE
+SET search_path = ''
+AS $$
 DECLARE
   years_elapsed FLOAT;
   decay_rate FLOAT;
@@ -565,7 +571,9 @@ RETURNS TABLE (
   is_latest BOOLEAN,
   source_tool VARCHAR
 )
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 BEGIN
   RETURN QUERY
   SELECT
@@ -640,7 +648,9 @@ RETURNS TABLE (
   is_latest BOOLEAN,
   source_tool VARCHAR
 )
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 BEGIN
   RETURN QUERY
   SELECT
@@ -688,7 +698,9 @@ RETURNS TABLE (
   times_returned INTEGER,
   reason TEXT
 )
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 BEGIN
   RETURN QUERY
   WITH decayed AS (
@@ -747,7 +759,9 @@ RETURNS TABLE (
   category TEXT,
   memory_type TEXT
 )
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 DECLARE
   tsquery_en tsquery;
   tsquery_simple tsquery;
@@ -803,7 +817,9 @@ RETURNS TABLE (
   temporal_proximity FLOAT,
   valid_at TIMESTAMPTZ
 )
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 DECLARE
   date_mid TIMESTAMPTZ;
   total_days FLOAT;
@@ -847,7 +863,9 @@ RETURNS TABLE (
   edge_type TEXT,
   depth INTEGER
 )
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 BEGIN
   RETURN QUERY
   WITH RECURSIVE graph_walk AS (
@@ -905,7 +923,9 @@ RETURNS TABLE (
   similarity FLOAT,
   mentions_count INTEGER
 )
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 BEGIN
   RETURN QUERY
   SELECT
@@ -928,7 +948,9 @@ CREATE OR REPLACE FUNCTION count_entity_mentions(
   p_name VARCHAR
 )
 RETURNS INTEGER
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 DECLARE
   mention_count INTEGER;
 BEGIN
@@ -945,7 +967,9 @@ $$;
 -- 6j. forget_expired_memories — daily cron function
 CREATE OR REPLACE FUNCTION forget_expired_memories()
 RETURNS INTEGER
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 DECLARE
   forgotten_count INTEGER;
 BEGIN
