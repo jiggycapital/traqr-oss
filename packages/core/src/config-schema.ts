@@ -658,7 +658,7 @@ export interface TraqrConfig {
     provider: 'github' | 'gitlab';
     /** GitLab numeric project ID (required for GitLab API calls) */
     projectId?: string;
-    /** Base URL for self-hosted instances (e.g., 'https://gitlab.aws.dev'). Defaults to github.com/gitlab.com */
+    /** Base URL for self-hosted instances (e.g., 'https://gitlab.example.com'). Defaults to github.com/gitlab.com */
     baseUrl?: string;
     /** Merge strategy: squash, fast-forward, or merge commit */
     mergeStrategy?: 'squash' | 'fast-forward' | 'merge';

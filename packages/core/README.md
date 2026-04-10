@@ -51,22 +51,20 @@ npx traqr-memory-mcp --install    # Interactive wizard for DB + MCP config
 
 ---
 
-## Two Flavors of TraqrOS
+## Provider-Agnostic by Design
 
-TraqrOS comes in two flavors — same packages, same config schema, different Golden Path preset:
+TraqrOS adapts to whatever stack you already use. Pick your VCS, pick your database, pick your tools — the config schema is the same:
 
-| | TraqrOS-Personal | TraqrOS-AWS |
-|---|---|---|
-| VCS | GitHub | GitLab (cloud or self-hosted) |
-| Issues | Linear (paid seats) | GitLab Issues (free) |
-| Memory DB | Supabase Postgres | RDS Postgres (AWS CLI provisioned) |
-| Embeddings | OpenAI / Gemini | Amazon Bedrock |
-| CI/CD | GitHub Actions | GitLab CI |
-| Team | Solo or small team | Corporate team (5+) |
-| Notifications | Slack | Console / none (corporate policy) |
-| Golden Path | `github-pro` | `gitlab-team` |
+| Layer | Supported Providers |
+|-------|--------------------|
+| **VCS** | GitHub, GitLab (cloud or self-hosted), any git remote |
+| **Issues** | Linear, GitHub Issues, GitLab Issues, or none |
+| **Memory DB** | Supabase, any Postgres 15+ (RDS, Cloud SQL, Docker, self-hosted) |
+| **Embeddings** | OpenAI, Google Gemini, Amazon Bedrock, Ollama (local), or none |
+| **CI/CD** | GitHub Actions, GitLab CI (auto-detected from VCS) |
+| **Notifications** | Slack, console, or none |
 
-Both flavors use `@traqr/core` + `traqr-memory-mcp`. The Golden Path preset is the only difference.
+Golden Path presets give you a starting config based on your VCS. Override any layer to match your actual infrastructure.
 
 ---
 
@@ -84,30 +82,24 @@ git config --get remote.origin.url
 # No remote yet         → default to github-pro
 ```
 
-**Step 2: Decision tree**
+**Step 2: Pick a starting preset**
 
 ```
-GitHub.com?
-  └─ Yes → github-pro (tier 3, full automation)
-
-GitLab (cloud or self-hosted)?
-  └─ Solo developer? → gitlab-minimal (tier 0, zero integrations)
-  └─ Team of 2+?     → gitlab-team (tier 2, team automation)
-
-Corporate + AWS + RDS + Bedrock?
-  └─ gitlab-team with corporate overrides (see config example below)
+GitHub → github-pro (tier 3, full automation)
+GitLab → gitlab-team (tier 2, team automation)
+GitLab (solo) → gitlab-minimal (tier 0, zero integrations)
 ```
 
-**Step 3 (optional): Do you have Linear?**
-If yes, you can override `issues.provider` to `"linear"` on any Golden Path.
+**Step 3: Override anything that doesn't match your stack.**
+Any layer is swappable — use Linear with GitLab, skip Slack on GitHub, use Ollama instead of OpenAI. The preset is a starting point, not a box.
 
 ### Preset Comparison
 
 | Preset | VCS | Issues | Memory | Notifications | Tier | Best For |
 |--------|-----|--------|--------|---------------|------|----------|
-| **github-pro** | GitHub | Linear | Supabase | Slack (standard) | 3 | Full automation, open source, startups |
-| **gitlab-team** | GitLab | GitLab Issues | Supabase or RDS | None (console) | 2 | Corporate teams, AWS environments |
-| **gitlab-minimal** | GitLab | None | Local (CLAUDE.md only) | None | 0 | Solo developers, minimal setup |
+| **github-pro** | GitHub | Linear | Supabase | Slack | 3 | Teams, open source, startups, SaaS |
+| **gitlab-team** | GitLab | GitLab Issues | Postgres (any host) | Slack or console | 2 | Teams, self-hosted, monorepos |
+| **gitlab-minimal** | GitLab | None | CLAUDE.md only | None | 0 | Solo developers, learning, minimal setup |
 
 ### Tier to Features Mapping
 
@@ -116,7 +108,7 @@ Each tier unlocks more automation:
 | Tier | Pack | Slots | Memory | Issues | Notifications | Monitoring | Score |
 |------|------|-------|--------|--------|---------------|------------|-------|
 | 0 | Solo | 3F + 1B | None | None | None | None | ~25 |
-| 2 | Smart | 3F + 2B + 1D | Supabase/RDS | GitHub/GitLab | None | None | ~50 |
+| 2 | Smart | 3F + 2B + 1D | Supabase/Postgres | GitHub/GitLab | None | None | ~50 |
 | 3 | Production | 3F + 2B + 3D | Supabase | Linear | Slack | Sentry + PostHog | ~75 |
 | 4 | Full | 3F + 2B + 3D + G + A | Supabase + voice | Linear | Slack (full) | Full suite | ~95 |
 
@@ -128,9 +120,9 @@ Each tier unlocks more automation:
 
 Write the appropriate config to `.traqr/config.json`:
 
-### GitHub Pro (TraqrOS-Personal)
+### GitHub Pro
 
-For GitHub teams with Linear, Slack, and Supabase memory:
+For GitHub-based teams with Linear, Slack, and Supabase memory:
 
 ```json
 {
@@ -173,9 +165,9 @@ For GitHub teams with Linear, Slack, and Supabase memory:
 
 **After writing config:** Run `npx traqr render`, then set up memory with `npx traqr-memory-mcp --install` (picks Supabase + OpenAI by default).
 
-### GitLab Team (TraqrOS-AWS)
+### GitLab Team
 
-For corporate GitLab teams with RDS memory and Bedrock embeddings:
+For GitLab-based teams with managed Postgres and your choice of embedding provider:
 
 ```json
 {
@@ -223,10 +215,10 @@ For corporate GitLab teams with RDS memory and Bedrock embeddings:
 }
 ```
 
-**After writing config:** Run `npx traqr render`. For memory, use `npx traqr-memory-mcp --install` and select "Postgres + Bedrock" when prompted. You'll need:
-- `DATABASE_URL` — your RDS connection string (ask your DBA or provision via AWS CLI)
-- `EMBEDDING_PROVIDER=bedrock` — uses AWS credentials from your environment
-- `AWS_REGION` — your team's AWS region
+**After writing config:** Run `npx traqr render`. For memory, use `npx traqr-memory-mcp --install` and select your embedding provider when prompted. You'll need:
+- `DATABASE_URL` — your Postgres connection string (ask your DBA or provision through your cloud provider)
+- `EMBEDDING_PROVIDER` — your preferred provider (`openai`, `gemini`, `bedrock`, `ollama`, or `none`)
+- Provider-specific credentials (API key, cloud credentials, etc.)
 
 **Finding your GitLab Project ID:** Go to your project page on GitLab → Settings → General → the numeric ID is shown at the top.
 

@@ -478,7 +478,7 @@ export interface CorporateDetection {
  *   https://github.com/org/repo.git        →  github, org/repo
  *   git@github.com:org/repo.git            →  github, org/repo
  *   https://gitlab.com/group/project.git   →  gitlab, group/project
- *   git@gitlab.aws.dev:group/project.git   →  gitlab (self-hosted), group/project
+ *   git@gitlab.example.com:group/project.git →  gitlab (self-hosted), group/project
  *   https://git-codecommit.us-east-1...    →  codecommit
  */
 export function detectVcsProvider(projectRoot?: string): VcsDetection {
@@ -549,7 +549,7 @@ export function detectVcsProvider(projectRoot?: string): VcsDetection {
         }
       } catch { /* ignore */ }
 
-      // Check for hostname containing 'gitlab' (e.g., gitlab.aws.dev, gitlab.company.com)
+      // Check for hostname containing 'gitlab' (e.g., gitlab.example.com, gitlab.company.com)
       if (hostname.includes('gitlab')) {
         result.provider = 'gitlab';
         result.orgRepo = orgRepo;

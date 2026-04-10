@@ -39,10 +39,9 @@ The wizard will ask for your database and embedding provider. **Get these from y
 
 {{#IF_GITHUB}}- **Supabase URL**: `https://xxx.supabase.co`
 - **Supabase Service Role Key**: `eyJ...` (NOT the anon key)
-- **OpenAI API Key** (or Gemini/Bedrock): for generating embeddings
-{{/IF_GITHUB}}{{#IF_GITLAB}}- **Database URL**: `postgresql://user:pass@host:5432/dbname` (RDS or Postgres connection string)
-- **Embedding Provider**: Check with your team (Bedrock for AWS, OpenAI otherwise)
-- **AWS Region**: If using Bedrock (e.g., `us-east-1`)
+- **OpenAI API Key** (or Gemini): for generating embeddings
+{{/IF_GITHUB}}{{#IF_GITLAB}}- **Database URL**: `postgresql://user:pass@host:5432/dbname` (Postgres connection string)
+- **Embedding Provider**: Check with your team (OpenAI, Gemini, or other supported provider)
 {{/IF_GITLAB}}
 The wizard writes your `.claude/mcp.json` automatically. This file is gitignored (it contains secrets).
 

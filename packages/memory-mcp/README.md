@@ -66,7 +66,7 @@ psql postgresql://postgres:postgres@localhost:5432/postgres -f setup.sql
 }
 ```
 
-**Postgres + Amazon Bedrock** (enterprise/AWS)
+**Postgres + Amazon Bedrock** (enterprise)
 ```json
 {
   "traqr-memory": {

@@ -18,9 +18,9 @@ The install wizard detects your MCP client, asks a few questions, and configures
 
 **What you get:** 11 MCP tools for storing, searching, and managing memories. Multi-strategy retrieval (semantic + BM25 + RRF fusion), 3-zone cosine triage, entity extraction, and type-aware lifecycle.
 
-**Database:** Supabase (free tier), AWS RDS, Docker, or any Postgres 15+ with pgvector.
+**Database:** Any Postgres 15+ with pgvector — Supabase, RDS, Cloud SQL, Docker, self-hosted.
 
-**Embeddings:** OpenAI, Amazon Bedrock, Google Gemini, Ollama (local), or BM25-only (no embeddings).
+**Embeddings:** OpenAI, Google Gemini, Amazon Bedrock, Ollama (local), or BM25-only (no embeddings).
 
 ### Traqr CLI (Full Dev Platform)
 

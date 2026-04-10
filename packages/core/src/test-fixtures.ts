@@ -75,12 +75,12 @@ export const GITLAB_TEAM_FIXTURE: TraqrConfig = {
   starterPack: 'gitlab-team' as any,
   project: {
     ...BASE_PROJECT,
-    ghOrgRepo: 'kiro-sales/Kiro-Sales',
+    ghOrgRepo: 'acme-team/acme-platform',
   },
   vcs: {
     provider: 'gitlab',
     projectId: '152559',
-    baseUrl: 'https://gitlab.aws.dev',
+    baseUrl: 'https://gitlab.example.com',
     mergeStrategy: 'fast-forward',
     autoMerge: true,
     primedSession: true,
