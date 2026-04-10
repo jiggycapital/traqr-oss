@@ -79,7 +79,7 @@ RETURNS TABLE (
   source_ref VARCHAR
 )
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 BEGIN
   RETURN QUERY
@@ -109,7 +109,7 @@ CREATE OR REPLACE FUNCTION purge_client_namespace(
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 DECLARE
   deleted_count INTEGER;
@@ -167,7 +167,7 @@ $$;
 CREATE OR REPLACE FUNCTION cleanup_expired_retention()
 RETURNS INTEGER
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 DECLARE
   deleted_count INTEGER;
@@ -242,7 +242,7 @@ CREATE OR REPLACE FUNCTION hard_delete_memory(
 )
 RETURNS BOOLEAN
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 DECLARE
   mem_namespace VARCHAR;
