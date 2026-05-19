@@ -1,0 +1,810 @@
+---
+name: call
+description: Meeting processing — transcript extraction, cross-analysis, and action items
+license: MIT
+tier: any
+category: intelligence
+autoInvoked: false
+dependencies: []
+relatedSkills: [bethesda, lore, gamedev, einstein, deepreflect, documentary, rounds, rally, cos, debate, ship, sync, nextphase, checkpoint, wrapup, inbox]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /call — Meeting Intelligence
+
+Not a note-taker. A chief-of-staff layer that processes meetings against EVERYTHING you know — your memory DB, your vault docs, your issue tracker, and prior call logs — to surface connections, contradictions, and strategic insights that no meeting summary could produce.
+
+**Audio-first:** Works with ANY transcript source — meeting-recorder tools, video-call recordings, voice memos, pasted text, email transcripts. The extraction pipeline is source-agnostic. The intelligence is identical regardless of how the audio was captured.
+
+## Arguments
+
+- `$ARGUMENTS` — Supports multiple input modes:
+  - `latest` or empty → auto-detect: try your meeting-transcript source first, then ask for input
+  - `<search term>` → search your meeting-transcript source by title/date
+  - `--file <path>` → read transcript from any local file (VTT, plain text, vault doc)
+  - `--text` → user pastes raw transcript text directly into the conversation
+  - `--email <message-id>` → pull transcript from an email message body
+  - A meeting ID (UUID format) → direct lookup in your meeting-transcript source
+
+## Design Principles
+
+1. **Raw transcript is sacred.** ALWAYS work from the raw transcript, not a summary. Summaries lose nuance — exact phrasing, tangents that reveal deeper thinking, the moment someone's voice changes when they hit on something real.
+2. **Cross-reference EVERYTHING.** Every person mentioned, every idea, every decision — search your memory DB. Read relevant vault docs. The value is in CONNECTIONS between what was said and what you already know.
+3. **Decisions are gold, but WHOSE idea matters.** Don't just capture "we decided X." Capture who championed it, who pushed back, who said "wait actually..." Ideas attributed to the wrong person lose their context.
+4. **Surprises over confirmations.** Things that challenged assumptions are 10x more valuable than things that confirmed them. Flag contradictions between transcript and existing memories.
+5. **Vision is fragile.** Big ideas surface mid-tangent and evaporate. Capture the EXACT framing, the trigger that produced it, and how the energy in the room shifted.
+6. **Relationship context compounds.** What did you learn about this person that no profile would tell you? What do they ACTUALLY care about when they're not performing?
+7. **Action items are commitments, not wishes.** "We should look into..." is NOT an action item. "I'll have that done by Tuesday" IS.
+8. **Three outputs, not one.** Every /call produces: (a) a deep call log, (b) cross-referenced memories, (c) a strategic synthesis connecting to existing knowledge.
+
+---
+
+## Phase 0: Privacy Gate (Decide Fan-Out Scope)
+
+`/call` may run autonomously on a recurring trigger. Most recordings are business or quasi-business, but some are not, and the autonomous fan-out (team-channel relay, CRM sync, issue-tracker ticket creation, people-notes creation) should NOT trigger on personal/sensitive contexts.
+
+### Detect sensitive-context markers
+
+Set `MEETING_PRIVATE = true` if ANY of:
+- Meeting title contains: `therapy`, `therapist`, `counsel`, `doctor`, `medical`, `financial advisor`, `attorney`, `lawyer`, `personal`, `family`
+- All participants are family members with no business contacts
+- Meeting metadata explicitly tags it private (e.g. source folder = `Personal`)
+- User explicitly passes `--private` flag
+
+Otherwise `MEETING_PRIVATE = false` (default — standard fan-out).
+
+### Behavior split
+
+| Phase | Standard mode | Private mode |
+|-------|--------------|--------------|
+| Phase 5 (call log) | Write to `Work/Calls/` | Write to `Work/Calls/Private/` |
+| Phase 6 (memories) | Capture | Capture (still useful) |
+| Phase 3.5 (people notes) | Update existing + create new | Update existing only, no creation |
+| Phase 3.5 (external CRM sync) | Sync | **SKIP** |
+| Phase 7 (tickets) | Auto-create | **SKIP** — flag in call log only |
+| Phase 9 (team-channel relay) | Post | **SKIP** |
+
+The call log and memories preserve the value of the recording. The fan-out targets that other agents or shared surfaces can see are gated.
+
+When `MEETING_PRIVATE = true`, the Phase 9 summary report explicitly notes `MODE: private — fan-out skipped` so you can see the gate fired.
+
+---
+
+## Phase 1: Identify + Load Context (Before Reading Transcript)
+
+### 1a. Resolve Transcript Source
+
+Parse `$ARGUMENTS` to determine input mode and resolve the transcript:
+
+#### Mode: Meeting-transcript source (default when an MCP is available)
+
+If your meeting-transcript source exposes a semantic-query tool, prefer it over a bulk-list tool for discovery — querying with citations costs fewer tokens than listing + filtering + fetching individually. Reserve bulk enumeration only for batch processing (e.g., "process all recordings from today").
+
+```
+- "latest" or empty → query the source for "most recent meeting today" → resolve the cited meeting → fetch its raw transcript
+- Date string → query for "meetings on [date]" → resolve cited meetings → fetch each transcript
+- Search term → query for "[term]" → resolve cited meetings → fetch each transcript
+- UUID → fetch the transcript directly by meeting ID
+- "all today" / batch mode → bulk-list with a date filter (the one case where listing is better)
+```
+
+**Why this matters:** A semantic-query tool returns synthesized answers with inline citations linking to specific meetings. For discovery, it is far more token-efficient than listing all meetings and scanning titles. For raw transcript extraction, a verbatim-transcript fetch is still required — the query tool summarizes, it doesn't return verbatim text.
+
+#### Mode: File (`--file <path>`)
+```
+- Read the file at the given path
+- Parse frontmatter if present (extract date, participants, duration, source)
+- If no frontmatter, infer metadata from filename pattern (YYYY-MM-DD-topic-slug.md)
+- The file content IS the transcript
+- Works for: VTT files, plain text transcripts, vault docs, any .txt/.md/.vtt
+```
+
+#### Mode: Text (`--text`)
+```
+- Prompt user to paste transcript directly
+- Ask for metadata: date, participants, duration, topic
+- The pasted content IS the transcript
+```
+
+#### Mode: Email (`--email <message-id>`)
+```
+- Use an email MCP to pull the message body
+- Parse the email body as transcript text (recorders often auto-email transcripts)
+- Extract metadata from email headers (date, from/to as participants)
+```
+
+#### Mode: Auto-detect (no arguments, no flags)
+```
+1. Check if a meeting-transcript MCP is available → if yes, use a semantic query for "most recent meeting" for smart discovery
+2. If unavailable → ask user:
+   "No transcript source detected. Options:
+    (a) Paste a transcript (--text)
+    (b) Provide a file path (--file <path>)
+    (c) Provide an email message ID (--email <id>)"
+```
+
+**After resolving, set these variables for ALL subsequent phases:**
+- `TRANSCRIPT_TEXT` — the raw transcript content
+- `TRANSCRIPT_SOURCE` — `"recorder"` | `"file"` | `"text"` | `"email"`
+- `MEETING_TITLE` — from metadata or user input
+- `MEETING_DATETIME_UTC` — raw datetime as returned by source (most recorders and email transcripts return UTC)
+- `MEETING_DATETIME_LOCAL` — **converted to the user's local timezone — see 1a.5 below**
+- `MEETING_DATE` — date portion of `MEETING_DATETIME_LOCAL`
+- `MEETING_PARTICIPANTS` — from metadata or user input
+- `MEETING_DURATION` — from metadata or `"unknown"`
+- `MEETING_ID` — source UUID if applicable, `null` otherwise
+
+Show resolved metadata (title, date, participants, duration, source). Confirm before proceeding.
+
+### 1a.5. Timezone Normalization — UTC → Local Time (CRITICAL)
+
+**Most meeting recorders and email-delivered transcripts return meeting datetimes in UTC. /call MUST convert to the user's local timezone before any vault write, doc title, or channel post.** A common failure mode: a 10:22 AM recording gets labeled "2:22 PM" because UTC was rendered as if it were local — the transcript opens with "Good morning" while the labeling says afternoon.
+
+**Determine the user's timezone** from their environment or ask once. Account for daylight-saving transitions: if a region observes DST, the UTC offset shifts by an hour across the year, so pick the offset that applies to `MEETING_DATE`.
+
+**The conversion (deterministic):**
+1. Get `MEETING_DATETIME_UTC` from source metadata.
+2. Apply the UTC offset that applies to `MEETING_DATE` in the user's timezone.
+3. Set `MEETING_DATETIME_LOCAL` and derive `MEETING_DATE` from it.
+
+**Cross-check the conversion against the transcript itself.** Speakers usually say the local time:
+- *"Good morning"* / *"morning"* → local time should be roughly 6 AM–noon
+- *"this afternoon"* / *"1:38pm"* / *"after work"* → check explicit local hours in dialogue
+- *"end of day"* / *"on my way home"* → roughly 5–7 PM local
+- If the transcript-phrasing time disagrees with the converted local time by >2 hours, **STOP** and re-check. Either DST handling is wrong, the source is in a different TZ than expected, or the user is recording from another timezone (travel) — surface this before writing anything.
+
+**Output rendering rule:** All user-facing time labels (vault frontmatter, doc titles, channel relays, summary reports) use `MEETING_DATETIME_LOCAL` with an explicit timezone suffix. Never display `MEETING_DATETIME_UTC` to the user without labeling it. If both are surfaced for traceability (e.g., a frontmatter field), label them: `recording_time_local: 2026-05-02 10:22 AM` and `recording_time_utc_source: 2026-05-02 14:22 UTC`.
+
+**Cross-timezone meetings:** If the user travels or the meeting has participants in different timezones, default to the user's home timezone for vault writes but capture the participant locations in the people-notes update. Do not silently render the UTC datetime as if it were local.
+
+{{#IF_OBSIDIAN}}
+### 1a.6. Idempotency Check — Has This Meeting Been Processed?
+
+An autonomous trigger can fire repeatedly, and a manual `/call <search term>` can land on the same meeting the trigger already processed. Without an idempotency check, both runs fan out — duplicate call logs, duplicate tickets, duplicate CRM notes.
+
+**Before any write phase, check for an existing call log with this `MEETING_ID`:**
+
+```bash
+grep -rl "meeting_id: ${MEETING_ID}" "${VAULT_PATH}/Work/Calls/" 2>/dev/null | head -1
+```
+
+If the grep returns a path, an existing log exists. Decide:
+
+| Existing log status | Action |
+|---------------------|--------|
+| `status: processed` (frontmatter complete) | **Bail.** Report `[/call] Meeting already processed: <path>. Skipping fan-out.` Done. |
+| `status: in-progress` or partial frontmatter | **Resume in merge mode.** Do not re-create the doc; append new findings to existing sections (Cross-Analysis, Surprises) rather than overwriting. Skip ticket creation if `from-call` tickets already exist for this `MEETING_ID`. |
+| No existing log | Standard run — proceed to Phase 1b. |
+
+**For non-recorder sources** (file, text, email — no `MEETING_ID`), use a content fingerprint instead: a hash of the first 500 chars of the transcript + `MEETING_DATE`. Store the fingerprint in vault frontmatter as `transcript_fingerprint` and check against it on subsequent runs.
+
+This check is cheap (one grep) and prevents the most common autonomous-mode failure mode.
+{{/IF_OBSIDIAN}}
+
+### 1b. Deep Context Loading (CRITICAL — Do This BEFORE Reading Transcript)
+
+{{#IF_MEMORY}}
+**Budget: max 5 `memory_search` calls in this phase.** A 4-person meeting with naive participant×2 + topic×2 searches blows past MCP rate limits before reading the transcript. Spend the budget on the highest-leverage queries; the cross-analysis layer (Phase 4) gets to spend more once you know what was actually said.
+
+**Priority order — search until budget exhausted:**
+
+1. **Topic** — one combined query: `memory_search("[topic] decisions architecture findings")`
+2. **Primary participant** (the most senior, or the one with the most prior context): `memory_search("[name] relationship context decisions")`
+3. **Secondary participants** — combined query if 2-3 people: `memory_search("[name1] [name2] prior context")`
+4. **Topic vision** (only if topic is product/strategy-related): `memory_search("[topic] product vision strategy")`
+5. **Reserve slot** — leave one search for an obvious gap discovered after queries 1-4
+{{/IF_MEMORY}}
+
+**Free (non-search) context loads — always do these:**
+{{#IF_OBSIDIAN}}
+- **Read the user's profile doc** if it exists: `Read: $VAULT_PATH/Profile.md`
+- **List prior call logs**: `ls "$VAULT_PATH/Work/Calls/" | grep -i "[participant-name]"` — file listing is free
+- **Find relevant research docs**: `find "$VAULT_PATH/Work/Projects/" -name "*.md" | xargs grep -l "[topic]" | head -5` — free; read the top 2-3 if titles look high-relevance
+{{/IF_OBSIDIAN}}
+{{#IF_ISSUES}}
+- **List active projects** related to the topic in your issue tracker — free, useful for Phase 7 routing
+{{/IF_ISSUES}}
+
+This gives you the knowledge state before processing the transcript without burning the embeddings budget.
+
+**Why this matters:** When the transcript references a project or decision by name, you should ALREADY know its prior context. The connection is invisible without pre-loaded context.
+
+---
+
+## Phase 2: Load Transcript
+
+### 2a. Raw Transcript (PRIMARY — already resolved in Phase 1a)
+
+The transcript was resolved in Phase 1a via `TRANSCRIPT_TEXT`. Read the ENTIRE transcript. Do not skip sections. Do not skim. The most valuable insights are buried in tangents, asides, and the moments where someone gets excited or changes direction.
+
+- **If recorder source:** the verbatim transcript was already fetched in Phase 1a.
+- **If file source:** File contents were already read in Phase 1a.
+- **If text source:** User pasted content was captured in Phase 1a.
+- **If email source:** Email body was pulled in Phase 1a.
+
+### 2b. Cross-Check (source-dependent)
+
+- **Recorder:** If your transcript source also provides an AI-generated summary, pull it and cross-check against your extraction — if the summary caught something you missed, add it.
+- **VTT/File:** Check if a companion summary file exists (recorders often generate `.summary.txt` alongside `.vtt`). If found, cross-check.
+- **Text/Email:** No secondary source available. Note this — extraction should be EXTRA thorough since there's no cross-check.
+{{#IF_MEMORY}}
+- **All sources:** Search your memory DB for prior call logs with the same participants: `memory_search("[participant] call-log prior")`. Prior context IS the cross-check for non-recorder sources.
+{{/IF_MEMORY}}
+
+---
+
+## Phase 3: Deep Extraction (7 Lenses)
+
+Process the transcript through ALL seven lenses. Do not skip any.
+
+### 3a. Decisions Made
+For each decision:
+- **What** was decided (use their exact words, not your paraphrase)
+- **Why** (reasoning, alternatives that were discussed and rejected)
+- **Who championed it** (attribute correctly)
+- **Who pushed back** (and why — the counter-argument often has value)
+- **Confidence** — firm lock-in vs tentative direction vs brainstorm
+- **Implications** — what does this change about current plans, tickets, architecture?
+- **Contradicts existing knowledge?** — search prior decisions on this topic
+
+### 3b. Action Items (Commitments Only)
+For each REAL commitment (not wishes):
+- **Who** is responsible (specific person)
+- **What** specifically (concrete deliverable)
+- **When** (deadline, or "no deadline mentioned — flag as at-risk")
+- **Context** — why this matters, what it unblocks
+- **Blocked by** — dependencies if mentioned
+- **Maps to an existing ticket?** — search for overlap
+
+### 3c. Vision / Big Ideas
+Capture in the SPEAKER'S framing, not sanitized:
+- The exact insight or vision statement (quote if possible)
+- What triggered it — what were they reacting to? What came right before?
+- The energy shift — did the room get excited? Did someone say "wait, that's it"?
+- How it connects to existing plans
+- Potential conflicts with current direction
+- **WHO originated the idea** — attribute correctly
+
+### 3d. Relationship Context (Deep)
+What did you learn about each participant that goes beyond a profile:
+- What they care about DEEPLY (not what they say they care about — what makes their voice change)
+- Communication style (do they think out loud? do they process internally first? do they use analogies?)
+- Current pressures / priorities / worries
+- Trust signals (what did they share that they didn't have to?)
+- Skills/experience that surprised you
+- How they complement other participants
+- Personal context that's relevant (builds rapport in future interactions)
+
+### 3e. Surprises / Contradictions / Non-Obvious
+Things that:
+- Challenged an assumption you had
+- Contradicted something you already knew
+- Revealed a gap in current plans
+- Suggested a connection between two things previously thought unrelated
+- Made someone visibly excited or concerned
+
+### 3f. DX / Product Friction Observed
+If the meeting involved using or discussing a product or workflow:
+- What worked smoothly?
+- Where did someone get confused or stuck?
+- What workaround did they use instead of the intended path?
+- What feature request is implied but not stated?
+
+### 3g. Business / Strategic Signals
+- Pricing discussions (even casual — "we could charge $200/month for that")
+- Market positioning
+- Competitor mentions
+- Customer/user persona descriptions
+- Revenue model refinements
+- Partnership / collaboration signals
+
+### 3h. Business / Financial Signals (Optional Lens)
+If the meeting covered business or financial topics — a portfolio, an investment thesis, market commentary — capture the relevant signals:
+- The specific subject discussed and the exact phrasing used
+- Sentiment shift — more bullish, more cautious, or reaffirming a prior view
+- Key metric or data point mentioned
+- Catalyst identified — a date, event, or competitive move
+- Any change to a prior thesis or assumption
+
+These are observations, not commitments — they feed memories and notes, not tickets (see Phase 6.5).
+
+---
+
+## Phase 3.5: Update People Notes (Fan-Out)
+
+{{#IF_OBSIDIAN}}
+For EACH person mentioned in the transcript, check if a people-notes file exists in the vault and update or create it.
+
+### Check for existing people-notes file
+```bash
+ls "${VAULT_PATH}/People/" 2>/dev/null | grep -i "[person-name]"
+```
+
+### If file EXISTS → UPDATE it
+Append to the "Key Moments" section:
+```markdown
+- {TODAY}: [what was discussed/learned about this person from the transcript]
+```
+
+Update frontmatter:
+- `last_contact: {TODAY}`
+- Add any new tags discovered from the conversation
+
+If Lens 3d revealed new information (what they care about, communication style, pressures), update the relevant section — don't overwrite, APPEND with a date prefix so the history is preserved.
+
+### If file does NOT exist → CREATE it
+Use a people-notes template:
+```markdown
+---
+type: person
+name: [Full Name]
+nickname: [if mentioned]
+relationship: [inferred from context]
+location: [if mentioned]
+last_contact: {TODAY}
+contact_frequency: [infer from history]
+met_through: [if known]
+tags: [relevant tags]
+---
+
+# [Name]
+
+## Who They Are
+[From Lens 3d extraction]
+
+## What They Care About
+[From Lens 3d: what makes their voice change, real priorities]
+
+## Connection
+[If any — collaborator? prospect? just mentioned in passing?]
+
+## Key Moments
+- {TODAY}: [first appearance in a /call transcript — context of how they came up]
+
+## Notes
+[Anything else from the extraction]
+```
+{{/IF_OBSIDIAN}}
+
+### External CRM Sync (if you keep a CRM)
+
+If you keep a CRM or other external people system, also update it after refreshing your people notes. The vault is the knowledge layer; the CRM is the action layer.
+
+**SKIP this entire subsection** if `MEETING_PRIVATE = true` (per Phase 0). Personal/sensitive recordings stay vault-only.
+
+**For each person mentioned in the transcript:**
+
+1. **Search the CRM** for an existing record by name.
+2. **If a record EXISTS → update it:**
+   - Add a call note: a 3-5 sentence summary of what was discussed about/with this person, key quotes, decisions involving them, action items assigned to them.
+   - If new contact info was revealed (email, phone, title, location), add it.
+3. **If a record does NOT exist → create it:**
+   - Only create records for people with genuine business relevance (not every casual mention).
+   - Add the call note after creating the record.
+4. **Link tasks if action items exist:** if Lens 3b extracted an action item involving this person, create a CRM task linked to their record, with a deadline if one was mentioned.
+
+**What NOT to sync:**
+- Casual mentions of people with no business relationship
+- People who were just referenced for context, not as participants or stakeholders
+
+The filter: would you want to see this person next time you open your CRM? If yes, sync. If no, notes-only.
+
+{{#IF_OBSIDIAN}}
+### Fan-out to other vault locations
+One transcript often touches multiple vault areas. After people-notes and CRM updates:
+- **Life updates** (planning, health, travel) → write to the relevant `Life/` file
+- **Project updates** → write to the relevant `Projects/` folder
+- **Interest signals** → append to the relevant `Knowledge/` file
+- **Business/financial thesis changes** → append to the relevant tracking doc under a "Riffs" section; create the file if it doesn't exist
+- **Standalone ideas / brainstorms** → write to `00-Inbox/Riffs/`
+
+The call log itself ALWAYS goes to `Work/Calls/` (Phase 5). The fan-out is ADDITIONAL — extracted information routed to its canonical home.
+{{/IF_OBSIDIAN}}
+
+---
+
+## Phase 4: Cross-Analysis (The Chief-of-Staff Layer)
+
+**This is what separates /call from a note-taker.**
+{{#IF_MEMORY}}
+After extraction, run 3-5 targeted memory searches based on the SPECIFIC insights you just extracted:
+
+```
+memory_search("[specific decision] + [related topic]")
+memory_search("[idea] existing architecture research")
+memory_search("[person mentioned] prior interactions context")
+```
+
+For each cross-reference that hits:
+1. **Connection** — what does the transcript insight + existing memory TOGETHER reveal that neither contained alone?
+2. **Contradiction** — does the transcript contradict an existing memory? If so, which is current? Update or archive the stale one.
+3. **Validation** — does the transcript confirm something previously speculative? Upgrade the memory's confidence.
+4. **Gap** — does the combination reveal something MISSING from current plans?
+{{/IF_MEMORY}}
+{{^IF_MEMORY}}
+After extraction, cross-reference the insights you just extracted against everything else you have access to — prior call logs, project docs, open tickets. For each cross-reference: what does the combination reveal that neither source contained alone? Does it contradict, validate, or expose a gap in current plans?
+{{/IF_MEMORY}}
+
+{{#IF_OBSIDIAN}}
+Also cross-reference against the vault:
+- Read any spec or research docs related to topics discussed
+- Read any prior call logs with the same participants
+{{/IF_OBSIDIAN}}
+{{#IF_ISSUES}}
+- Check project milestones for alignment with what was discussed
+{{/IF_ISSUES}}
+
+Write the cross-analysis as a dedicated section in the call log.
+
+---
+
+## Phase 5: Write the Call Log (Deep Version)
+
+{{#IF_OBSIDIAN}}
+Write to: `$VAULT_PATH/Work/Calls/YYYY-MM-DD-[topic-slug].md`
+{{/IF_OBSIDIAN}}
+{{^IF_OBSIDIAN}}
+Write the call log to a local file: `Work/Calls/YYYY-MM-DD-[topic-slug].md` (or output to the terminal if no working directory is appropriate).
+{{/IF_OBSIDIAN}}
+
+```markdown
+---
+type: call-log
+date: YYYY-MM-DD
+participants: [names]
+duration: Xh Ym
+source: {TRANSCRIPT_SOURCE}
+meeting_id: {MEETING_ID or "n/a"}
+input_mode: {recorder|file|text|email}
+original_path: {file path if --file, email ID if --email, "recorder" if recorder source, "pasted" if --text}
+tags: [topic tags]
+status: processed
+transcript_analyzed: true
+cross_referenced: true
+---
+
+# [Meeting Title] — YYYY-MM-DD
+
+## Participants
+- [Name] — [role/context from prior knowledge + new observations]
+
+## Key Decisions
+1. **[Decision]** — [exact framing]. Championed by [who]. [Confidence level].
+   - *Prior context:* [what you knew about this topic before this meeting]
+   - *Implication:* [what this changes about current plans]
+
+## Action Items
+- [ ] [Who]: [What] (by [when]) — maps to [ticket if applicable]
+
+## Vision
+> [Exact quote or close paraphrase of the big idea]
+[What triggered it. Who said it. How the energy shifted.]
+[Connection to existing architecture/research]
+
+## Relationship Notes
+### [Participant Name]
+[Deep observations — skills, pressures, communication style, personal context]
+
+## Surprises
+[Non-obvious insights with explanation of WHY they're surprising given what you already knew]
+
+## DX / Product Friction
+[Anything observed about product or workflow usage — what worked, what didn't]
+
+## Business Signals
+[Pricing, positioning, personas, partnerships]
+
+## Cross-Analysis (Connections to Existing Knowledge)
+
+### Connection 1: [Title]
+**From transcript:** [what was said]
+**From prior knowledge:** [what you already knew]
+**The insight:** [what the CONNECTION reveals]
+**Action:** [what to do about it]
+
+### Connection 2: [Title]
+...
+
+[Continue for all significant cross-references — aim for 3-10 connections per meeting]
+
+## Raw Themes
+[High-level themes for quick scanning]
+```
+
+---
+
+{{#IF_MEMORY}}
+## Phase 6: Capture to the Memory DB (Targeted, Not Bulk)
+
+Use `memory_pulse` with up to 5 captures. Choose the MOST VALUABLE learnings — not everything.
+
+**Priority order for what to capture:**
+1. Cross-analysis insights (connections that neither source contained alone) — `category: insight`, `tags: [critical, from-observation]`
+2. Relationship context that changes how you interact with someone — `category: insight`
+3. Decisions that change architectural direction — `category: insight`, `tags: [from-decision]`
+4. DX friction observed in real usage — `category: gotcha`, `tags: [from-incident]`
+5. Business signals (pricing, personas, positioning) — `category: insight`, `tags: [important]`
+
+**Do NOT capture:**
+- Action items (live in the call log + issue tracker, not the memory DB)
+- Generic discussion that anyone could have had
+- Anything already in the memory DB with the same substance (search first!)
+- Confirmations of things already known (unless they upgrade confidence)
+
+**Do capture corrections:**
+If the transcript contradicts an existing memory, follow the correction protocol:
+1. `memory_search` for the contradicted memory.
+2. `memory_store` the corrected version with context about why the old version was wrong (cite the meeting + meeting_id).
+3. `memory_archive` the stale memory with reason: `"corrected: <what changed> — from /call <meeting title>"`.
+
+Never leave both versions active.
+
+---
+{{/IF_MEMORY}}
+
+## Phase 6.5: Commitment Filter — Gate Before Ticket Creation
+
+Principle 7 ("Action items are commitments, not wishes") is enforceable, not aspirational. If /call runs on an autonomous trigger, without a filter every "we should look into…" becomes a ticket that pollutes the backlog. Agents pick them up, spend cycles on speculation, and the signal-to-noise of the autonomous backlog collapses.
+
+**Before Phase 7 creates ANY ticket, every action item from Lens 3b must pass this filter:**
+
+| Required signal | Look for | Examples |
+|---|---|---|
+| **Named owner** | A specific person (not "we", "someone", "the team") | a named person, "I'll" |
+| **Concrete deliverable** | Verb + object the speaker could mark done | "draft the deck", "send the contract", "ship the fix" |
+| **Commitment language** | Future tense + ownership, ideally a deadline | "I will", "I'll have", "by Tuesday", "before EOW" |
+
+**Rejection signals — these stay in the call log, NOT the issue tracker:**
+
+- "We should…", "we could…", "would be nice to…", "maybe…", "eventually…"
+- "Let me think about…", "I'll consider…", "open to…"
+- Brainstorm-mode language with no owner attached
+- Anything where "done" is undefined
+
+**Decision rule:** All three required signals → ticket. Two of three → call log only, with a `## Possibilities` section listing them. Fewer than two → not even a possibility, just transcript context.
+
+**For the business/financial lens (3h)** the rule shifts: thesis updates are observations, not commitments. They get memories and notes, not tickets — unless someone explicitly committed to an action. Default: no ticket.
+
+**Edge case — solo recordings.** Solo recordings (walks, drives, voice memos) are riffing, not committing. Even when the speaker says "I should X," treat it as a thought, not a commitment, unless they explicitly schedule it ("I'll do it after lunch"). Solo recordings default to notes + memory only; tickets require the explicit commitment marker.
+
+If `MEETING_PRIVATE = true` from Phase 0, skip Phase 7 entirely regardless of filter results.
+
+---
+
+{{#IF_ISSUES}}
+## Phase 7: Create Tickets (Automatic)
+
+**A chief of staff doesn't ask permission to take notes. They act and report.**
+
+### 7a. Auto-Create Tickets for Concrete Action Items
+
+For each action item with a clear owner + deliverable, create a ticket automatically. Don't ask — create and report.
+
+**Ticket template (every ticket created by /call follows this):**
+
+```
+Title: [Concise action — imperative mood]
+
+**Source:** {TRANSCRIPT_SOURCE} transcript — [meeting title] (YYYY-MM-DD)
+**Meeting ID:** [{MEETING_ID} if available; otherwise transcript fingerprint or "n/a"]
+**Championed by:** [who proposed/owns this]
+
+## Context
+
+[2-3 sentences from the transcript explaining WHY this action item exists.
+Include the exact framing from the speaker — their words, not paraphrased.]
+
+## What
+
+[Specific deliverable. What does "done" look like?]
+
+## Cross-References
+
+**Related memories / docs / tickets:**
+- [reference]: [how it connects]
+
+## Crawl / Walk / Run
+- **Crawl:** [simplest version that delivers value]
+- **Walk:** [enhanced version with integrations]
+- **Run:** [full vision]
+```
+
+**How to route tickets:**
+1. Search your issue tracker's projects for the best-fit project based on topic
+2. Check existing milestones — does this fit an existing phase?
+3. If no project fits, put in the default backlog with label `from-call`
+4. Set priority based on urgency signals in the transcript (excitement level, "we need this NOW" vs "eventually")
+
+**Add cross-references automatically:**
+- relate to any existing tickets surfaced in Phase 4 cross-analysis
+- mark blocking/blocked-by relationships if dependencies were mentioned
+
+### 7b. Update Existing Tickets Affected by the Meeting
+
+For each existing ticket that the cross-analysis identified as relevant, APPEND to its description (don't replace):
+
+```
+---
+
+## Update from [meeting title] (YYYY-MM-DD)
+
+**Transcript evidence:** [what was said that affects this ticket]
+**Impact:** VALIDATES / CONTRADICTS / EXTENDS / REPRIORITIZES
+**Source:** {TRANSCRIPT_SOURCE} [meeting_id]
+```
+
+Also update priority if the meeting revealed urgency changes.
+
+### 7c. Tag All Created/Updated Tickets
+
+Add label `from-call` to every ticket created or updated by /call. This makes it easy to:
+- Find all tickets that originated from conversations
+- Audit how many conversation insights became shipped features
+- Track the recording → ticket → code pipeline health
+
+{{#IF_OBSIDIAN}}
+### 7d. Update the Personal Action Queue
+
+After extracting action items, check: are any of them actions that only a human can do? (phone calls, emails to send, env vars to set, external account config, personal decisions)
+
+If yes, append them to a personal action-queue doc in the vault:
+
+```
+Read: ${VAULT_PATH}/Work/Agents/ActionQueue.md
+```
+
+Append in the correct time-estimate section:
+```markdown
+- [ ] **Action title** — What to do, step by step.
+  - *Flagged by:* /call ([date]) | *Source:* [meeting title] | *Unblocks:* [what this enables]
+```
+
+This is the critical bridge: recordings generate action items → human-owned items → the action queue. Without this step, human actions from your own meetings get lost in call logs.
+{{/IF_OBSIDIAN}}
+
+---
+
+## Phase 8: Planning Handoff
+
+After creating tickets, proactively suggest next steps. A chief of staff doesn't just capture — they recommend.
+
+### 8a. Identify Implementable Clusters
+
+Group the newly created tickets by project/milestone. If 2+ tickets landed in the same project:
+
+```
+[project name] received [N] new tickets from this call:
+  [ticket]: [title] [High]
+  [ticket]: [title] [Medium]
+
+These could be tackled together. Want me to:
+  (a) Run /nextphase on [project] to plan implementation
+  (b) Add these to the current milestone's backlog
+  (c) Leave them for later triage
+```
+
+### 8b. Flag Cross-Project Dependencies
+
+If tickets were created across multiple projects AND they reference each other:
+
+```
+Cross-project dependency detected:
+  [ticket] (Project A) → needs [ticket] (Project B) first
+  Recommend: implement the dependency first
+```
+
+### 8c. Suggest /projectrefresh if Findings Are Significant
+
+If the meeting produced insights that change the direction of an active project:
+
+```
+This meeting produced findings that may affect [project name]:
+  - [finding that changes an assumption]
+  - [finding that validates/invalidates a ticket]
+
+Run /projectrefresh on [project] to update remaining tickets?
+```
+
+---
+{{/IF_ISSUES}}
+
+## Phase 9: Summary Report
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( o   o )   Call processed.                             │
+│     (  =^=  )   Raqr has acted.                             │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /call                                {{PROJECT_DISPLAY_NAME}}
+
+CALL: [Title] — [Duration]
+PARTICIPANTS: [names]
+
+DECISIONS: [N]
+  [Top 3, one line each]
+
+CROSS-ANALYSIS: [N] connections
+  [Top 2-3 most significant connections]
+```
+{{#IF_MEMORY}}
+```
+MEMORIES: [N] stored, [N] corrected
+```
+{{/IF_MEMORY}}
+```
+CALL LOG: [path to call log]
+
+[IF MEETING_PRIVATE = true, include this line in place of fan-out blocks:]
+MODE: private — ticket / CRM / channel fan-out skipped (call log + memories only).
+```
+{{#IF_ISSUES}}
+```
+TICKET ACTIONS:
+  Created: [N] tickets
+    [ticket]: [title] → [project] [priority]
+  Updated: [N] existing tickets
+    [ticket]: [title] — [VALIDATES/EXTENDS/REPRIORITIZES]
+
+PLANNING:
+  [project] has [N] new high-priority tickets — ready for /nextphase
+  [cross-project dependency if any]
+```
+{{/IF_ISSUES}}
+```
+BIGGEST INSIGHT: [1-2 sentence summary of the most valuable
+  connection discovered through cross-analysis]
+```
+
+{{#IF_SLACK}}
+### Relay to the team channel
+
+Post a structured update so other slots know a call was processed:
+
+```
+slack_send_message(
+  channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}",
+  message: "[<SlotName>] /call processed: <Meeting Title> (<duration>)\n\n*Participants:* <names>\n*Decisions:* <count> — <top decision one-line>\n*Tickets created:* <count> — <top ticket>\n*Biggest insight:* <1-2 sentence cross-analysis finding>"
+)
+```
+
+Skip if the Slack MCP is unavailable. **Also skip if `MEETING_PRIVATE = true`** — the team channel is a shared surface; personal call titles must not broadcast there.
+{{/IF_SLACK}}
+
+---
+
+## Multi-Session Processing
+
+For days with multiple meetings, process ALL of them, then write one additional CROSS-SESSION SYNTHESIS doc:
+
+```
+Work/Calls/YYYY-MM-DD-cross-session-synthesis.md
+```
+
+The synthesis doc should:
+1. Connect insights ACROSS the day's meetings
+2. Deduplicate action items that appeared in multiple sessions
+3. Identify the THREAD — what's the through-line across all conversations?
+4. Produce a "today's strategic takeaway" — the one insight that matters most
+5. List ALL tickets created across all sessions in one summary table
+
+---
+
+## Graceful Degradation
+
+| Situation | Behavior |
+|-----------|----------|
+| Transcript-source MCP unavailable | Fall back to --file or --text mode. Ask: "Paste a transcript, provide a file path, or an email message ID?" |
+| --file path doesn't exist | Report error with the path. Suggest --text mode as fallback. |
+| --email MCP unavailable | Report error. Suggest saving the email transcript to a file, then use --file. |
+| Transcript too short (<100 words) | Warn: "Very short transcript — extraction may be thin." Proceed with abbreviated lenses. |
+| No metadata provided (--text mode) | Ask for: date, participants, topic. Don't proceed without at least a date and topic. |
+| No memory DB access | Skip Phase 4 + 6, write the call log only |
+| No vault configured | Output to terminal only |
+| Very short meeting (<5 min) | Abbreviated: decisions + action items only |
+| No prior context | Note this — the cross-analysis will be thinner, but still search for topic-level context |
+| Transcript too long for one pass | Process in 30-min chunks, synthesize across chunks at the end |

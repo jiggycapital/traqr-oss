@@ -2,8 +2,8 @@
 /**
  * @traqr/core — Test Harness
  *
- * Validates the traqr-init template engine across all 4 starter packs.
- * 7 test suites × 4 packs = 28 test groups.
+ * Validates the traqr-init template engine across all 5 starter packs.
+ * 8 test suites × 5 packs = 40 test groups.
  *
  * Usage: node dist/test-harness.js
  * Output: Structured text with pass/fail indicators, JSON-parseable summary.
@@ -528,6 +528,96 @@ async function suiteContentValidation(pack: string, config: TraqrConfig): Promis
   }
 }
 
+/**
+ * The autonomous-intelligence command templates distributed to OSS.
+ * Suite 8 verifies each one renders cleanly at every tier. Templates not
+ * yet created on disk are skipped, so the suite extends coverage
+ * automatically as the phased rollout lands new templates.
+ */
+const OSS_COMMAND_TEMPLATES = [
+  'commands/debate.md.tmpl',
+  'commands/deepreflect.md.tmpl',
+  'commands/lore.md.tmpl',
+  'commands/einstein.md.tmpl',
+  'commands/rally.md.tmpl',
+  'commands/documentary.md.tmpl',
+  'commands/gamedev.md.tmpl',
+  'commands/call.md.tmpl',
+  'commands/cos.md.tmpl',
+  'commands/rounds.md.tmpl',
+  'commands/bethesda.md.tmpl',
+]
+
+/** Suite 8: OSS Command Template Render */
+async function suiteCommandTemplateRender(pack: string, config: TraqrConfig): Promise<SuiteResult> {
+  const results: TestResult[] = []
+  let checks = 0
+
+  const flags = getFeatureFlags(config)
+  const tier = config.tier
+  const { files } = await renderAllTemplates(config)
+  const available = new Set(await listTemplates())
+
+  // Any unrendered template syntax: {{VAR}}, {{#IF_X}}, {{/IF_X}}, {{^IF_X}}, {{IF_TIER_2+}}
+  const leftoverPattern = /\{\{[#/^]?[A-Z_0-9+]+\}\}/g
+
+  for (const tmpl of OSS_COMMAND_TEMPLATES) {
+    // Phased rollout — skip templates not yet created on disk.
+    if (!available.has(tmpl)) continue
+
+    const name = tmpl.replace('commands/', '').replace('.md.tmpl', '')
+    const outKey = Object.keys(files).find(k => k.endsWith(`commands/${name}.md`))
+    const shouldInclude = shouldIncludeTemplate(tmpl, tier, flags)
+    checks++
+
+    if (!shouldInclude) {
+      results.push({
+        name: `${name}:gated`,
+        passed: !outKey,
+        details: outKey ? `UNEXPECTEDLY RENDERED at tier ${tier}` : `gated out at tier ${tier}`,
+        checks: 1,
+      })
+      continue
+    }
+
+    if (!outKey) {
+      results.push({
+        name: `${name}@t${tier}`,
+        passed: false,
+        details: `NOT RENDERED despite inclusion at tier ${tier}`,
+        checks: 1,
+      })
+      continue
+    }
+
+    const content = files[outKey]
+    const leftovers = [...new Set(content.match(leftoverPattern) ?? [])]
+    const fmOk = content.startsWith('---\n')
+      && /\n---\n/.test(content)
+      && /\nname:\s*\S/.test(content)
+      && /\ndescription:\s*\S/.test(content)
+
+    const passed = leftovers.length === 0 && fmOk
+    const parts: string[] = []
+    if (leftovers.length) parts.push(`leftover: ${leftovers.slice(0, 3).join(', ')}`)
+    if (!fmOk) parts.push('invalid frontmatter')
+    results.push({
+      name: `${name}@t${tier}`,
+      passed,
+      details: passed ? `rendered clean (${content.length}b)` : parts.join('; '),
+      checks: 1,
+    })
+  }
+
+  return {
+    pack,
+    suite: 'OSS Skills',
+    passed: results.every(r => r.passed),
+    results,
+    totalChecks: checks,
+  }
+}
+
 // ============================================================
 // Runner
 // ============================================================
@@ -552,6 +642,7 @@ async function runAllSuites(): Promise<{
     suites.push(await suiteRenderPipeline(pack, config))
     suites.push(await suiteSkillEngine(pack, config))
     suites.push(await suiteContentValidation(pack, config))
+    suites.push(await suiteCommandTemplateRender(pack, config))
   }
 
   const totalGroups = suites.length
@@ -572,7 +663,7 @@ function formatOutput(result: Awaited<ReturnType<typeof runAllSuites>>): string 
   lines.push('╭─────────────────────────────────────────────────────────────╮')
   lines.push('│      /\\___/\\                                                │')
   lines.push(`│     ${mood.padEnd(8)}  Running traqr-init validation suite...      │`)
-  lines.push('│     (  =^=  )   5 packs x 7 suites = 35 test groups        │')
+  lines.push('│     (  =^=  )   5 packs x 8 suites = 40 test groups        │')
   lines.push('│      (______)                                               │')
   lines.push('╰─────────────────────────────────────────────────────────────╯')
   lines.push('')

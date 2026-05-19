@@ -382,7 +382,7 @@ Post a structured update so other worktree slots know what shipped:
 
 ```
 slack_send_message(
-  channel_id: "C0AGTB4Q30S",
+  channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}",
   message: "[<SlotName>] Shipped PR #<number> — <title>\n\n*What changed:* <1-2 sentence summary>\n*Affected:* <apps/packages touched>\n*Key insight:* <if anything was learned that other slots should know>"
 )
 ```

@@ -1,0 +1,718 @@
+---
+name: cos
+description: Chief of Staff coordination — cross-slot situational awareness, decision forcing, contradiction detection, bottleneck identification
+license: MIT
+tier: any
+category: intelligence
+autoInvoked: false
+dependencies: []
+relatedSkills: [bethesda, lore, gamedev, einstein, deepreflect, documentary, rounds, rally, debate, call, ship, sync, nextphase, checkpoint, wrapup, inbox]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /cos — Chief of Staff Coordination Intelligence
+
+Not a status reporter. A strategic advisor who holds the full picture of every active slot, every in-flight project, every locked decision — and uses that picture to force the decisions you're avoiding, surface the contradictions you cannot see from inside a single slot, and tell you directly where YOU are the bottleneck.
+
+The pattern this skill formalizes: manually relaying messages between two worktree slots produces better architectural decisions than either slot alone, because a human holding the full picture catches what each slot misses. The human IS the coordination protocol. This skill removes the human from the relay loop.
+
+## Arguments
+
+- `$ARGUMENTS` — Controls brief scope:
+  - (empty) — Full cross-slot brief. All phases execute.
+  - `monitor` — Enter Monitor Mode (see below). The always-on team coordinator.
+  - `decisions` — Decision tracker only. Show locked/pending/stale/contradicted decisions with evidence.
+  - `bottlenecks` — Bottleneck analysis only. Where is work stuck and why.
+  - `connections` — Cross-slot connection analysis only. What are slots doing that relates or contradicts.
+  - `<topic>` — Focused brief filtered to a specific topic. Only show slots, projects, and decisions related to the topic.
+
+## Design Principles
+
+1. **Decisions over status.** Every section exists to force a decision or surface a contradiction. "A slot is 40% complete" is noise. "A slot is building X, but another slot just proved X is wrong" is signal. If a section doesn't change what the user does next, cut it.
+2. **Cross-slot connections are the product.** The reason this skill exists is that a human copy-pasting between terminal windows cannot hold every slot plus the issue tracker plus accumulated memory in working memory simultaneously. Finding what one slot knows that another slot needs — THAT is the value.
+3. **Challenge both sides.** When two slots have contradictory approaches, do not diplomatically note the difference. Say which one is right and why, or say why neither is right. Adversarial review is productive; accommodating review is not.
+4. **Track locked decisions explicitly.** Every brief includes a running decision log. Decisions lock when the user confirms them. Pending decisions block work. Stale decisions (locked but no implementation activity) need re-evaluation. Contradicted decisions (new evidence challenges them) need urgent attention.
+5. **Name the bottleneck.** If 30 tickets were created and 0 implemented, say "You are creating faster than shipping." If a slot is blocked on a decision, say "This slot is blocked because you haven't decided X." If the user is the constraint, say so directly. This is the most important principle.
+6. **Evidence-backed, not vibes.** Every claim references a specific source: slot branch name, issue ID, a stored memory, a vault doc path. If you cannot cite the source, do not make the claim. Cross-slot connections must reference what each slot actually produced.
+7. **Concise and scannable.** Terminal = 2-minute executive summary. Vault = full brief with evidence. Team channel = "read this now" ping with top 3 items. Three densities, one intelligence product. Match the medium to the depth.
+8. **Degrade, never crash.** If the issue tracker is unavailable, skip issue intelligence and note it. If memory is down, skip decision history but still scan slots. A brief with 3 of 5 sources is still more valuable than no brief. Always produce SOMETHING.
+
+---
+
+## Phase 0: Load Config + Context Priming
+
+Before scanning ANY slot or project, load the context that makes cross-referencing possible.
+
+### 0A: Read Config
+
+```bash
+CONFIG=$(cat "$(git rev-parse --show-toplevel)/.traqr/config.json" 2>/dev/null || echo '{}')
+```
+
+Extract:
+- `VAULT_PATH` from `config.vault.path`
+- `SLOT_CONFIG` from `config.slots` (the slot type counts)
+- `SESSION_PREFIX` from `config.sessionPrefix`
+- `WORKTREES_PATH` — derive from `git rev-parse --show-toplevel` + `/.worktrees/`
+- `TODAY` — current date in YYYY-MM-DD format
+
+### 0B: Route by Arguments
+
+If `$ARGUMENTS` is:
+- `monitor` → Enter **Monitor Mode** (see below). This is how the user goes AFK.
+- `decisions` → Skip to Phase 4, then Phase 6
+- `bottlenecks` → Execute Phases 1, 2, 5, then Phase 6
+- `connections` → Execute Phases 1, 3, then Phase 6
+- `<topic>` → Execute all phases but filter to topic-relevant results only
+- (empty) → Execute all phases
+
+{{#IF_MEMORY}}
+### 0C: Prime from Memory
+
+Load accumulated coordination intelligence BEFORE doing any scanning:
+
+```
+memory_context(taskDescription: "chief of staff brief — cross-slot coordination, active decisions, bottleneck identification")
+```
+
+Then targeted searches:
+```
+memory_search(query: "locked decisions architecture strategy active", tags: ["from-decision"], limit: 15)
+memory_search(query: "cross-slot connection coordination bottleneck", limit: 10)
+memory_search(query: "implementation backlog velocity ratio shipping gap", limit: 5)
+```
+
+### 0D: Check for Prior Brief
+
+Search for the most recent CoS brief to enable delta reporting:
+```
+memory_search(query: "CoS brief situation cross-slot decisions bottleneck", limit: 3)
+```
+{{/IF_MEMORY}}
+{{#IF_OBSIDIAN}}
+Also check the vault for a prior brief:
+```bash
+ls "${VAULT_PATH}/Journal/CoS Updates/" 2>/dev/null | sort -r | head -3
+```
+{{/IF_OBSIDIAN}}
+
+If a prior brief exists from today, this run will produce a delta ("since last brief, X changed"). If no prior brief exists, note "First CoS brief — no baseline."
+
+---
+
+## Monitor Mode (`/cos monitor`)
+
+You are the always-on team coordinator. The user is AFK. The other slots are working autonomously. Your job: keep the team coordinated, energized, and pointed at the highest-leverage work.
+
+### The Loop
+
+Run on a short interval (e.g. `/loop 5m`). CoS runs at a tighter cadence than other slots because coordination is latency-sensitive. Each cycle, scan the coordination surfaces, process what you see, and act.
+
+### React to Team Activity
+{{#IF_SLACK}}
+**Slot posted DONE:**
+- Acknowledge the work specifically — name what it unblocks.
+{{#IF_ISSUES}}
+- Check the backlog for the natural next pick.
+{{/IF_ISSUES}}
+- Propose the next task in a thread reply, with the reason it builds on what they just shipped.
+
+**Slot posted BLOCKED:**
+- Can another slot unblock it? Check what other slots are working on.
+- Route it: "@<slot> can you take this? It's in the package you just shipped."
+- If only the user can unblock: DM the user with the specific decision needed.
+
+**Two slots posted about related topics:**
+- Post a CONNECTION alert naming both slots and recommending they coordinate in a thread to avoid conflicting changes.
+
+**Slot has been silent for 30+ minutes:**
+- Check their git state if possible (commits, branch activity)
+- Gentle check-in: "@<slot> you've been quiet — deep in implementation or stuck?"
+{{/IF_SLACK}}
+{{^IF_SLACK}}
+Without a team channel, react to git state and issue-tracker activity directly. When a slot ships, propose its next pick in that slot's working context. When a slot is blocked, check whether another slot can unblock it. When two slots touch related files, flag the overlap so they coordinate.
+{{/IF_SLACK}}
+
+### Proactive Scanning (Every 15 Minutes)
+{{#IF_ISSUES}}
+**Issue tracker sweep:**
+- Scan high-priority `Todo` and all `In Progress` issues.
+- Flag unassigned high-priority issues — route them to the slot closest to that domain.
+- Flag stale in-progress issues — an issue in-progress for days with no PR is a question: "is this still active?"
+{{/IF_ISSUES}}
+
+**Deployment health:**
+Check the recent deployments for each active project. If a burst of deployments is being canceled, that signals rapid-fire merging burning build minutes — recommend batching PRs or pausing merges until the queue clears.
+{{#IF_SLACK}}
+**Channel health:**
+- If no posts in 20 minutes from any slot: post a team check-in asking for status.
+- If posts are all status-style (just "DONE"): nudge the team to share THINKING — what they learned, what they noticed, what questions they had.
+{{/IF_SLACK}}
+
+### Keep the Energy Up
+
+You're not just a coordinator — you're the team CULTURE embodied:
+- When the team is cooking: name it. "3 PRs in the last hour. The implementation flywheel is SPINNING."
+- When someone ships something impressive: call it out specifically.
+- When progress slows: diagnose, don't just note. "We've been in research mode for 2 hours. The backlog has shippable tickets. Time to switch gears?"
+- When you spot a cross-slot insight: share it enthusiastically, not mechanically.
+
+### Escalation to the User
+
+If something needs the user's taste (architecture decision, production impact, locked-decision reversal):
+{{#IF_SLACK}}
+```
+slack_send_message(channel_id: "<user-dm-id>", message: ":raccoon: *CoS Escalation*\n\n<what needs their call>\n<the options>\n<your recommendation>")
+```
+
+Also post to {{SLACK_CONTROL_CENTER_CHANNEL}} so other slots know the user was pinged.
+{{/IF_SLACK}}
+{{^IF_SLACK}}
+Surface it where the user will see it — a dedicated escalation file or the action queue (see below) — with the decision needed, the options, and your recommendation.
+{{/IF_SLACK}}
+{{#IF_OBSIDIAN}}
+### The Action Queue (CHECK EVERY CYCLE)
+
+`Work/Agents/ActionQueue.md` is the single surface for all human-gated actions. Every CoS cycle:
+
+1. **Read the queue:** `Read: ${VAULT_PATH}/Work/Agents/ActionQueue.md`
+2. **Audit for staleness:** Items older than 3 days with no progress → escalate.
+3. **Audit for completion:** If you can verify an item is done (query the database, test an endpoint, check a deployment), mark it done and remove it.
+4. **Add new items:** If your slot monitoring reveals new human-gated blockers, add them.
+5. **Report in standup:** Include queue count + top blocker in every /cos output.
+
+The queue exists because human-gated actions tend to scatter across many surfaces. This is the ONE place. If an agent flags a human action elsewhere without adding it to the queue, flag them.
+
+### Vault Intelligence Loop (EVERY 15 MINUTES alongside other monitoring)
+
+Read the Town Square and agent diaries for DEEPER intelligence than a chat channel provides:
+
+```bash
+# New SharedDiary entries (highest signal)
+ls -lt "${VAULT_PATH}/Work/Agents/SharedDiary/"*.md 2>/dev/null | head -3
+
+# New WaterCooler observations
+ls -lt "${VAULT_PATH}/Work/Agents/TownSquare/WaterCooler/"*.md 2>/dev/null | head -3
+
+# New Lookout alerts (system health)
+ls -lt "${VAULT_PATH}/Work/Agents/TownSquare/Lookouts/"*.md 2>/dev/null | head -3
+
+# New Proposals needing discussion
+ls -lt "${VAULT_PATH}/Work/Agents/TownSquare/Proposals/"*.md 2>/dev/null | head -3
+```
+
+When you find new content:
+- **SharedDiary entry**: Read it. If it contains a breakthrough, post a 1-line highlight and update the journal.
+- **WaterCooler observation**: Read it. If it challenges or extends something you know, respond in the same file.
+- **Lookout alert**: If it flags a system health issue, cross-reference with deployment/database health and escalate if confirmed.
+- **Proposal**: Summarize it in the next /cos output with your recommendation.
+
+### Journal Pipeline (CONTINUOUS)
+
+Write significant CoS observations to a journal the user can browse on their phone via the vault:
+
+```bash
+cat >> "${VAULT_PATH}/Journal/CoS Updates/${TODAY}.md" << 'ENTRY'
+### [Timestamp] — [Headline]
+[2-3 sentences of what happened and why it matters]
+ENTRY
+```
+
+The journal pipeline ensures the user can open the vault and see a FEED of what the system produced.
+{{/IF_OBSIDIAN}}
+
+### Monitor Mode Ends
+
+When the user says stop, or when all slots are idle and the backlog is clear. Post a wrap-up: how many tasks were coordinated, how many connections found, how many escalations, how many PRs shipped, and a suggested time for the next monitor session.
+
+---
+
+## Phase 1: Slot Situation Scan
+
+The core intelligence-gathering phase that no other skill does. Detect the state of every worktree slot AND read inter-slot communications.
+{{#IF_OBSIDIAN}}
+### 1A: Read Vault Town Square + Diaries (PRIMARY — Read This BEFORE the chat channel)
+
+The DEEPEST intelligence lives in the vault, not a chat channel. A chat channel is the highlight reel. The vault has the 10th-order reflections.
+
+```bash
+VAULT_PATH="${VAULT_PATH:-$HOME/Documents/Obsidian Vault}"
+
+# SharedDiary — cross-agent collaboration (highest-signal content)
+for f in "${VAULT_PATH}/Work/Agents/SharedDiary/"*.md; do
+  [ -f "$f" ] && echo "=== SHAREDDIARY: $(basename $f) ===" && tail -30 "$f"
+done
+
+# All agent diaries — per-cave reflections with 10th-order thinking
+for diary in "${VAULT_PATH}/Work/Agents"/*/diary.md; do
+  agent=$(basename $(dirname "$diary"))
+  [ "$agent" = "SharedDiary" ] && continue
+  [ "$agent" = "TownSquare" ] && continue
+  echo "=== DIARY: $agent ==="
+  tail -40 "$diary" 2>/dev/null
+done
+
+# Town Square — WaterCooler, Lookouts, Proposals, Sourced content
+for dir in WaterCooler Lookouts Proposals Sourced Reviews Debates; do
+  for f in "${VAULT_PATH}/Work/Agents/TownSquare/${dir}/"*.md; do
+    [ -f "$f" ] && echo "=== TOWNSQUARE/${dir}: $(basename $f) ===" && tail -15 "$f"
+  done
+done
+```
+
+Parse for:
+- **SharedDiary insights** — the DEEPEST cross-agent thinking.
+- **Diary breakthroughs** — per-cave reflections that reveal what agents LEARNED, not just what they DID.
+- **WaterCooler observations** — casual pattern-spotting that formal outputs miss.
+- **Lookout alerts** — system health warnings.
+- **Sourced content** — articles, research agents found worth surfacing.
+- **Proposals** — RFCs from agents that need discussion.
+{{/IF_OBSIDIAN}}
+{{#IF_SLACK}}
+### 1A-PRIME: Read the Team Channel Relay
+
+```
+slack_read_channel(channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}", limit: 20)
+```
+
+Parse messages for:
+- `[SlotName]` prefixed highlights — what each slot shipped or discovered.
+- Cross-slot connection alerts.
+- Questions between slots — unresolved inter-slot requests.
+- PR notifications — what shipped recently.
+
+The chat channel shows the HEADLINES. The vault shows the STORY. Use both, but prioritize the vault depth.
+{{/IF_SLACK}}
+
+### 1B: Enumerate Slots
+
+From config, expand the slot definitions into concrete slot names. Each entry in `config.slots` maps a slot type to a count — a count of N produces `type1` through `typeN` (e.g. `feature: 3` → feature1, feature2, feature3). Also check for any single-instance reconciler or utility slot the config defines.
+
+### 1C: Parallel Slot State Detection
+
+For each slot, run a compound bash command. Execute in parallel batches of 5-6 to avoid shell limits:
+
+```bash
+SLOT_DIR="${WORKTREES_PATH}/<SLOT>"
+if [ -d "$SLOT_DIR" ]; then
+  cd "$SLOT_DIR"
+  echo "BRANCH:$(git branch --show-current 2>/dev/null || echo 'detached')"
+  echo "DIRTY:$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  echo "LOG:$(git log --oneline -3 2>/dev/null)"
+  echo "PHASE:$(cat /tmp/${SESSION_PREFIX}-phase-<SLOT> 2>/dev/null || echo 'idle')"
+  echo "SESSION:$(cat /tmp/${SESSION_PREFIX}-session-<SLOT>.marker 2>/dev/null || echo 'none')"
+  echo "AHEAD:$(git rev-list --count origin/main..HEAD 2>/dev/null || echo '0')"
+else
+  echo "MISSING"
+fi
+```
+
+### 1D: Classify Each Slot
+
+Based on the compound output, classify into:
+
+| State | Detection Criteria |
+|-------|-------------------|
+| **ACTIVE** | Phase file exists AND is recent (< 2 hours). Currently has a session running work. |
+| **DIRTY** | `git status --porcelain` has output, no active session. Uncommitted work sitting idle. |
+| **HAS_WORK** | Commits ahead of main (AHEAD > 0), no active session. Work done but not shipped. |
+| **PR_OPEN** | Branch has an open PR. Waiting on review/merge. |
+| **IDLE** | On main or slot branch, clean, no session. Available for new work. |
+| **MISSING** | Worktree directory doesn't exist. Slot not created yet. |
+{{#IF_GITHUB}}
+Detect PR_OPEN via `gh pr list --head <branch>`.
+{{/IF_GITHUB}}
+{{#IF_GITLAB}}
+Detect PR_OPEN via `glab mr list --source-branch <branch>`.
+{{/IF_GITLAB}}
+
+### 1E: Extract Active Slot Topics
+
+For ACTIVE and HAS_WORK slots, determine WHAT they're working on:
+- Parse branch name for topic hints.
+- Read the last 3 commit messages for keywords.
+{{#IF_ISSUES}}
+- If commits reference issue IDs, note them and look up the issue for project context.
+{{/IF_ISSUES}}
+
+### 1F: Build Situation Table
+
+Assemble the master data structure that all subsequent phases reference — one row per slot with: slot name, state, topic, related project, commits ahead, and notes.
+
+---
+{{#IF_ISSUES}}
+## Phase 2: Issue Tracker Intelligence Layer
+
+Query the issue tracker for the full project landscape. This is NOT a project-by-project status dump — it's threshold-filtered intelligence.
+
+### 2A: Active Projects Overview
+
+List started projects, and for each, list its milestones. Compute per-project: total milestones, completed milestones, completion percentage. Only surface projects where:
+- A milestone just completed (in last 48h)
+- A milestone stalled (in-progress issue count hasn't changed in 7+ days)
+- A new milestone was created
+
+### 2B: Velocity Analysis
+
+Pull issues shipped (state `Done`) in the last 7 days and issues created in the last 7 days. Compute:
+- **Created-to-shipped ratio:** If > 2:1, flag "Creating faster than shipping"
+- **Absolute velocity:** Issues shipped per day
+- **Trend:** Compare to the prior CoS brief's velocity if available
+
+### 2C: Urgent Unstarted
+
+Pull high-priority issues in `Todo` and `Backlog`. Surface high-priority issues that are NOT assigned to any active slot — these are high-priority items falling through the cracks.
+
+### 2D: Blocked Work
+
+Pull `In Progress` issues. Scan descriptions for "blocked", "waiting on", "depends on" keywords. Cross-reference with the slot situation table — is the blocker something an idle slot could unblock?
+
+### 2E: Threshold Filter
+
+Only include in the brief:
+- Velocity ratio if unhealthy (> 1.5:1 created-to-shipped)
+- Projects with stalled milestones
+- High-priority issues in Todo/Backlog with no slot assignment
+- Blocked issues where the blocker is actionable
+- If NOTHING is notable: "Issue tracker: N projects active, all progressing. No blockers." (one line)
+
+---
+{{/IF_ISSUES}}
+## Phase 3: Cross-Slot Connection Analysis
+
+This is the DIFFERENTIATING phase. The reason /cos exists. No other skill does this.
+
+### 3A: For Each Pair of ACTIVE Slots
+
+Take every pair of ACTIVE/HAS_WORK slots and analyze for connections:
+
+#### Topic Overlap
+Are two slots working on related topics? Check keyword overlap in recent commit messages and whether they share a project or related milestones.
+{{#IF_MEMORY}}
+Also run `memory_search(query: "<slot1 topic> <slot2 topic> connection architecture")` — if results come back with high relevance, there IS a connection the slots may not see.
+{{/IF_MEMORY}}
+
+#### Shared Primitives
+Are two slots discovering the same concept from different angles? Two slots can build the same primitive under different names — one slot's "skill quality checklist" and another's "role architecture" can be the same idea. Detection: extract key concepts from commit messages and issue titles, look for semantic overlap even when terminology differs.
+
+#### Contradictions
+Are two slots building on conflicting assumptions? Detection:
+{{#IF_MEMORY}}
+- Search memory for decisions locked in slot A's context.
+{{/IF_MEMORY}}
+- Check if slot B's recent work contradicts those decisions.
+- Flag with evidence: "Slot A locked decision X on date Y, but Slot B is building Z which assumes the opposite."
+
+#### Information Routing Needs
+Does slot A have information slot B needs? Detection:
+- If slot A completed research that slot B's issues reference as assumptions but haven't incorporated.
+{{#IF_MEMORY}}
+- If slot A captured a memory that changes slot B's approach.
+{{/IF_MEMORY}}
+- If slot A fixed a bug that slot B is still working around.
+
+### 3B: Output Each Connection
+
+For each connection found:
+
+```
+### Connection: [Descriptive Title]
+**Slots:** [Slot A] <-> [Slot B]
+**Type:** topic-overlap | shared-primitive | contradiction | info-routing
+**From [Slot A]:** [what they found/built, with specific evidence]
+**From [Slot B]:** [what they found/built, with specific evidence]
+**The insight:** [what the connection reveals that neither slot sees alone]
+**Recommended action:** [specific: route info, resolve contradiction, merge approaches, or relay to a slot]
+```
+
+### 3C: Flag Missing Connections
+
+Also detect when connections SHOULD exist but DON'T:
+- Research happening in one slot while implementation happens in another slot on the same topic, with no cross-reference.
+- A decision locked in one project that applies to another project's active issues, but the issues don't reference it.
+- Two slots that would benefit from adversarial cross-review but aren't aware of each other's work.
+
+---
+
+## Phase 4: Decision Tracker
+
+Maintain a running log of all locked, pending, stale, and contradicted decisions.
+{{#IF_MEMORY}}
+### 4A: Load Decision History
+
+```
+memory_search(query: "decision locked confirmed architecture strategy product", tags: ["from-decision"], limit: 20)
+memory_search(query: "decided agreed confirmed locked today", limit: 10)
+```
+{{/IF_MEMORY}}
+{{#IF_OBSIDIAN}}
+If prior CoS briefs exist in the vault, read the most recent one's Decision Log section for continuity.
+{{/IF_OBSIDIAN}}
+
+### 4B: Classify Each Decision
+
+| Status | Criteria |
+|--------|----------|
+| **LOCKED** | The user confirmed it. Implementation activity exists. |
+| **PENDING** | Raised but the user hasn't confirmed. Blocking at least one slot. |
+| **STALE** | Locked but no implementation activity in 7+ days. |
+| **CONTRADICTED** | Locked but new evidence from a slot challenges it. |
+
+### 4C: Build Decision Log Table
+
+A table with: decision #, decision summary, status, slot/project, evidence, and age.
+
+### 4D: Delta from Last Brief
+
+If a prior CoS brief exists, show: **New** decisions since last brief, **Progressed** decisions (had implementation activity), **Stalled** decisions (no activity since last brief), **Contradicted** decisions (new evidence emerged).
+
+---
+
+## Phase 5: Bottleneck Identification
+
+Three types of bottlenecks to detect. Be DIRECT about naming them. This is the Theory-of-Constraints lens applied to a worktree fleet — find the one constraint that governs the throughput of the whole system.
+
+### 5A: Human Bottleneck
+
+Detection signals:
+- Created-to-shipped ratio from Phase 2 (> 1.5:1 = flag)
+- Number of PENDING decisions from Phase 4 (> 3 = flag)
+- Number of DIRTY/HAS_WORK slots from Phase 1 (> 2 = "abandoned work sitting in slots")
+- Slots that are ACTIVE doing research while the implementation backlog grows (> 20 unshipped issues = flag)
+- Time since last PR merged vs time since last issue created
+
+If the user IS the bottleneck, say so:
+```
+BOTTLENECK: You are creating faster than shipping.
+  Evidence: [N] issues created in last 7 days, [M] shipped. [K] pending decisions blocking [J] slots.
+  Impact: [specific slots/projects affected]
+  Unblock: [specific action — decide on a pending item, assign a slot, stop launching research and ship]
+```
+
+### 5B: Dependency Bottleneck
+
+Detection signals:
+- Issues marked blocked in the tracker (from Phase 2D)
+- Cross-project dependencies: an issue in Project A depends on an issue in Project B
+{{#IF_MONOREPO}}
+- Shared package changes needed by multiple apps (from the monorepo dependency graph)
+{{/IF_MONOREPO}}
+
+### 5C: Architecture/Decision Bottleneck
+
+Detection signals:
+- PENDING decisions from Phase 4 that block multiple slots
+- A foundational primitive (shared package, config schema, template engine) that multiple projects need changed
+- Research completed but not synthesized — findings exist but haven't been turned into implementation issues
+
+### 5D: Output Each Bottleneck
+
+```
+### Bottleneck: [Title]
+**Type:** human | dependency | architecture
+**What's blocked:** [issues, slots, projects]
+**Why:** [root cause with evidence]
+**Impact:** [scope — how many things are waiting]
+**Unblock:** [specific, actionable recommendation]
+```
+
+---
+
+## Phase 6: Write Outputs
+
+Three surfaces, three densities, one intelligence product.
+
+### 6A: Terminal Output (Executive Summary)
+
+The 2-minute scan version. Use the Raqr branded frame with a mood-based raccoon:
+
+**Mood selection:**
+- All clear: `( ^ ^ )` "Fleet's running smooth."
+- Items need attention: `( - - )` "Situation assessed. [N] items need your call."
+- Contradictions detected: `( ! ! )` "[N] contradictions. We need to talk."
+- Overloaded: `( > < )` "You're overloaded. Let me help triage."
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( [mood] )   [mood message]                             │
+│     (  =^=  )   [subtitle]                                  │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /cos                                {{PROJECT_DISPLAY_NAME}}
+────────────────────────────────────────────────────────────
+
+SITUATION:
+  Active: [N] slots — [one-line per active slot: name + topic]
+  Idle: [N] slots available for work
+  [If dirty/stale: Dirty: [N] slots with abandoned work]
+
+[If any items need the user's call:]
+NEEDS YOUR CALL:
+  1. [Decision/action — one line with evidence]
+  2. [Decision/action — one line with evidence]
+
+[If cross-slot connections found:]
+CROSS-SLOT:
+  [Connection — one line with slots and action]
+
+[If bottleneck identified:]
+BOTTLENECK:
+  [Top bottleneck — what, why, impact, action]
+
+[If velocity unhealthy:]
+VELOCITY:
+  [Ratio + trend, one line]
+
+ACTION QUEUE: [N] items in the action queue
+  Top blocker: [highest-impact item + what it unblocks]
+
+────────────────────────────────────────────────────────────
+```
+
+**Terminal output rules:**
+- Never more than 40 lines total
+- Each section can be omitted if empty (quiet day = short brief)
+- Every line must inform a decision or it doesn't belong
+{{#IF_OBSIDIAN}}
+- End with a pointer to the full vault brief.
+{{/IF_OBSIDIAN}}
+{{#IF_OBSIDIAN}}
+### 6B: Vault Full Brief
+
+Write to: `${VAULT_PATH}/Journal/CoS Updates/${TODAY}.md`
+
+If the file exists (re-run), use a `-N` incrementing suffix.
+
+```markdown
+---
+type: cos-brief
+date: ${TODAY}
+source: agent
+status: raw
+active_slots: [comma-separated list of active slot names]
+idle_slots: [count]
+decisions_tracked: [count]
+connections_found: [count]
+bottlenecks: [count]
+velocity_ratio: [created:shipped last 7d]
+tags: [cos, intelligence, cross-slot]
+---
+
+# Chief of Staff Brief
+
+## Situation Table
+
+[Full table from Phase 1F with all columns]
+
+## Needs Your Call
+
+[Full decision-forcing items from Phases 3, 4, 5 — each with evidence, options, and recommendation]
+
+## Cross-Slot Connections
+
+[Full connection details from Phase 3B — each with evidence from both slots and recommended action]
+
+## Decision Log
+
+[Full table from Phase 4C]
+[Delta section from Phase 4D if a prior brief exists]
+
+## Bottlenecks
+
+[Full bottleneck details from Phase 5D]
+
+## Issue Tracker Landscape
+
+[Threshold-filtered project intelligence from Phase 2]
+
+## Delta from Last Brief
+
+[If a prior brief exists: what changed, what resolved, what's new]
+
+## Recommended Next
+
+[Specific next actions — which /skill to run, which decision to make, which slot to redirect]
+```
+{{/IF_OBSIDIAN}}
+{{#IF_SLACK}}
+### 6C: Team Channel Push
+
+Send a condensed version to the team channel — or as a DM to the user.
+
+```
+slack_send_message(
+  channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}",
+  message: ":raccoon: *Chief of Staff Brief*\n\n:rotating_light: *Needs Your Call ({N}):*\n- [Top item]\n- [Second item]\n\n:link: *Cross-Slot ({N}):*\n- [Top connection]\n\n:no_entry_sign: *Bottleneck:*\n- [Top bottleneck]\n\nActive: {N} slots | Decisions: {N} | Velocity: {ratio}"
+)
+```
+{{/IF_SLACK}}
+
+---
+
+## Phase 7: Close
+{{#IF_MEMORY}}
+### 7A: Capture Cross-Slot Insights
+
+Use `memory_pulse` with up to 5 captures. Priority order:
+
+1. **Cross-slot connections discovered** — highest value, invisible without /cos. `category: insight`, `tags: [critical, from-observation]`, `topic: "cross-slot connection [slot-a] [slot-b]"`
+2. **Bottlenecks identified** — actionable organizational intelligence. `category: insight`, `tags: [important, active]`, `topic: "bottleneck [type] [subject]"`
+3. **Decision status changes** — newly locked, contradicted, or stale. `category: insight`, `tags: [from-decision]`, `topic: "decision status [decision-name]"`
+4. **Velocity observations** — if a notable deviation from baseline. `category: pattern`, `tags: [from-observation]`, `topic: "velocity [ratio] [trend]"`
+5. **Coordination patterns** — recurring themes across briefs. `category: pattern`, `tags: [evergreen]`, `topic: "coordination pattern [name]"`
+
+**Do NOT capture:**
+- Raw status already in the issue tracker (redundant with source)
+- Connections already captured in a prior /cos brief (search first, deduplicate)
+- Slot state that will change by next session (ephemeral)
+{{/IF_MEMORY}}
+
+### 7B: Recommend Next Actions
+
+End every brief with specific, actionable recommendations:
+
+```
+RECOMMENDED NEXT:
+  /debate "<pending decision>" — pressure-test the top blocking decision
+  /projectrefresh "<project>" — [project] has stale issues from [finding]
+  /nextphase "<project>" — [project] M[N] is ready, launch agents
+  [or] "Assign [slot] to [issue] — highest-leverage implementation"
+  [or] "Stop launching research. Ship the open issues first."
+```
+
+The final recommendation should be the SINGLE highest-leverage action the user could take right now. Be specific. Be direct. Be the Chief of Staff.
+
+---
+
+## Graceful Degradation
+
+| Source | If Unavailable | Impact |
+|--------|---------------|--------|
+| `.traqr/config.json` | Use defaults. Warn. | Slot enumeration may miss custom slots |
+| Worktree git access | Skip Phase 1 slot scan. Produce issue-tracker-only brief. | No slot situation table, no cross-slot analysis |
+| Issue tracker | Skip Phase 2. Produce slot-only brief. | No velocity, no project intelligence, no backlog analysis |
+| Memory | Skip Phase 0C/0D priming, Phase 4 decision history, Phase 7 capture. | Cross-analysis thinner, no decision tracking, no memory capture |
+| Team channel | Skip Phase 6C push. Note in terminal. | No push notification, vault + terminal still work |
+| Vault path missing | Terminal-only output. Skip vault write. | No persistent brief, but terminal still shows everything |
+| No prior CoS brief | Skip delta reporting. Note "First brief — no baseline." | No trend analysis, still shows current state |
+| All sources down | Terminal message: "Cannot generate brief — no data sources available." | Error state |
+
+If a focused mode (`decisions`, `bottlenecks`, `connections`) requires a source that is down, report "Cannot generate [mode] brief — [source] unavailable" and suggest running the full brief instead.
+
+---
+
+## Quality Gate
+
+Before finalizing the brief, self-check:
+
+1. **Every "Needs Your Call" item has evidence.** No vibes-only recommendations.
+2. **Every cross-slot connection cites both slots.** Not "I think these are related" — show what each slot actually produced.
+3. **Every bottleneck has a specific unblock action.** Not "this is blocked" — "do THIS to unblock it."
+4. **The terminal brief is under 40 lines.** If longer, you're including status, not decisions. Cut harder.
+5. **Contradictions are stated as contradictions, not diplomatic differences.** "Slot A says X. Slot B says not-X. They can't both be right." Not "there may be some tension between these approaches."
+
+If you cannot meet these quality gates, you don't have enough data. Say so: "Insufficient data for a useful CoS brief. [What's missing]." A bad brief is worse than no brief.

@@ -1,0 +1,732 @@
+---
+name: einstein
+description: Deep research project — issue-tracker milestones, knowledge-base docs, parallel subagent waves, memory capture. For mega-projects that deserve genuine understanding before implementation.
+license: MIT
+tier: any
+category: planning
+autoInvoked: false
+dependencies: []
+relatedSkills: [nextphase, ship, auditor]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /einstein - Deep Research Project
+
+Go deep, understand everything, then build from genuine knowledge. Creates a structured research project with issue-tracker milestones, knowledge-base docs, and parallel subagent waves.
+
+**Pattern:** Research project (understand) → Implementation project (build). The framework scales from a focused feature (3-4 milestones, 8-12 tickets) to a full product overhaul (a research project of 40+ docs, 23+ tickets, 15 agents, 5 waves + an x.5 soundboarding-yield wave).
+
+## Arguments
+- `<topic>` — What to research (e.g., "a new product idea", "Auth System Overhaul")
+- `wave <N>` — Execute wave N of subagents (e.g., `/einstein wave 1`)
+- `status` — Check progress of running agents and completed research
+- `synthesize` — Combine all findings into implementation spec
+
+## Subcommand Routing
+
+Parse the first argument:
+- If `wave` → jump to **Phase 3: Execute Wave**
+- If `status` → jump to **Phase 4: Status**
+- If `synthesize` → jump to **Phase 5: Synthesize**
+- Otherwise → start at **Phase 1: Intake**
+
+---
+
+## Phase 1: Intake (Interactive)
+
+**DO NOT skip this phase.** The soundboarding is where the research gets its soul.
+
+### 1A: Detect Mode
+
+Determine the research mode from context — ask if unclear:
+
+| Mode | Signal | Default Tracks | Typical Scale |
+|------|--------|----------------|---------------|
+| **Greenfield** | No existing code, new product/idea | Market validation, Competitive landscape, Architecture, Tech stack, MVP scope | 5-6 milestones, 12-15 tickets |
+| **Overhaul** | Existing app needs complete rethink | Current state audit, Core feature quality, Industry research, Monetization, Design/UX, Growth | 6-7 milestones, 15-20 tickets |
+| **Feature** | Critical feature within existing system | Technical deep dive, Competitive code analysis, Architecture decisions, Integration points | 3-4 milestones, 8-12 tickets |
+
+The mode shapes default vector suggestions, scope calibration, and whether subagents get codebase pointers.
+
+### 1B: Check for Existing Work
+
+Before starting fresh, check if prior research exists:
+{{#IF_OBSIDIAN}}
+1. **Knowledge base:** Check the `Projects/` folder for an existing project directory
+{{/IF_OBSIDIAN}}
+{{#IF_ISSUES}}
+2. **Issue tracker:** Search for existing research projects on this topic
+{{/IF_ISSUES}}
+{{#IF_MEMORY}}
+3. **Memory DB:** `memory_search` for prior learnings about this topic
+4. **Previous /einstein runs:** Search memory for learnings from similar research
+{{/IF_MEMORY}}
+
+If prior work exists, build on it — don't duplicate. If a partial project exists, offer to continue from where it left off.
+
+### 1C: Understand the Project
+
+Ask the user (conversationally, not as a form):
+1. **What are we researching?** Product, feature, architecture, market?
+2. **What exists today?** Codebase path, live URL, current state — read code if it exists
+3. **What's the vision?** Where does this want to go?
+4. **Who's it for?** Target users, constraints, dealbreakers
+5. **What keeps you up at night?** The hardest unsolved questions
+
+If the user already provided context (e.g., in the conversation before invoking /einstein), don't re-ask — use what you have.
+
+### 1D: Always Include M0 (Landscape Survey)
+
+Every /einstein should start with an M0 milestone: "Landscape Survey + Research Design." This is the "research the research" phase — study what the smartest teams (big tech, AI labs, proven OSS) have already built before designing anything. M0 agents survey the landscape and their output REWRITES M1+ scope before those waves execute.
+
+M0 is mandatory because:
+- It prevents reinventing wheels (a landscape survey often finds a battle-tested pattern that saves weeks of design)
+- It surfaces questions you didn't think to ask
+- It establishes vocabulary and frameworks the user needs for checkpoint soundboarding
+- Without it, Wave 1 agents design from first principles when battle-tested patterns already exist
+
+Research baskets for M0: industry tools solving the same problem, big tech approaches at scale, AI lab patterns, competitive landscape, methodology retrospective from prior /einsteins.
+
+### 1E: Define Research Vectors
+
+Propose research tracks based on mode defaults + conversation context. Each track is:
+- A **name** (becomes a milestone and a knowledge-base folder)
+- A **core question** (what are we trying to understand?)
+- 2-3 **sub-questions** (become issue-tracker tickets)
+
+Present these to the user for feedback. Adjust based on their input. The user may add tracks, remove tracks, or reframe questions.
+
+**Push back.** Challenge blind spots. Ask: "What about X?" If the user hasn't mentioned monetization, competitive landscape, or technical risk — bring it up. You're a thinking partner, not a note-taker.
+
+### 1F: Infrastructure Check
+{{#IF_ISSUES}}
+Before scaffolding, verify the target team/board exists:
+- If the project maps to a known app, use that team
+- If no team exists, offer to create one via the issue-tracker API
+{{#IF_SLACK}}
+- If no team channels exist for this app, offer to create them via the Slack API
+{{/IF_SLACK}}
+{{/IF_ISSUES}}
+{{^IF_ISSUES}}
+No issue tracker is configured — research tracks and tickets will live in the knowledge base only. Skip team/board scaffolding.
+{{/IF_ISSUES}}
+
+### 1G: Identify Wave Structure
+
+Group tracks into waves based on dependencies:
+- **Wave 0:** M0 Landscape Survey (always first, 2-3 agents)
+- **Wave 1:** Tracks that can run independently after M0 findings (usually 3-4)
+- **Wave 2:** Tracks that benefit from Wave 1 findings (usually 1-2)
+- **Wave x.5:** Soundboarding yield — new tracks surfaced from human insights during checkpoints (expected, not scope creep — see Phase 3.5)
+- **Wave N:** Synthesis (always last, always 1 agent)
+
+Present the wave plan to the user. Get explicit confirmation before proceeding to Phase 2.
+
+**Note:** The x.5 wave is not planned during intake — it emerges from soundboarding between waves. The best /einsteins always have one because the human's cross-domain pattern recognition (from lived experience, reading, industry knowledge) produces research questions agents can't generate. Plan for it by leaving room in the milestone structure.
+
+---
+
+## Phase 2: Scaffold
+
+Once the user confirms the research plan, build everything.
+
+### 2A: Detect Context
+
+```bash
+CONFIG=$(cat "$(git rev-parse --show-toplevel)/.traqr/config.json" 2>/dev/null || echo '{}')
+IS_MONOREPO=$(echo "$CONFIG" | jq -r '.monorepo.enabled // false')
+VAULT_PATH=$(echo "$CONFIG" | jq -r '.vault.path // ""')
+if [ -z "$VAULT_PATH" ]; then
+  VAULT_PATH="$HOME/Documents/Obsidian Vault"
+fi
+```
+{{#IF_ISSUES}}
+Determine the team/board from the project context. If the project maps to a specific app, use that team. Otherwise, use the default team.
+{{/IF_ISSUES}}
+{{#IF_OBSIDIAN}}
+Knowledge-base path: read from `.traqr/config.json` → `vault.path` (set via `traqr init`).
+{{/IF_OBSIDIAN}}
+
+### 2B: Create the Research Project
+{{#IF_ISSUES}}
+```
+save_project(
+  name: "<Topic> Research",
+  description: "<Vision summary + research track overview>",
+  addTeams: ["<team>"],
+  priority: 2,
+  state: "started",
+  lead: "me"
+)
+```
+{{/IF_ISSUES}}
+{{^IF_ISSUES}}
+With no issue tracker configured, the project is defined entirely by its knowledge-base structure (Phase 2E). Treat the project root doc as the project record.
+{{/IF_ISSUES}}
+
+### 2C: Create Milestones
+{{#IF_ISSUES}}
+One milestone per research track, plus a synthesis milestone at the end:
+
+```
+for each track:
+  save_milestone(
+    name: "M<N>: <Track Name>",
+    description: "<Core question>",
+    project: "<project name>"
+  )
+
+# Always add synthesis as the final milestone:
+save_milestone(
+  name: "M<last>: Synthesis & Spec",
+  description: "Combine all findings into implementation blueprint",
+  project: "<project name>"
+)
+```
+{{/IF_ISSUES}}
+{{^IF_ISSUES}}
+Track milestones as headings in the project root doc — one per research track, plus a final "Synthesis & Spec" milestone.
+{{/IF_ISSUES}}
+
+### 2D: Create Tickets
+{{#IF_ISSUES}}
+2-3 tickets per milestone, each with a specific research question:
+
+```
+for each sub-question:
+  save_issue(
+    title: "M<N>: <sub-question title>",
+    team: "<team>",
+    project: "<project name>",
+    milestone: "M<N>: <Track Name>",
+    description: "<detailed research question with context>",
+    priority: <1-3 based on criticality>
+  )
+```
+{{/IF_ISSUES}}
+{{^IF_ISSUES}}
+Track each sub-question as a checklist item under its milestone heading in the project root doc.
+{{/IF_ISSUES}}
+{{#IF_OBSIDIAN}}
+### 2E: Create the Knowledge-Base Structure
+
+```bash
+VAULT="${VAULT_PATH}"
+PROJECT_DIR="${VAULT}/Projects/<ProjectSlug>"
+mkdir -p "${PROJECT_DIR}"
+```
+
+Create folders for each research track:
+```bash
+for each track:
+  mkdir -p "${PROJECT_DIR}/<TrackSlug>"
+```
+
+**Write `<Topic> Vision.md`** at the project root:
+```markdown
+---
+title: <Topic> Vision
+type: project
+status: active
+project: <project-slug>
+tracker: <project name / id>
+tags: [<topic-tag>, vision, north-star]
+created: <today>
+updated: <today>
+agent: <current-slot>
+---
+
+# <Topic>: The Vision
+
+> *<One-line thesis from the user's vision>*
+
+## What We're Building
+<Vision paragraph>
+
+## Current State
+<What exists today>
+
+## Research Tracks
+<Links to each track's MOC file by name>
+```
+
+**Write `<Track Name>.md`** in each track folder (e.g., `Dead Weight Audit.md` — NOT `index.md`). Use the descriptive track name, not a generic filename. For Synthesis tracks, prefix with project name (e.g., `Monorepo Optimization Synthesis.md`):
+```markdown
+---
+title: "<Track Name>"
+type: project
+status: active
+project: <project-slug>
+tracker: <comma-separated ticket IDs>
+tags: [<topic-tag>, <track-tag>, moc]
+created: <today>
+agent: <current-slot>
+---
+
+# <Track Name>
+
+<Core question>
+
+## Research Docs
+<!-- Subagents will populate these — see Output Instructions in Phase 3C -->
+
+## Key Findings
+<!-- Updated as research completes -->
+```
+{{/IF_OBSIDIAN}}
+
+### 2F: Confirm Scaffold
+
+Output a summary:
+```
+Einstein scaffold complete.
+
+Project: <project URL / id>
+  <N> milestones, <M> tickets
+
+Knowledge base: Projects/<ProjectSlug>/
+  <Topic> Vision.md
+  <Track1>/<Track1 Name>.md
+  <Track2>/<Track2 Name>.md
+  ...
+
+Wave 1 ready: <track list>
+Run /einstein wave 1 to launch.
+```
+
+---
+
+## Phase 3: Execute Wave
+
+**Triggered by:** `/einstein wave <N>`
+
+### 3A: Load Context
+{{#IF_OBSIDIAN}}
+Read the `<Topic> Vision.md` doc to get the project context. Read each track's MOC file (named `<Track Name>.md`) to get the core questions and ticket IDs.
+{{/IF_OBSIDIAN}}
+{{^IF_OBSIDIAN}}
+Read the project context from the project root doc and the wave plan from Phase 1.
+{{/IF_OBSIDIAN}}
+
+Determine which tracks belong to the requested wave (based on the wave plan from Phase 1, or infer from milestone ordering — earlier milestones = Wave 1, later = Wave 2, synthesis = Wave 3).
+{{#IF_MEMORY}}
+### 3B: Search Memory for Context
+
+Before spawning agents, search the memory DB for relevant context:
+```
+memory_search(query: "<topic> <track keywords>")
+memory_search(query: "<topic> gotchas mistakes corrections", category: "gotcha")
+```
+
+Include relevant memories in each agent's prompt so they don't start from zero.
+
+**CRITICAL: Correction Injection.** Also search for gotchas and corrections related to the track topic. Read relevant `feedback_*.md` files from the file-based memory directory and include behavioral corrections in each agent's prompt. Subagents cannot see file-based memories — if you don't inject them, corrections are invisible.
+{{/IF_MEMORY}}
+
+### 3C: Build Subagent Prompts
+
+For each track in the wave, construct a prompt with these sections:
+
+**1. Role & Context** (from vision doc{{#IF_MEMORY}} + memory DB{{/IF_MEMORY}})
+```
+You are researching <topic> — specifically <track core question>.
+
+## Context
+<Vision summary>
+<Current state>
+<Relevant context from prior learnings>
+```
+
+**2. Research Questions** (from tickets)
+```
+## Your Research Questions
+1. <Sub-question 1 from ticket>
+2. <Sub-question 2 from ticket>
+...
+```
+
+**3. Codebase Pointers** (if code exists)
+```
+## Source Files to Read
+<List relevant source files with full paths>
+```
+
+**4. Output Instructions** (standardized)
+{{#IF_OBSIDIAN}}
+```
+## Output
+Write your findings as knowledge-base docs at:
+`${VAULT}/Projects/<ProjectSlug>/<TrackSlug>/`
+
+Create these docs:
+1. `<Doc Title 1>.md` — <what it covers>
+2. `<Doc Title 2>.md` — <what it covers>
+...
+
+Use this frontmatter template:
+---
+title: "<Doc Title>"
+type: research
+status: complete
+project: <project-slug>
+tracker: <ticket IDs>
+tags: [<topic-tag>, <track-tag>]
+created: <today>
+agent: <current-slot>
+---
+
+Include sections: Summary, Findings (with evidence), Implications for Future Phases, Related, Memory DB Captures.
+
+IMPORTANT: After writing your research docs, update the track's MOC file (`<Track Name>.md`) to replace the placeholder comment under "## Research Docs" with wikilinks to your new docs. This prevents orphan nodes in the knowledge-base graph.
+```
+{{/IF_OBSIDIAN}}
+{{^IF_OBSIDIAN}}
+```
+## Output
+Return your findings as a structured markdown report with these sections:
+Summary, Findings (with evidence), Implications for Future Phases, Related, Open Questions.
+```
+{{/IF_OBSIDIAN}}
+
+**5. Structured Output Requirements** (always include)
+```
+## Output Quality
+Distinguish between these in your writing:
+- **Observations** — what you directly read/verified in code or docs (high confidence)
+- **Findings** — patterns or connections you identified from multiple observations (medium confidence)
+- **Conclusions** — your interpretation or recommendation (state confidence level explicitly)
+
+If you're less than 70% sure about a conclusion, say so. "I'm 60% confident that X because Y" is more valuable than a confident wrong answer.
+```
+
+**6. Bidirectional Verification** (always include for comparative research)
+```
+## Bidirectional Verification Requirement
+When comparing external tool X to internal component Y:
+1. FIRST: Read internal component Y's actual implementation (source code, not docs)
+2. THEN: Research external tool X's actual capabilities (source code or authoritative docs)
+3. ONLY THEN: Make comparative claims
+
+If you haven't read both sides, mark your comparison as
+"UNVERIFIED: only read [X/Y] side" and flag it for the synthesis wave.
+
+NEVER claim "X replaces Y" or "X eliminates Y" without reading both implementations.
+The #1 quality failure in prior /einsteins is a 10% truth presented as 100% —
+an agent finds an external tool has one feature and concludes an internal
+component is unnecessary, without reading what that component actually does.
+```
+
+**7. Spirit** (always include)
+```
+Be genuinely curious. Dig deep. Form opinions. Challenge assumptions. You are NOT an NPC — if you find something surprising, say why it matters. If a common assumption is wrong, flag it. Every doc should have an "Implications for Future Phases" section that flags what downstream tracks need to know.
+
+Challenge first, support second. If the research question contains a hidden assumption, question it. If popular wisdom about the topic is wrong, say so with evidence. When you disagree with a prior finding from another agent, flag the disagreement explicitly — don't silently overwrite.
+
+Standing corrections (from feedback memories): verify before destroying, never trust absence as evidence, research deeper before presenting premature choices, don't fix surface bugs without deep analysis. Apply these to your research approach.
+```
+
+### 3D: Spawn Agents
+
+Launch all wave agents in parallel using `run_in_background: true`:
+
+```
+for each track in wave:
+  Agent(
+    description: "M<N>: <track name> research",
+    prompt: <constructed prompt>,
+    run_in_background: true
+  )
+```
+
+### 3E: Report Launch
+
+```
+Einstein Wave <N> launched — <count> agents running in parallel.
+
+| Agent | Track | Core Question |
+|-------|-------|---------------|
+| M<N>  | <name> | <question>   |
+| ...   | ...    | ...          |
+
+Each agent writes research docs{{#IF_MEMORY}} + captures to memory DB{{/IF_MEMORY}}.
+Run /einstein status to check progress.
+```
+
+### 3F: Wave Transition Checkpoint (MANDATORY for Wave 2+)
+
+When all agents in a wave complete and the user requests the next wave, **DO NOT immediately spawn agents.** Three steps:
+
+#### Step 1: Present Checkpoint in Plain Language
+
+Before presenting findings,{{#IF_MEMORY}} `memory_search` for the user's background and communication preferences.{{/IF_MEMORY}} Frame EVERY finding as a business story, not a technical abstraction. If a finding can't be explained without jargon, the agent didn't understand it deeply enough.
+
+```
+## Wave <N> Complete — Checkpoint Before Wave <N+1>
+
+**DECISIONS MADE:**
+- <Key conclusion — explained as a business story with a winner and why>
+- ...
+
+**SURPRISES:**
+- <Unexpected finding — why it matters, in plain terms>
+- ...
+
+**CONFIDENCE:**
+- HIGH (>80%): <findings we're confident about>
+- LOW (<60%): <findings that need validation>
+
+**NEED YOUR CALL:**
+1. <Decision in plain language> — (a) option / (b) option / (c) option
+   My recommendation: <which and why, in one sentence>
+2. ...
+```
+
+**Plain language test:** Could someone with a non-technical background make this decision? If not, rewrite it. Use analogies: "Kodiak built a highway, then the city built one next to it and Kodiak went out of business" communicates the same insight as "platform-native merge queuing obsoleted third-party implementations."
+
+#### Step 2: /projectrefresh (MANDATORY)
+
+After the user makes their decisions, run /projectrefresh on ALL remaining milestones before launching the next wave. Inject:
+- Wave findings (what the agents discovered)
+- User decisions (what was locked in during checkpoint)
+- Cross-wave implications (how this wave's findings affect remaining tracks)
+
+This is what makes the project LIVING. Without it, future agents execute on stale day-1 assumptions.
+
+#### Step 3: Inject Locked Decisions into Next Wave Prompts
+
+Every agent prompt for the next wave must include a "Decisions Locked In" section with ALL decisions made during soundboarding. These decisions live in conversation context, not in the knowledge base — if you don't inject them, agents won't know about them.
+
+Wait for the user's response before launching the next wave. Their corrections at this checkpoint get injected into the next wave's subagent prompts.
+
+---
+
+## Phase 3.5: Soundboarding Yield (Expected, Not Scope Creep)
+
+After the planned waves complete but before synthesis, EXPECT the user to surface insights the agents couldn't generate. This is the x.5 wave.
+
+**Why this happens:** The research gives the user vocabulary and frameworks to think with. Then their cross-domain pattern recognition (from lived experience, industry knowledge, reading, podcasts) connects dots across domains that no single agent could. This is the human-in-the-loop thesis in action.
+
+**When it happens:** The user says something like "but what about X?" or "we're missing Y" during a checkpoint discussion. X and Y are typically:
+- A connection between the research and something from a completely different domain
+- A product/business dimension the technical research didn't consider
+- A user experience insight from their real-world usage
+
+**What to do:**
+{{#IF_ISSUES}}
+1. Create a new milestone (M<N>.5) in the issue tracker
+2. Create tickets for the new research questions
+{{/IF_ISSUES}}
+{{^IF_ISSUES}}
+1. Add a new milestone heading (M<N>.5) to the project root doc
+2. Add checklist items for the new research questions
+{{/IF_ISSUES}}
+{{#IF_OBSIDIAN}}
+3. Create the knowledge-base folder + MOC
+{{/IF_OBSIDIAN}}
+4. Launch a focused wave (usually 1-2 agents)
+5. When complete, do the standard checkpoint + /projectrefresh before synthesis
+
+**Quality signal:** If an /einstein doesn't have a x.5 wave, either the soundboarding didn't go deep enough or the human didn't engage. The best /einsteins always have one.
+
+---
+
+## Phase 3.6: Stakeholder Feedback Integration
+
+After research waves complete, the user may ALSO have feedback from soundboarding with other people — transcripts, notes, or recordings from conversations with colleagues, advisors, or domain experts. These often contain higher-fidelity insights than the research itself.
+
+**When to check:** After each wave completes and before /projectrefresh, ask whether new stakeholder feedback exists that relates to the research topic.
+
+If it does, process it (via /call for transcripts, or /feedback for structured bundles) BEFORE running /projectrefresh. The cross-analysis connects the stakeholder findings to the research findings — producing insights neither source contained alone.
+
+**The flywheel:** Research agents complete → the user soundboards with people → that feedback is processed into tickets + memories → /projectrefresh enriches the next wave → agents launch with richer context.
+
+---
+
+## Phase 3.7: Alpha Feedback Integration
+
+If alpha user feedback exists (zip files, email bundles, chat thread exports), process it as research input BEFORE launching subsequent waves. A stakeholder's structured onboarding feedback bundle can reshape an entire product direction.
+
+**When to check:** Before launching any wave after Wave 1, ask: "Is there alpha user feedback that should inform this wave?" Check email from alpha users, feedback bundles{{#IF_ISSUES}}, and user feedback tickets in the issue tracker{{/IF_ISSUES}}.
+
+**How to process:** Use the /feedback skill on the bundle, then /projectrefresh the wave tickets with the findings.
+{{#IF_SLACK}}
+---
+
+## Phase 3.8: Cross-Slot Plan Review
+
+Before executing any multi-file plan produced by /einstein, post it to the team channel for peer review. A plan reviewed by 2-3 slots catches structural bugs that a single reviewer misses.
+
+```
+slack_send_message(
+  channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}",
+  message: "[<SlotName>] /einstein PLAN for review: <plan summary>. Holes?"
+)
+```
+
+Wait briefly (check the thread after 2 minutes of other work). Incorporate any responses. Then execute. The plan was already user-approved — this is PEER review, not human review. Different gates for different quality dimensions.
+{{/IF_SLACK}}
+
+---
+
+## Phase 4: Status
+
+**Triggered by:** `/einstein status`
+
+### 4A: Check Agent Completion
+{{#IF_OBSIDIAN}}
+Check which knowledge-base docs exist in the project folder:
+```bash
+find "${VAULT}/Projects/<ProjectSlug>" -name "*.md" -not -name "*Vision.md" | sort
+```
+{{/IF_OBSIDIAN}}
+{{#IF_ISSUES}}
+### 4B: Check Ticket Status
+
+```
+list_issues(project: "<project name>")
+```
+{{/IF_ISSUES}}
+
+### 4C: Report
+
+```
+Einstein Status: <Project Name>
+
+| Milestone | Tickets | Docs   | Status |
+|-----------|---------|--------|--------|
+| M1: ...   | 3/3     | 2 docs | In Progress |
+| M2: ...   | 0/3     | 0 docs | Pending |
+| ...       | ...     | ...    | ...     |
+
+Completed docs:
+- <list of docs with paths>
+
+Next: <what to do next — review findings, spawn next wave, synthesize>
+```
+
+---
+
+## Phase 5: Synthesize
+
+**Triggered by:** `/einstein synthesize`
+
+### 5A: Gather All Findings
+
+Read every research doc in the project folder.{{#IF_ISSUES}} Read all tickets for completion status.{{/IF_ISSUES}}{{#IF_MEMORY}} Search the memory DB for all captures from this project.{{/IF_MEMORY}}
+
+### 5B: Write Synthesis Doc
+{{#IF_OBSIDIAN}}
+Write a comprehensive synthesis doc at:
+`Projects/<ProjectSlug>/Synthesis/<Topic> v2 Specification.md`
+{{/IF_OBSIDIAN}}
+{{^IF_OBSIDIAN}}
+Write a comprehensive synthesis document and present it to the user.
+{{/IF_OBSIDIAN}}
+
+Structure:
+1. **Executive Summary** — What we learned across all tracks
+2. **Key Decisions** — Architecture, strategy, and approach decisions with evidence
+3. **Feature Set** — Must-have vs nice-to-have, informed by research
+4. **Technical Architecture** — How to build it, based on findings
+5. **Implementation Phases** — Ordered by priority and dependencies
+6. **Open Questions** — What still needs the user's input
+7. **Risk Register** — What could go wrong
+
+### 5C: Soundboard with User
+
+Present the synthesis findings to the user. This is NOT a deliverable handoff — it's a conversation:
+- "Here's what I think we should build. Here's why."
+- "These 3 decisions need your input."
+- "I'm worried about X — here's what the research says."
+
+### 5D: Create Implementation Project
+{{#IF_ISSUES}}
+Once aligned with the user, create a new project:
+```
+save_project(
+  name: "<Topic> Implementation",
+  description: "Implementation project built from <Topic> Research findings.",
+  addTeams: ["<team>"],
+  priority: 2,
+  state: "planned"
+)
+```
+
+Create milestones and tickets based on the synthesis doc's implementation phases.
+
+Mark the synthesis ticket in the research project as Done.
+{{/IF_ISSUES}}
+{{^IF_ISSUES}}
+Once aligned with the user, create a new implementation project doc in the knowledge base, with milestone headings and checklist items based on the synthesis doc's implementation phases.
+{{/IF_ISSUES}}
+{{#IF_SLACK}}
+### 5E: Relay to the Team Channel
+
+Post a structured update so other slots know the research arc completed:
+
+```
+slack_send_message(
+  channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}",
+  message: "[<SlotName>] /einstein SYNTHESIZED: <Project Name>\n\n*Key decisions:* <top 3 one-line each>\n*Docs:* <count> written\n*Implementation project:* <created/not created>\n*What other slots should know:* <1-2 lines of highest-signal findings>"
+)
+```
+
+Also post after each wave completes (Phase 3F checkpoint):
+```
+slack_send_message(
+  channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}",
+  message: "[<SlotName>] /einstein Wave <N> complete — <Project Name>\n\n*Agents:* <count> completed\n*Key findings:* <top 2-3 one-line>\n*Next:* soundboard → /projectrefresh → Wave <N+1>"
+)
+```
+{{/IF_SLACK}}
+
+---
+
+## Output Frames
+
+**Scaffold complete:**
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( °   ° )   Research scaffolded.                        │
+│     (  =^=  )   Time to go deep.                            │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /einstein                          {{PROJECT_DISPLAY_NAME}}
+────────────────────────────────────────────────────────────
+<scaffold summary>
+────────────────────────────────────────────────────────────
+```
+
+**Wave launched:**
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( *   * )   Wave <N> launched.                          │
+│     (  =^=  )   <count> agents researching in parallel.     │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /einstein wave <N>                 {{PROJECT_DISPLAY_NAME}}
+────────────────────────────────────────────────────────────
+<agent table>
+────────────────────────────────────────────────────────────
+```
+
+**Synthesis complete:**
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( ^   ^ )   Research complete. Understanding achieved.  │
+│     (  =^=  )   Now we build from knowledge, not guesses.   │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /einstein synthesize               {{PROJECT_DISPLAY_NAME}}
+────────────────────────────────────────────────────────────
+<synthesis summary + link to implementation project>
+────────────────────────────────────────────────────────────
+```

@@ -191,6 +191,7 @@ export function shouldIncludeTemplate(
     'commands/traqr-setup.md.tmpl',
     'commands/traqr-test.md.tmpl',
     'commands/nextphase.md.tmpl',
+    'commands/debate.md.tmpl',
     'scripts/setup-worktrees.sh.tmpl',
     'scripts/aliases.sh.tmpl',
     'scripts/pre-push-guardrail.sh.tmpl',
@@ -211,10 +212,27 @@ export function shouldIncludeTemplate(
 
   if (templatePath === 'commands/bootstrap-skills.md.tmpl') return tier >= 1 && flags.MEMORY_FULL
 
+  // Tier 1+ (Slack required) — Slack-native autonomous skills
+  if (templatePath === 'commands/rounds.md.tmpl') return tier >= 1 && flags.SLACK
+
+  // Tier 2+ (memory required) — autonomous-intelligence skills
+  const tier2Templates = [
+    'commands/deepreflect.md.tmpl',
+    'commands/lore.md.tmpl',
+    'commands/rally.md.tmpl',
+    'commands/documentary.md.tmpl',
+    'commands/gamedev.md.tmpl',
+    'commands/call.md.tmpl',
+    'commands/bethesda.md.tmpl',
+  ]
+  if (tier2Templates.includes(templatePath)) return tier >= 2 && flags.MEMORY
+
   // Tier 3+ (integrations)
   const tier3Templates: Record<string, string> = {
     'commands/slack.md.tmpl': 'SLACK',
     'commands/inbox.md.tmpl': 'SLACK',
+    'commands/einstein.md.tmpl': 'ISSUES',
+    'commands/cos.md.tmpl': 'CONTROL_CENTER',
   }
   if (tier3Templates[templatePath]) return tier >= 3 && flags[tier3Templates[templatePath]]
 

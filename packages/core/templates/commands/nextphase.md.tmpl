@@ -76,7 +76,7 @@ Selected: <milestone name> (progress: <N>%, <ticket count> tickets)
 Is this the right phase to pick up? (a) yes, proceed (b) show me all milestones so I can choose (c) abort
 ```
 
-If (b), list all milestones with progress and let Sean choose explicitly.
+If (b), list all milestones with progress and let the user choose explicitly.
 
 **Guard:** If all milestones are fully complete, STOP:
 ```
@@ -308,7 +308,7 @@ Post a structured update so other slots know a phase was picked up:
 
 ```
 slack_send_message(
-  channel_id: "C0AGTB4Q30S",
+  channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}",
   message: "[<SlotName>] /nextphase: picked up <Milestone Name> in <Project>\n\n*Tickets:* <N> total\n*Focus:* <top 2-3 ticket titles>\n*Mode:* plan mode / direct launch"
 )
 ```
