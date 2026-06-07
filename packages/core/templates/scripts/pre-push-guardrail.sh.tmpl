@@ -17,6 +17,27 @@ YELLOW='\033[1;33m'
 GREEN='\033[0;32m'
 NC='\033[0m'
 
+# ── Non-blocking workspace-drift advisory (DevOps2 2026-05-22) ───────────────
+# Surface workspace-symlink drift (e.g. node_modules/@traqr/<pkg> symlinks
+# missing in worktrees created before that package landed) at push time — the
+# recurring "worktree resolves main's stale dist → false-RED typecheck:scripts"
+# trap. WARN-ONLY, and placed BEFORE the authorized-push early-exit below so it
+# is visible on the /ship path (the only sanctioned push) yet never blocks: a
+# hard-fail here would block /ship itself in every drifted worktree. Drift is
+# non-fatal to the push and self-repairs with `npm install`. Guarded on the
+# detector's presence so it no-ops where the script is absent.
+DRIFT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$DRIFT_ROOT" ] && [ -f "$DRIFT_ROOT/scripts/check-workspace-symlinks.sh" ]; then
+    if ! _drift=$(bash "$DRIFT_ROOT/scripts/check-workspace-symlinks.sh" 2>&1); then
+        echo ""
+        echo -e "${YELLOW}⚠ workspace-symlink drift (non-blocking — push continues):${NC}"
+        echo "$_drift" | grep -E "MISSING|SHADOWED|^  - " | sed 's/^/    /'
+        echo -e "${YELLOW}    Reconcile with: npm install   (at the repo root)${NC}"
+        echo ""
+    fi
+fi
+# ─────────────────────────────────────────────────────────────────────────────
+
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # Allow pushes on main (for /sync operations)
@@ -26,28 +47,6 @@ fi
 
 # Check if this is an authorized push (set by /ship or /sync)
 if [ "${{SHIP_ENV_VAR}}" = "true" ]; then
-{{#IF_TIER_1+}}    # Memory loop enforcement: check for session marker
-    SLOT_NAME=$(basename "$(pwd)")
-    MARKER_FILE="/tmp/{{SESSION_PREFIX}}-session-${SLOT_NAME}.json"
-
-    if [ -f "$MARKER_FILE" ]; then
-        exit 0
-    fi
-
-    # No marker — warn but allow (soft enforcement)
-    echo ""
-    echo -e "${YELLOW}======================================${NC}"
-    echo -e "${YELLOW}   MEMORY LOOP WARNING${NC}"
-    echo -e "${YELLOW}======================================${NC}"
-    echo ""
-    echo -e "No session marker found at: ${MARKER_FILE}"
-    echo -e "This means /startup was not run before /ship."
-    echo ""
-    echo -e "The memory feedback loop helps the system learn."
-    echo -e "Run /startup at the beginning of each session."
-    echo ""
-    echo -e "${YELLOW}Allowing push, but learnings may be incomplete.${NC}"
-    echo ""{{/IF_TIER_1+}}
     exit 0
 fi
 

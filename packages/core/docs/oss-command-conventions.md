@@ -36,9 +36,10 @@ Only `{{VAR}}` substitutions and `{{#IF_*}}` flags that **already exist** in
 
 ## Personal-info denylist
 
-The canonical list. `scripts/oss-scrub-check.sh` enforces it against every
-`packages/core/templates/commands/*.md.tmpl` in CI. It targets **literals only** — the same
-value reached through a `{{VAR}}` is fine.
+The canonical list. `scripts/oss-scrub-check.sh` enforces it against every `*.tmpl`
+under `packages/core/templates/` in CI — command templates, `CLAUDE.md`, scripts,
+design, and monorepo configs all ship to OSS, so all are scanned. It targets
+**literals only** — the same value reached through a `{{VAR}}` is fine.
 
 - Person names: `Sean`, `Toni`, `Jiggy`
 - App names: `NookTraqr`, `PokoTraqr`, `PokeTraqr`, `MilesTraqr`, `DomainTraqr`

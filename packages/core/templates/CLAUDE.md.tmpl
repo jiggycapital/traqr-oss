@@ -15,8 +15,8 @@ This is a multi-app monorepo. Before starting ANY task, determine the target app
 {{MONOREPO_APP_TABLE}}
 
 ### Routing Rules
-1. **Ticket prefix determines the app**: extract prefix from ticket ID (e.g., PKT from PKT-146 -> apps/pokotraqr)
-2. **Scope investigation to the correct apps/ directory** — don't read NookTraqr code for a PKT ticket
+1. **Ticket prefix determines the app**: the letters before the dash in a ticket ID map to an app directory under `apps/` (see the table above)
+2. **Scope investigation to the correct apps/ directory** — don't read one app's code for another app's ticket
 3. **Auth differs by app** — never apply one app's auth patterns to another
 4. **Read the app's CLAUDE.md** (`apps/<name>/CLAUDE.md`) for app-specific conventions
 5. **Use the correct Linear team** when querying tickets: `list_issues(team: "<PREFIX>", ...)`
@@ -177,13 +177,13 @@ Worktrees:  {{WORKTREES_PATH}}/
 <!-- traqr:start:ticket-investigation -->
 {{#IF_MONOREPO}}## Ticket Investigation
 
-When the user gives specific ticket identifiers (e.g., NTQ-794 or PKT-146):
+When the user gives specific ticket identifiers (e.g., `ABC-123`):
 1. **Extract the prefix** — the letters before the dash determine the app and Linear team
 2. **Fetch tickets FIRST** — get all referenced tickets before touching code
-3. **Use `list_issues` with the correct team** — e.g., `list_issues(team: "PKT", filter: {identifier: {eq: "PKT-146"}})` for PokoTraqr
+3. **Use `list_issues` with the correct team** — e.g., `list_issues(team: "<PREFIX>", filter: {identifier: {eq: "<PREFIX>-123"}})`
 4. **Read before you run** — understand the ticket content before spawning Explore agents or grepping code
 5. **Don't parallelize fetch + investigation** — tickets inform what code to look at
-6. **Scope code search to the right app** — PKT tickets -> `apps/pokotraqr/`, NTQ tickets -> `apps/nooktraqr/`
+6. **Scope code search to the right app** — route each ticket to its matching `apps/<name>/` directory by prefix
 {{/IF_MONOREPO}}{{^IF_MONOREPO}}## Ticket Investigation
 
 When the user gives specific ticket identifiers (e.g., {{TICKET_PREFIX}}-123):

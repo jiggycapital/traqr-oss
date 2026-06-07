@@ -296,7 +296,10 @@ export function registerTools(server: McpServer) {
                 memoryType: derived.memoryType as any,
                 sourceTool: 'mcp-pulse',
               }
-              return triageAndStore(input).then((r) => ({ index: idx, ...r })).catch(() => ({ index: idx, zone: 'error' }))
+              return triageAndStore(input).then((r) => ({ index: idx, ...r })).catch((err) => {
+                console.warn(`[memory_pulse] capture ${idx} failed to store (NOT saved):`, err)
+                return { index: idx, zone: 'error' }
+              })
             }),
         )
 
@@ -312,6 +315,8 @@ export function registerTools(server: McpServer) {
         }
 
         const successful = captureResults.filter((r: any) => r?.zone !== 'error')
+        const errored = captureResults.length - successful.length
+        const deduplicated = successful.filter((r: any) => r?.deduplicated).length
         const zones = {
           noop: successful.filter((r: any) => r?.zone === 'noop').length,
           add: successful.filter((r: any) => r?.zone === 'add').length,
@@ -320,6 +325,9 @@ export function registerTools(server: McpServer) {
 
         const parts: string[] = []
         parts.push(`Captured ${successful.filter((r: any) => !r?.deduplicated).length}, merged ${successful.filter((r: any) => r?.merged).length} | Zones: ${zones.noop} noop, ${zones.add} new, ${zones.borderline} borderline`)
+        // Surface the two paths that previously read as a silent "Captured 0":
+        if (deduplicated > 0) parts.push(`Deduplicated: ${deduplicated} capture(s) matched an existing memory and were not re-stored (expected, not a failure).`)
+        if (errored > 0) parts.push(`WARNING: ${errored} capture(s) FAILED to store (embedding/triage error) and were NOT saved — retry, or fall back to memory_store. See server logs for the cause.`)
         if (dropped > 0) parts.push(`WARNING: ${dropped} capture(s) dropped — batch limit is ${MAX_CAPTURES}. Send multiple pulse calls for larger batches.`)
         if (tooShort > 0) parts.push(`Filtered: ${tooShort} capture(s) skipped (content < 20 chars)`)
 

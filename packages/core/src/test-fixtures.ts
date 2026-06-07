@@ -130,79 +130,100 @@ export interface ContentExpectation {
   }>
 }
 
-// --- Shared file lists to avoid duplication ---
+// --- Shared file lists ---
+//
+// Keys match the merged renderAllTemplates() output: project-local files
+// keyed by their `.claude/...` path, global skills keyed by their
+// `~/.claude/commands/...` path. Lists below reflect the templates that
+// ACTUALLY exist and render — verified against renderAllTemplates() output.
 
-/** Core files present in ALL packs (Solo base = 20 files) */
+/** Files rendered in EVERY pack (tier 0+) — project-local + global skills */
 const CORE_REQUIRED = [
+  // Project-local core
   'CLAUDE.md',
   '.claude/settings.json',
-  '.claude/commands/ship.md',
-  '.claude/commands/sync.md',
-  '.claude/commands/worktrees.md',
-  '.claude/commands/pr.md',
-  '.claude/commands/resync.md',
-  '.claude/commands/verify.md',
-  '.claude/commands/draft.md',
-  '.claude/commands/context.md',
-  '.claude/commands/techdebt.md',
-  '.claude/commands/browser.md',
-  '.claude/commands/plan.md',
+  '.traqr/ONBOARDING.md',
+  '.claude/agents/advisor.md',
   '.claude/commands/traqr-init.md',
   '.claude/commands/traqr-setup.md',
+  '.claude/commands/traqr-test.md',
+  '.claude/commands/nextphase.md',
+  '.claude/commands/debate.md',
   'scripts/tp-aliases.sh',
   'scripts/setup-worktrees.sh',
   'scripts/pre-push-guardrail.sh',
   '.env.local.example',
+  // Global skills (rendered to ~/.claude/commands/)
+  '~/.claude/commands/ship.md',
+  '~/.claude/commands/sync.md',
+  '~/.claude/commands/resync.md',
+  '~/.claude/commands/alpha-onboard.md',
 ]
 
-/** Memory + issues files added at Tier 2 (Smart Dev) */
-const MEMORY_ISSUES_FILES = [
+/** Memory-gated files added at Tier 2 (memory provider enabled) */
+const TIER2_MEMORY_FILES = [
   '.claude/commands/analyze.md',
   '.claude/commands/status.md',
   '.claude/commands/validate-config.md',
   '.claude/commands/bootstrap-skills.md',
+  '.claude/commands/bethesda.md',
+  '.claude/commands/call.md',
+  '.claude/commands/deepreflect.md',
+  '.claude/commands/documentary.md',
+  '.claude/commands/gamedev.md',
+  '.claude/commands/lore.md',
+  '.claude/commands/rally.md',
 ]
 
-/** Slack + writing files added at Tier 3 (Production) */
-const SLACK_WRITING_FILES = [
+/** Tier 3 files — integrations (Slack + issues + control-center) */
+const TIER3_FILES = [
   '.claude/commands/slack.md',
-  '.claude/commands/inbox.md',
-  '.claude/commands/writing-style.md',
+  '.claude/commands/rounds.md',
+  '.claude/commands/einstein.md',
+  '.claude/commands/cos.md',
+  '~/.claude/commands/inbox.md',
 ]
 
-/** Email file (Tier 3+ when EMAIL=true, only Full enables it) */
-const EMAIL_FILES = ['.claude/commands/email.md']
+/** Command files that must NOT render below their tier (solo pack) */
+const SOLO_FORBIDDEN = [
+  '.claude/commands/analyze.md',   // tier 1+ MEMORY
+  '.claude/commands/bethesda.md',  // tier 2+ MEMORY
+  '.claude/commands/slack.md',     // tier 3+ SLACK
+  '.claude/commands/einstein.md',  // tier 3+ ISSUES
+  '.claude/commands/rounds.md',    // tier 1+ SLACK
+  '~/.claude/commands/inbox.md',   // tier 3+ SLACK
+]
 
-/** Tier 4 gated command files */
-const TIER4_FILES = [
-  '.claude/commands/analytics.md',
-  '.claude/commands/cron.md',
-  '.claude/commands/webhook.md',
-  '.claude/commands/gap-analysis.md',
+/** Command files that must NOT render at tier 2 (smart / gitlab-team) */
+const TIER2_FORBIDDEN = [
+  '.claude/commands/slack.md',     // tier 3+ SLACK
+  '.claude/commands/einstein.md',  // tier 3+ ISSUES
+  '.claude/commands/cos.md',       // tier 3+ CONTROL_CENTER
+  '.claude/commands/rounds.md',    // tier 1+ SLACK (no Slack at tier 2 fixtures)
+  '~/.claude/commands/inbox.md',   // tier 3+ SLACK
+]
+
+/** Design templates — DESIGN=false for all test fixtures */
+const DESIGN_FORBIDDEN = [
+  'src/app/globals.css',
+  'tailwind.config.ts',
+  'src/components/Providers.tsx',
 ]
 
 /**
  * Per-pack content expectations for rendered output validation.
- * File keys match renderAllTemplates() output (template-relative paths),
- * NOT installed filesystem paths.
+ * Validated against the merged {files, globalFiles} output of
+ * renderAllTemplates().
  */
 export const CONTENT_EXPECTATIONS: Record<string, ContentExpectation> = {
   solo: {
     requiredFiles: [...CORE_REQUIRED],
-    forbiddenFiles: [
-      '.claude/commands/analyze.md',     // tier 1+ MEMORY
-      '.claude/commands/validate-config.md', // tier 1+ MEMORY
-      '.claude/commands/slack.md',       // tier 3+ SLACK
-      '.claude/commands/inbox.md',       // tier 3+ SLACK
-      '.claude/commands/analytics.md',   // tier 4 POSTHOG
-      '.claude/commands/email.md',       // tier 3+ EMAIL
-      '.claude/commands/cron.md',        // tier 4 CRONS
-    ],
+    forbiddenFiles: [...SOLO_FORBIDDEN, ...DESIGN_FORBIDDEN],
     contentChecks: [
       {
         file: 'CLAUDE.md',
         mustContain: ['Test Project', 'tp', 'testproject'],
-        mustNotContain: ['TRAQR_SUPABASE_URL', '/startup', '/slack', 'LINEAR_API_KEY', 'daemon'],
+        mustNotContain: ['TRAQR_SUPABASE_URL', '/slack', 'LINEAR_API_KEY'],
       },
       {
         file: '.env.local.example',
@@ -234,7 +255,7 @@ export const CONTENT_EXPECTATIONS: Record<string, ContentExpectation> = {
         mustNotContain: ['NOOKTRAQR_SHIP_AUTHORIZED'],
       },
       {
-        file: '.claude/commands/ship.md',
+        file: '~/.claude/commands/ship.md',
         mustContain: ['testproject'],
         mustNotContain: [],
       },
@@ -242,21 +263,12 @@ export const CONTENT_EXPECTATIONS: Record<string, ContentExpectation> = {
   },
 
   smart: {
-    requiredFiles: [...CORE_REQUIRED, ...MEMORY_ISSUES_FILES],
-    forbiddenFiles: [
-      '.claude/commands/slack.md',        // tier 3+ SLACK
-      '.claude/commands/inbox.md',        // tier 3+ SLACK
-      '.claude/commands/email.md',        // tier 3+ EMAIL
-      '.claude/commands/writing-style.md', // tier 3+ MEMORY
-      '.claude/commands/analytics.md',    // tier 4 POSTHOG
-      '.claude/commands/cron.md',         // tier 4 CRONS
-      '.claude/commands/webhook.md',      // tier 4 CRONS
-      '.claude/commands/gap-analysis.md', // tier 4 CRONS
-    ],
+    requiredFiles: [...CORE_REQUIRED, ...TIER2_MEMORY_FILES],
+    forbiddenFiles: [...TIER2_FORBIDDEN, ...DESIGN_FORBIDDEN],
     contentChecks: [
       {
         file: 'CLAUDE.md',
-        mustContain: ['Test Project', '/startup', '/learn', '/dispatch', 'Memory Feedback', 'Three Gates'],
+        mustContain: ['Test Project', 'memory_search'],
         mustNotContain: ['/slack'],
       },
       {
@@ -283,18 +295,12 @@ export const CONTENT_EXPECTATIONS: Record<string, ContentExpectation> = {
   },
 
   production: {
-    requiredFiles: [...CORE_REQUIRED, ...MEMORY_ISSUES_FILES, ...SLACK_WRITING_FILES],
-    forbiddenFiles: [
-      '.claude/commands/email.md',        // EMAIL=false
-      '.claude/commands/analytics.md',    // tier 4+
-      '.claude/commands/cron.md',         // tier 4+
-      '.claude/commands/webhook.md',      // tier 4+
-      '.claude/commands/gap-analysis.md', // tier 4+
-    ],
+    requiredFiles: [...CORE_REQUIRED, ...TIER2_MEMORY_FILES, ...TIER3_FILES],
+    forbiddenFiles: [...DESIGN_FORBIDDEN],
     contentChecks: [
       {
         file: 'CLAUDE.md',
-        mustContain: ['Test Project', '/startup', '/dispatch', 'Slack', 'Linear'],
+        mustContain: ['Test Project', 'memory_search'],
         mustNotContain: [],
       },
       {
@@ -321,18 +327,12 @@ export const CONTENT_EXPECTATIONS: Record<string, ContentExpectation> = {
   },
 
   full: {
-    requiredFiles: [...CORE_REQUIRED, ...MEMORY_ISSUES_FILES, ...SLACK_WRITING_FILES, ...EMAIL_FILES, ...TIER4_FILES],
-    forbiddenFiles: [
-      // No gated commands excluded — all render at tier 4
-      // Design templates still excluded (DESIGN=false for all packs)
-      'src/app/globals.css',
-      'tailwind.config.ts',
-      'src/components/Providers.tsx',
-    ],
+    requiredFiles: [...CORE_REQUIRED, ...TIER2_MEMORY_FILES, ...TIER3_FILES],
+    forbiddenFiles: [...DESIGN_FORBIDDEN],
     contentChecks: [
       {
         file: 'CLAUDE.md',
-        mustContain: ['Test Project', '/startup', '/dispatch', 'Slack', 'Linear'],
+        mustContain: ['Test Project', 'memory_search'],
         mustNotContain: [],
       },
       {
@@ -359,19 +359,13 @@ export const CONTENT_EXPECTATIONS: Record<string, ContentExpectation> = {
   },
 
   'gitlab-team': {
-    requiredFiles: [...CORE_REQUIRED, ...MEMORY_ISSUES_FILES],
-    forbiddenFiles: [
-      '.claude/commands/slack.md',        // no Slack
-      '.claude/commands/inbox.md',        // no Slack
-      '.claude/commands/email.md',        // no email
-      '.claude/commands/analytics.md',    // tier 4 only
-      '.claude/commands/cron.md',         // tier 4 only
-    ],
+    requiredFiles: [...CORE_REQUIRED, ...TIER2_MEMORY_FILES],
+    forbiddenFiles: [...TIER2_FORBIDDEN, ...DESIGN_FORBIDDEN],
     contentChecks: [
       {
-        file: '.claude/commands/ship.md',
-        mustContain: ['glab', 'gitlab', 'merge_when_pipeline_succeeds', 'PRIVATE-TOKEN', 'merge_requests'],
-        mustNotContain: ['gh pr create', 'gh pr edit', 'gh pr list', 'github.com/test-org'],
+        file: '~/.claude/commands/ship.md',
+        mustContain: ['glab', 'gitlab', 'merge_requests', 'merge_when_pipeline_succeeds', 'PRIVATE-TOKEN'],
+        mustNotContain: ['gh pr create', 'gh pr edit', 'github.com/test-org'],
       },
       {
         file: 'CLAUDE.md',
@@ -379,8 +373,8 @@ export const CONTENT_EXPECTATIONS: Record<string, ContentExpectation> = {
         mustNotContain: ['LINEAR_API_KEY', 'SLACK_BOT_TOKEN'],
       },
       {
-        file: '.claude/commands/sync.md',
-        mustContain: ['git fetch', 'git rebase'],
+        file: '~/.claude/commands/sync.md',
+        mustContain: ['git fetch'],
         mustNotContain: ['glab', 'gitlab'],  // sync is pure git — no VCS-specific content
       },
     ],

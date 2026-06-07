@@ -1,0 +1,97 @@
+---
+name: <FILL: skill-name>
+description: <FILL: one-line — what this autonomous mode explores/produces, and when it's the default action>
+license: MIT
+tier: any
+category: intelligence
+autoInvoked: false
+dependencies: []
+relatedSkills: [cos, checkpoint, ship]
+requirements:
+  env: []
+  integrations: []
+---
+
+<!--
+  AUTHORING A NEW AUTONOMOUS MODE
+  ==============================
+  This is the meta-template for a NEW domain-specific autonomous skill (e.g. a
+  sibling to /bethesda and /wallstreet). The shared 7-phase loop, claim-before-
+  work, capture obligation, hard-stops, and self-evolution all live in
+  docs/claude/autonomous-mode-contract.md — DO NOT re-specify them here. You only
+  fill five domain blanks + your domain lens, then add domain-specific phase
+  detail where the contract leaves a blank.
+
+  Replace every <FILL: ...> marker, delete this comment, delete unused scaffolding.
+  Exemplars to copy patterns from: .claude/commands/bethesda.md, wallstreet.md.
+-->
+
+# /<FILL: skill-name> — <FILL: tagline>
+
+<FILL: 1-2 sentences of orientation — what world this skill operates in.>
+
+> **Autonomous Mode.** This skill inherits the invariant loop, **claim-before-work**, the
+> capture obligation, hard-stops, and self-evolution from
+> [`docs/claude/autonomous-mode-contract.md`](../../docs/claude/autonomous-mode-contract.md).
+> It fills five domain blanks:
+> - **SOURCES** — <FILL: what to read at orient — which channels / MCPs / vault paths / feeds>
+> - **WORK-UNIT / CLAIM-KIND** — a *<FILL: cave|message|artifact|quest|…>*; keys `<FILL: cave:<id> | ticker:<SYM> | artifact:<slug> | daily:<skill>:<date> | beat:<slot>>`.
+> - **SCORING** — <FILL: how to pick the next card from the candidate set>
+> - **CAPTURE-FORMAT** — <FILL: what the TraqrDB memory + diary entry look like for this domain>
+> - **APPROVAL-GATE** — <FILL: usually "none; ships via Guardian (daemon-pr)" — only name a gate if this domain genuinely has one>
+>
+> Authority order on conflict: **CLAUDE.md > the contract > this skill.** Claim a card with
+> the shared CLI **before** working it (Phase 0, claim step below).
+
+## North Star (read every session)
+
+<FILL: 2-4 bullets — which of the four vectors this serves, the decision-rubric default
+(decide-and-ship), and the one domain-specific principle that should never be forgotten.
+Reference CLAUDE.md for the rubric/vectors; don't restate them.>
+
+## Phase 0 — Clock in (orient + read the board)
+
+1. <FILL: load this skill's SOURCES — the orient reads. Reuse `scripts/bethesda-orient.sh`
+   (or the generalized orient) for the shared context block; add your domain feeds.>
+2. **Read the claim board** (advisory — narrows candidates):
+   ```
+   npx tsx packages/coordination/src/cli.ts list
+   ```
+
+## Phase 1 — Claim a card (BEFORE any work)
+
+Once a candidate is obvious, **claim it atomically before investigating, editing, or building:**
+```
+npx tsx packages/coordination/src/cli.ts claim <key> --by=<slot> --ttl=1800 --note="<card>"
+```
+Derive `<key>` by kind (see the contract's key table; use the deterministic helpers, never raw
+strings). **Exit 0 = you hold it, proceed. Exit 2 = already held → pick the next candidate and
+claim that** (never work a card you don't hold). Invoke via direct `tsx` (not `npm -w`, which
+adds cosmetic stderr noise on the held-path). Then announce TAKING as a *post-claim notification
+carrying the key*. Renew on each `/loop` heartbeat if work outlasts the TTL.
+
+## Phase 2 — Do the work
+
+<FILL: the domain-specific execution pattern — the actual cave/research/action shape. This is
+where most of your skill's unique value lives. Keep the orient→capture→cascade scaffolding lean;
+the contract owns it.>
+
+## Phase 3 — Capture (proof of work, non-negotiable)
+
+<FILL: the exact TraqrDB memory shape + diary entry for this domain (your CAPTURE-FORMAT blank).
+A future agent must be productive in 30 seconds from the memory.>
+
+## Phase 4 — Cascade or stand down
+
+Pick the next card (claim it) or stand down. Hard-stops (rate limit / Sean steers / P1 /
+saturated field) live in the contract — don't re-specify.
+
+## Phase 5 — Reflect (optional)
+
+At most one `[autonomous-improvement-proposal type=<friction|surprise|subtraction>]` capture,
+only if a real one surfaced. Silence on an ordinary session is correct.
+
+## Phase 6 — Clock out
+
+**Release the card** (`… release <key> --by=<slot>`), wrap, reset dashboard phase. Skip the
+wrap post if `/ship` already posted.

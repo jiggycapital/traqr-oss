@@ -243,21 +243,23 @@ async function suiteTierGating(pack: string, config: TraqrConfig): Promise<Suite
   const gatingTests: Record<string, Array<{ template: string; expected: boolean }>> = {
     solo: [
       { template: 'commands/slack.md.tmpl', expected: false },
-      { template: 'commands/analytics.md.tmpl', expected: false },
+      { template: 'commands/bethesda.md.tmpl', expected: false },
       { template: 'commands/ship.md.tmpl', expected: true },
     ],
     smart: [
       { template: 'commands/analyze.md.tmpl', expected: true },
+      { template: 'commands/bethesda.md.tmpl', expected: true },
       { template: 'commands/slack.md.tmpl', expected: false },
+      { template: 'commands/einstein.md.tmpl', expected: false },
     ],
     production: [
       { template: 'commands/slack.md.tmpl', expected: true },
-      { template: 'commands/analytics.md.tmpl', expected: false },
-      { template: 'commands/email.md.tmpl', expected: false },
+      { template: 'commands/einstein.md.tmpl', expected: true },
+      { template: 'commands/cos.md.tmpl', expected: true },
     ],
     full: [
-      { template: 'commands/analytics.md.tmpl', expected: true },
-      { template: 'commands/email.md.tmpl', expected: true },
+      { template: 'commands/einstein.md.tmpl', expected: true },
+      { template: 'commands/cos.md.tmpl', expected: true },
       { template: 'commands/slack.md.tmpl', expected: true },
     ],
     'gitlab-team': [
@@ -454,7 +456,10 @@ async function suiteContentValidation(pack: string, config: TraqrConfig): Promis
     return { pack, suite: 'Content', passed: true, results: [], totalChecks: 0 }
   }
 
-  const { files } = await renderAllTemplates(config)
+  // Merge project-local + global skill output — global skills (ship, sync,
+  // resync, inbox, alpha-onboard) render to globalFiles under ~/.claude/commands/.
+  const rendered = await renderAllTemplates(config)
+  const files = { ...rendered.files, ...rendered.globalFiles }
   const results: TestResult[] = []
   let checks = 0
 
