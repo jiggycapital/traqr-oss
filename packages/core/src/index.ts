@@ -109,3 +109,7 @@ export {
   renderAllTemplates,
   renderSubAppTemplates,
 } from './template-loader.js'
+
+// Canonical PR-merge ticket-closer (TD-791) — imported by Guardian's post-merge
+// lifecycle and the NookTraqr GitHub webhook routes so all closers share one rule.
+export { extractClosableTicketIds } from './extract-ticket-ids.js'
