@@ -14,6 +14,7 @@ import { getUserId, getProjectId, getTableName, getMemoryConfig } from '../lib/c
 import { generateEmbedding, formatEmbeddingForPgVector } from '../lib/embeddings.js'
 import { rowToMemory, rowToSearchResult } from './converters.js'
 import type { MemoryRow, SearchResultRow } from './converters.js'
+import { ACCESS_LEVEL_MAX_CLASSIFICATION } from './types.js'
 import type {
   VectorDBProvider,
   Memory,
@@ -24,6 +25,7 @@ import type {
   MemoryDomain,
   SearchOptions,
   MemoryCategory,
+  MemoryClassification,
   BrowseResult,
   BM25SearchResult,
   TemporalSearchResult,
@@ -147,9 +149,13 @@ export class PostgresVectorProvider implements VectorDBProvider {
     const embeddingStr = options.precomputedEmbedding
       ?? formatEmbeddingForPgVector((await generateEmbedding(queryText)).embedding)
 
+    // Resolve access level to max classification (TD-776 parity — see supabase.ts).
+    const maxClassification: MemoryClassification = options.maxClassification
+      || (options.accessLevel ? ACCESS_LEVEL_MAX_CLASSIFICATION[options.accessLevel] : 'restricted')
+
     if (options.includeUniversal || options.sourceProject || options.agentType) {
       const rows = await query(
-        'SELECT * FROM search_memories_cross_project($1::vector, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+        'SELECT * FROM search_memories_cross_project($1::vector, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
         [
           embeddingStr,
           options.domainId || null,
@@ -161,6 +167,11 @@ export class PostgresVectorProvider implements VectorDBProvider {
           options.agentType || null,
           options.limit || 10,
           options.similarityThreshold || 0.3,
+          options.latestOnly ?? true,
+          // Security parameters (TD-776) — the function defaults to 'restricted'
+          // (= unfiltered) when these are omitted.
+          maxClassification,
+          options.clientNamespace || null,
         ],
       )
       return rows.map((row: SearchResultRow) => rowToSearchResult(row))

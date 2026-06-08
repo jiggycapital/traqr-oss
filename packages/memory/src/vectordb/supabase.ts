@@ -148,6 +148,13 @@ export class SupabaseVectorProvider implements VectorDBProvider {
     const embeddingStr = options.precomputedEmbedding
       ?? formatEmbeddingForPgVector((await generateEmbedding(query)).embedding)
 
+    // Resolve access level to max classification. Computed BEFORE the
+    // cross-project branch so both RPC paths honor the caller's tier — TD-776:
+    // cross_project used to drop it silently, leaking confidential/restricted
+    // summaries regardless of access level.
+    const maxClassification: MemoryClassification = options.maxClassification
+      || (options.accessLevel ? ACCESS_LEVEL_MAX_CLASSIFICATION[options.accessLevel] : 'restricted')
+
     if (options.includeUniversal || options.sourceProject || options.agentType) {
       const { data, error } = await (client.rpc as any)('search_memories_cross_project', {
         p_query_embedding: embeddingStr,
@@ -160,6 +167,11 @@ export class SupabaseVectorProvider implements VectorDBProvider {
         p_agent_type: options.agentType || null,
         p_limit: options.limit || 10,
         p_similarity_threshold: options.similarityThreshold || 0.3,
+        p_latest_only: options.latestOnly ?? true,
+        // Security parameters (TD-776 parity) — without these the function
+        // defaults to p_max_classification='restricted' (= unfiltered).
+        p_max_classification: maxClassification,
+        p_client_namespace: options.clientNamespace || null,
       })
 
       if (error) {
@@ -168,10 +180,6 @@ export class SupabaseVectorProvider implements VectorDBProvider {
         return (data || []).map((row: SearchResultRow) => rowToSearchResult(row))
       }
     }
-
-    // Resolve access level to max classification
-    const maxClassification: MemoryClassification = options.maxClassification
-      || (options.accessLevel ? ACCESS_LEVEL_MAX_CLASSIFICATION[options.accessLevel] : 'restricted')
 
     const { data, error } = await (client.rpc as any)('search_memories', {
       p_query_embedding: embeddingStr,
