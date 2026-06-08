@@ -101,24 +101,49 @@ interface TimedSearchResult {
   timing: { query: string; ms: number }
 }
 
-async function timedSearch(
+// TD-796: every priming search used to give up on the FIRST throw and return [],
+// so a transient cold-start blip (embedding API or DB RPC error — both throw, see
+// vectordb/supabase.ts search()) was indistinguishable from "genuinely no memories"
+// and surfaced to agents as a silent "Total: 0". One bounded retry absorbs those
+// transient blips; a persistent failure still falls through to the same warn + empty
+// result as before (the public return contract is unchanged).
+const SEARCH_MAX_ATTEMPTS = 2 // 1 retry
+const SEARCH_RETRY_DELAY_MS = 200
+
+// `searcher` is injectable purely so the retry path is unit-testable without a live
+// DB (see context.test.ts); production always uses the default searchMemories.
+export async function timedSearch(
   label: string,
   query: string,
-  options: Parameters<typeof searchMemories>[1] = {}
+  options: Parameters<typeof searchMemories>[1] = {},
+  searcher: typeof searchMemories = searchMemories
 ): Promise<TimedSearchResult> {
   const start = Date.now()
-  try {
-    const results = await searchMemories(query, options)
-    return {
-      results,
-      timing: { query: label, ms: Date.now() - start },
+  let lastError: unknown
+  for (let attempt = 1; attempt <= SEARCH_MAX_ATTEMPTS; attempt++) {
+    try {
+      const results = await searcher(query, options)
+      return {
+        results,
+        timing: {
+          query: attempt > 1 ? `${label} (retry ${attempt - 1})` : label,
+          ms: Date.now() - start,
+        },
+      }
+    } catch (error) {
+      lastError = error
+      if (attempt < SEARCH_MAX_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, SEARCH_RETRY_DELAY_MS))
+      }
     }
-  } catch (error) {
-    console.warn(`[memory-context] Search "${label}" failed:`, error)
-    return {
-      results: [],
-      timing: { query: `${label} (FAILED)`, ms: Date.now() - start },
-    }
+  }
+  console.warn(
+    `[memory-context] Search "${label}" failed after ${SEARCH_MAX_ATTEMPTS} attempts:`,
+    lastError
+  )
+  return {
+    results: [],
+    timing: { query: `${label} (FAILED)`, ms: Date.now() - start },
   }
 }
 
