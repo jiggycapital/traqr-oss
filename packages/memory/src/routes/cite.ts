@@ -6,7 +6,7 @@
  */
 
 import { Hono } from 'hono'
-import { getMemoryClient } from '../lib/client.js'
+import { citeMemory } from '../lib/memory.js'
 
 const app = new Hono()
 
@@ -25,14 +25,15 @@ app.post('/', async (c) => {
     }
 
     const ids = memoryIds.slice(0, 50)
-    const client = getMemoryClient()
     let citedCount = 0
     const failedIds: string[] = []
 
     for (const id of ids) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (client.rpc as any)('cite_memory', { p_memory_id: id })
+        // Provider-routed (TD-817): works on DATABASE_URL-only deployments
+        // and throws on failure, so failed cites land in failedIds instead
+        // of counting as successes.
+        await citeMemory(id)
         citedCount++
       } catch (err) {
         console.warn(`[memory/cite] Failed to cite ${id}:`, err)

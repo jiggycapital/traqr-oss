@@ -43,8 +43,9 @@ async function migrate() {
     `,
   }).then(({ error }) => {
     if (error) {
-      // If RPC doesn't exist, try raw query via REST
-      console.warn('exec_sql RPC not available, attempting direct execution...')
+      // No fallback exists — proceed only because the table may already
+      // exist; the tracking-table read below fails loudly if it doesn't.
+      console.warn(`exec_sql RPC unavailable (${error.message}) — assuming ${MIGRATIONS_TABLE} already exists`)
     }
   })
 
@@ -56,10 +57,17 @@ async function migrate() {
 
   console.log(`Found ${files.length} migration files`)
 
-  // Check which have been applied
-  const { data: applied } = await client
+  // Check which have been applied. An unreadable tracking table must be
+  // fatal: treating it as "nothing applied" would re-run every migration.
+  const { data: applied, error: trackingError } = await client
     .from(MIGRATIONS_TABLE)
     .select('name')
+
+  if (trackingError) {
+    console.error(`Cannot read ${MIGRATIONS_TABLE}: ${trackingError.message}`)
+    console.error('Create the exec_sql RPC, or paste .traqr/schema.sql into the Supabase SQL Editor.')
+    process.exit(1)
+  }
 
   const appliedSet = new Set((applied || []).map(r => r.name))
 
@@ -82,8 +90,13 @@ async function migrate() {
       process.exit(1)
     }
 
-    // Record migration
-    await client.from(MIGRATIONS_TABLE).insert({ name: file })
+    // Record migration. A failed record means silent re-application on
+    // the next run — stop loudly instead.
+    const { error: recordError } = await client.from(MIGRATIONS_TABLE).insert({ name: file })
+    if (recordError) {
+      console.error(`  FAIL  ${file} applied but could not be recorded: ${recordError.message}`)
+      process.exit(1)
+    }
     appliedCount++
     console.log(`  OK    ${file}`)
   }

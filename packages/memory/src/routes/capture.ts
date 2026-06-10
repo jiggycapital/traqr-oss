@@ -10,8 +10,7 @@
  */
 
 import { Hono } from 'hono'
-import { storeWithDedup } from '../lib/memory.js'
-import { getMemoryClient } from '../lib/client.js'
+import { storeWithDedup, citeMemory } from '../lib/memory.js'
 import { passesIngestionGate } from '../lib/quality-gate.js'
 import type { MemoryCategory } from '../vectordb/types.js'
 
@@ -70,14 +69,14 @@ app.post('/', async (c) => {
     let citedCount = 0
     const citedMemories = Array.isArray(body.citedMemories) ? body.citedMemories : []
     if (citedMemories.length > 0) {
-      const client = getMemoryClient()
       for (const id of citedMemories.slice(0, 50)) {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (client.rpc as any)('cite_memory', { p_memory_id: id })
+          // Provider-routed (TD-817): throws on failure, so citedCount
+          // only counts cites that actually landed.
+          await citeMemory(id)
           citedCount++
-        } catch {
-          // Best-effort
+        } catch (err) {
+          console.warn(`[memory/capture] Failed to cite ${id}:`, err)
         }
       }
     }
