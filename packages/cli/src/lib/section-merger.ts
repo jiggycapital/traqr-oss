@@ -9,7 +9,7 @@
  * User content between/above/below markers is preserved on re-render.
  */
 
-export interface ParsedSegment {
+interface ParsedSegment {
   type: 'user' | 'traqr'
   /** Section name (only for traqr segments) */
   name?: string
@@ -31,7 +31,7 @@ const MARKER_END_PREFIX = '<!-- traqr:end:'
  * Parse a file into alternating user/traqr segments.
  * User content between markers is preserved as separate segments.
  */
-export function parseMarkedFile(content: string): ParsedSegment[] {
+function parseMarkedFile(content: string): ParsedSegment[] {
   const segments: ParsedSegment[] = []
   const lines = content.split('\n')
   let cursor = 0
@@ -97,7 +97,7 @@ export function parseMarkedFile(content: string): ParsedSegment[] {
  * Extract named sections from rendered template content.
  * Returns a map of section-name → full content (with markers).
  */
-export function parseRenderedSections(rendered: string): Map<string, string> {
+function parseRenderedSections(rendered: string): Map<string, string> {
   const sections = new Map<string, string>()
   const segments = parseMarkedFile(rendered)
 

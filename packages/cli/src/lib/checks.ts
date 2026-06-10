@@ -25,8 +25,3 @@ export function checkPrerequisites(): void {
   }
   process.exit(1)
 }
-
-/** Check if a CLI tool is available */
-export function hasCommand(cmd: string): boolean {
-  try { execSync(`which ${cmd}`, { stdio: 'pipe' }); return true } catch { return false }
-}
