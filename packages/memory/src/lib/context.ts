@@ -8,7 +8,7 @@
 
 import { searchMemories } from './memory.js'
 import { CATEGORY_EMOJI } from './formatting.js'
-import { getMemoryClient } from './client.js'
+import { getVectorDB } from '../vectordb/index.js'
 import type { MemorySearchResult, MemoryAccessLevel } from '../vectordb/types.js'
 import { ACCESS_LEVEL_MAX_CLASSIFICATION } from '../vectordb/types.js'
 
@@ -448,14 +448,13 @@ function extractSummary(content: string): string {
 // Citation Tracking
 // ============================================================
 
+// TD-817: must go through the provider, not getMemoryClient() — the direct
+// Supabase client throws on DATABASE_URL-configured runtimes (no SUPABASE_URL
+// env), which silently froze times_returned fleet-wide on 2026-05-20.
 async function trackMemoryReturns(memoryIds: string[]): Promise<void> {
   if (memoryIds.length === 0) return
   try {
-    const client = getMemoryClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (client.rpc as any)('increment_memory_returns', {
-      p_memory_ids: memoryIds,
-    })
+    await getVectorDB().bumpReturned(memoryIds)
   } catch (err) {
     console.warn('[memory-context] Failed to track memory returns:', err)
   }

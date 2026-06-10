@@ -329,6 +329,14 @@ export interface VectorDBProvider {
   invalidate(id: string): Promise<void>
   supersede(id: string): Promise<void>
 
+  // Feedback signals (TD-817): the write path for times_returned/times_cited.
+  // These live on the provider because the prior implementation went through
+  // the Supabase client directly — which throws (silently, behind a catch) on
+  // every DATABASE_URL-configured runtime. That mismatch froze the counters
+  // fleet-wide on 2026-05-20.
+  bumpReturned(ids: string[]): Promise<void>
+  citeMemory(id: string): Promise<void>
+
   // Entity operations
   findEntityByName(name: string, entityType: string): Promise<any | null>
   findEntityByNameFuzzy(name: string, entityType: string): Promise<any | null>

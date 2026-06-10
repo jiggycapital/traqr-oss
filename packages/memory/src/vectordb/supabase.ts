@@ -360,6 +360,33 @@ export class SupabaseVectorProvider implements VectorDBProvider {
     }
   }
 
+  // ============================================================
+  // FEEDBACK SIGNALS (TD-817)
+  // ============================================================
+
+  async bumpReturned(ids: string[]): Promise<void> {
+    if (ids.length === 0) return
+    const client = getMemoryClient()
+    // .rpc() does NOT throw — the error must be read and surfaced, or the
+    // failure is invisible (how the counters froze silently on 2026-05-20).
+    const { error } = await (client.rpc as any)('increment_memory_returns', {
+      p_memory_ids: ids,
+    })
+    if (error) {
+      throw new Error(`Failed to bump times_returned: ${error.message}`)
+    }
+  }
+
+  async citeMemory(id: string): Promise<void> {
+    const client = getMemoryClient()
+    const { error } = await (client.rpc as any)('cite_memory', {
+      p_memory_id: id,
+    })
+    if (error) {
+      throw new Error(`Failed to cite memory: ${error.message}`)
+    }
+  }
+
   async archive(id: string, reason?: string): Promise<Memory> {
     const client = getMemoryClient()
 

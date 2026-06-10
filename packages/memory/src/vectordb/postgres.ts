@@ -522,6 +522,31 @@ export class PostgresVectorProvider implements VectorDBProvider {
   }
 
   // ============================================================
+  // FEEDBACK SIGNALS (TD-817)
+  // ============================================================
+
+  async bumpReturned(ids: string[]): Promise<void> {
+    if (ids.length === 0) return
+    await query(
+      `UPDATE ${getTableName()}
+       SET times_returned = COALESCE(times_returned, 0) + 1, last_returned_at = NOW()
+       WHERE id = ANY($1::uuid[])`,
+      [ids],
+    )
+  }
+
+  async citeMemory(id: string): Promise<void> {
+    // Citation = validation: resets the decay timer (mirrors the live
+    // cite_memory() SQL function the Supabase provider calls).
+    await query(
+      `UPDATE ${getTableName()}
+       SET times_cited = COALESCE(times_cited, 0) + 1, last_cited_at = NOW(), last_validated = NOW()
+       WHERE id = $1`,
+      [id],
+    )
+  }
+
+  // ============================================================
   // ENTITY OPERATIONS
   // ============================================================
 

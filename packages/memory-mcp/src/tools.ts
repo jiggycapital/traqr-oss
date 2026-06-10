@@ -12,6 +12,7 @@ import {
   storeMemory,
   searchMemoriesV2,
   getMemory,
+  citeMemory,
   archiveMemory,
   triageAndStore,
   getSystemHealth,
@@ -153,6 +154,9 @@ export function registerTools(server: McpServer) {
       try {
         const memory = await getMemory(memoryId)
         if (!memory) return { content: [{ type: 'text' as const, text: `Memory ${memoryId} not found` }] }
+        // TD-817: an explicit expansion is the citation signal. Guarded —
+        // a counter failure must never block the read.
+        try { await citeMemory(memoryId) } catch { /* best-effort */ }
         return { content: [{ type: 'text' as const, text: JSON.stringify(memory, null, 2) }] }
       } catch (err) { return errorResult('memory_read', err) }
     },

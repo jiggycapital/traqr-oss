@@ -325,6 +325,17 @@ export async function getMemory(id: string): Promise<Memory | null> {
   return db.getById(id)
 }
 
+/**
+ * Record a citation (TD-817): increments times_cited, sets last_cited_at,
+ * and resets the decay timer (last_validated). Call when an agent explicitly
+ * expands or acts on a memory — the "actually useful" signal the decay and
+ * ranking functions key on.
+ */
+export async function citeMemory(id: string): Promise<void> {
+  const db = getVectorDB()
+  return db.citeMemory(id)
+}
+
 export async function updateMemory(id: string, updates: MemoryUpdate): Promise<Memory> {
   const db = getVectorDB()
   return db.update(id, updates)

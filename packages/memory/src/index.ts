@@ -61,6 +61,7 @@ export {
   storeMemory,
   searchMemories,
   getMemory,
+  citeMemory,
   updateMemory,
   deleteMemory,
   validateMemory,

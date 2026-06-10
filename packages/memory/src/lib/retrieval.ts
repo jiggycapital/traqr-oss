@@ -457,5 +457,19 @@ export async function searchMemoriesV2(
   // 6. Final sort by RRF score
   hydratedResults.sort((a, b) => b.relevanceScore - a.relevanceScore)
 
-  return hydratedResults.slice(0, topN)
+  const finalResults = hydratedResults.slice(0, topN)
+
+  // 7. TD-817: feedback write path — bump times_returned on what was ACTUALLY
+  // returned to the caller (not the 2x over-fetched strategy candidates).
+  // Awaited but guarded: a counter failure must never fail the search, and
+  // fire-and-forget is the TD-830 unwatched-write class.
+  if (finalResults.length > 0) {
+    try {
+      await provider.bumpReturned(finalResults.map((r) => r.id))
+    } catch (err) {
+      console.warn('[retrieval] Failed to bump times_returned:', err)
+    }
+  }
+
+  return finalResults
 }
