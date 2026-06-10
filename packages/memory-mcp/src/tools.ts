@@ -71,7 +71,7 @@ export function registerTools(server: McpServer) {
       tags: z.array(controlledTagEnum).optional().describe('Override auto-tags'),
       confidence: z.number().min(0).max(1).default(0.6).describe('0-1. Default 0.6 — raise to 0.8+ only for facts you are confident about. Bad context is worse than no context.'),
       sourceReliability: z.enum(['direct-user', 'deliberate-store', 'granola-single', 'granola-multi', 'inferred', 'auto-derived']).optional()
-        .describe('How trustworthy is the source? direct-user (Sean said it) > deliberate-store > granola-single > granola-multi (speaker confusion risk) > inferred > auto-derived'),
+        .describe('How trustworthy is the source? direct-user (the user said it) > deliberate-store > granola-single (one-speaker meeting transcript) > granola-multi (multi-speaker transcript, speaker confusion risk) > inferred > auto-derived'),
       classification: z.enum(['public', 'internal', 'confidential', 'restricted']).optional()
         .describe('Security classification. public=shareable, internal=team only, confidential=need-to-know, restricted=highest sensitivity. Default: auto-derived from content.'),
       clientNamespace: z.string().optional()
@@ -377,7 +377,7 @@ export function registerTools(server: McpServer) {
   server.tool(
     'memory_correct',
     'Correct a wrong memory. Atomically: stores the corrected version, archives the wrong one, ' +
-      'and creates a supersedes relationship. Use when Sean corrects a previous conclusion or ' +
+      'and creates a supersedes relationship. Use when the user corrects a previous conclusion or ' +
       'when a prior memory is factually wrong. Never leave contradicting memories both active.',
     {
       wrongMemoryId: z.string().describe('ID of the memory to correct'),
@@ -466,7 +466,7 @@ export function registerTools(server: McpServer) {
       'Exports data first, then hard-deletes everything. Audit trail retained for compliance proof. ' +
       'Use when a consulting engagement ends or client requests data deletion.',
     {
-      namespace: z.string().describe('Client namespace to purge (e.g., "duke-ellington", "mom-consulting")'),
+      namespace: z.string().describe('Client namespace to purge (e.g., "client-a", "acme-consulting")'),
       reason: z.string().optional().describe('Reason for purge (default: right-to-delete)'),
       exportFirst: z.boolean().optional().default(true).describe('Export memories before deleting (default: true)'),
     },
