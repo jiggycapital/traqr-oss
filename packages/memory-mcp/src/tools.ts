@@ -77,15 +77,18 @@ export function registerTools(server: McpServer) {
         .describe('Security classification. public=shareable, internal=team only, confidential=need-to-know, restricted=highest sensitivity. Default: auto-derived from content.'),
       clientNamespace: z.string().optional()
         .describe('Client namespace for isolation. Memories in a namespace are only visible to searches within that namespace.'),
+      slot: z.string().optional().describe('Slot name for source tracking'),
     },
-    async ({ content, summary, category, domain, topic, tags, confidence, sourceReliability, classification, clientNamespace }) => {
+    async ({ content, summary, category, domain, topic, tags, confidence, sourceReliability, classification, clientNamespace, slot }) => {
       try {
         const derived = deriveAll(content, { summary, category, domain, topic, tags, sourceTool: 'mcp-store' })
         const input: MemoryInput = {
           content,
           summary: derived.summary as string,
           category: derived.category as MemoryCategory,
-          tags: derived.tags as string[],
+          // `slot:<name>` tag mirrors memory_pulse (tools.ts pulse handler) — the
+          // cave→memory join key for the TD-838 scoreboard reads this tag.
+          tags: [...(derived.tags as string[]), ...(slot ? [`slot:${slot}`] : [])],
           sourceType: 'session',
           sourceProject: 'default',
           confidence,
