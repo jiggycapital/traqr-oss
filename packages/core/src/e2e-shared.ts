@@ -157,7 +157,7 @@ export function formatE2EHeader(title: string, desc: string): string {
 /**
  * Summary line with Raqr mood.
  */
-export function formatE2ESummary(result: E2ERunResult): string {
+function formatE2ESummary(result: E2ERunResult): string {
   const mood = result.passed ? '(^ ^)' : '(! !)'
   return `${result.name} ${mood}: ${result.passedSuites}/${result.totalSuites} suites | ${result.passedChecks}/${result.totalChecks} checks passed`
 }

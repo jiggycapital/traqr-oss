@@ -193,16 +193,6 @@ export function deriveForgetAfter(content: string): Date | undefined {
 }
 
 // ============================================================
-// 8. deriveSourceTool — explicit, not auto-detected (v2)
-// ============================================================
-// Callers pass their own identity: 'mcp-store', 'mcp-pulse', 'http-store', etc.
-// This function exists for consistency in the deriveAll interface.
-
-export function deriveSourceTool(explicit?: string): string | undefined {
-  return explicit || undefined
-}
-
-// ============================================================
 // 9. extractEntityCandidates — regex NER (v2)
 // ============================================================
 

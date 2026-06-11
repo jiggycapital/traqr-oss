@@ -15,8 +15,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "migrate": "node --loader ts-node/esm src/migrate.ts",
-    "serve": "node --loader ts-node/esm src/server.ts"
+    "test": "tsx src/lib/quality-gate.test.ts && tsx src/lib/retrieval.test.ts && tsx src/lib/context.test.ts",
+    "migrate": "tsx src/migrate.ts"
   },
   "files": [
     "dist",
@@ -49,5 +49,9 @@
     "type": "git",
     "url": "https://github.com/jiggycapital/traqr-oss",
     "directory": "packages/memory"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5"
   }
 }

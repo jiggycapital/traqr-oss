@@ -84,7 +84,7 @@ const GLOBAL_SKILLS = new Set([
 /**
  * Check if a template should be rendered as a global skill.
  */
-export function isGlobalSkill(templatePath: string): boolean {
+function isGlobalSkill(templatePath: string): boolean {
   return GLOBAL_SKILLS.has(templatePath)
 }
 
@@ -147,7 +147,7 @@ export function templateToOutputPath(templatePath: string, prefix: string, appDi
  * Map a global skill template to its output path under ~/.claude/commands/.
  * e.g. "commands/ship.md.tmpl" -> "~/.claude/commands/ship.md"
  */
-export function templateToGlobalOutputPath(templatePath: string): string {
+function templateToGlobalOutputPath(templatePath: string): string {
   const output = templatePath.replace(/\.tmpl$/, '').replace(/^commands\//, '')
   return path.join('~', '.claude', 'commands', output)
 }

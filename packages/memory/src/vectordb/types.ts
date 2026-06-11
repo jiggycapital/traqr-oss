@@ -269,14 +269,6 @@ export interface MemoryDomain {
   updatedAt: Date
 }
 
-// User for cross-project identity (future)
-export interface MemoryUser {
-  id: string
-  apiKey: string
-  email?: string
-  createdAt: Date
-  updatedAt: Date
-}
 
 // Browse result for faceted navigation
 export interface BrowseResult {

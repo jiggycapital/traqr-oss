@@ -1,6 +1,6 @@
 {
   "name": "@traqr/core",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "Config schema, template engine, VCS abstraction (GitHub + GitLab), and skill templates for TraqrOS",
   "type": "module",
   "main": "./dist/index.js",
@@ -48,5 +48,8 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  }
 }

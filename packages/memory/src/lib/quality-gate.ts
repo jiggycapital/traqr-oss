@@ -18,7 +18,7 @@
 // Layer 1: Banned Phrases — content matching any is rejected
 // ============================================================
 
-export const BANNED_PHRASES = [
+const BANNED_PHRASES = [
   /\bbe careful\b/i,
   /\bremember to\b/i,
   /\balways make sure\b/i,
@@ -52,7 +52,7 @@ export const BANNED_PHRASES = [
 // Fire on ANY domain — dev, health, finance, cooking, personal.
 // ============================================================
 
-export const UNIVERSAL_SPECIFICITY_MARKERS = [
+const UNIVERSAL_SPECIFICITY_MARKERS = [
   // Identity + judgment (existing, reclassified)
   /\bSean\b/,
   /\b(prefers?|prioritizes?|values?|avoids?|hates?|loves?)\b/i,
@@ -81,7 +81,7 @@ export const UNIVERSAL_SPECIFICITY_MARKERS = [
 // Only fire on content with code artifacts. Never required.
 // ============================================================
 
-export const CODE_SPECIFICITY_MARKERS = [
+const CODE_SPECIFICITY_MARKERS = [
   /`[^`]+`/,
   /\.(ts|tsx|js|jsx|md|json|sql|sh|py|rs|go)/,
   /[A-Z][a-z]+[A-Z]/,
@@ -91,13 +91,13 @@ export const CODE_SPECIFICITY_MARKERS = [
 ]
 
 // Backward-compatible union export
-export const SPECIFICITY_MARKERS = [...UNIVERSAL_SPECIFICITY_MARKERS, ...CODE_SPECIFICITY_MARKERS]
+const SPECIFICITY_MARKERS = [...UNIVERSAL_SPECIFICITY_MARKERS, ...CODE_SPECIFICITY_MARKERS]
 
 // ============================================================
 // Fluff Patterns — generic LLM-speak that adds no value
 // ============================================================
 
-export const FLUFF_PATTERNS = [
+const FLUFF_PATTERNS = [
   /\b(promotes?|ensures?|improves?|enables?|facilitates?|leverages?)\b.*\b(cleaner|better|proper|good|robust|maintainable|scalable|readable|modular)\b/i,
   /\b(this|the)\s+(approach|pattern|modification|change|update)\b.*\b(helps?|allows?|supports?|shows? how)\b/i,
   /\badopt the pattern\b/i,

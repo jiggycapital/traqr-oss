@@ -60,7 +60,7 @@ function buildFixture(pack: 'solo' | 'smart' | 'production' | 'full'): TraqrConf
 export const SOLO_FIXTURE = buildFixture('solo')
 
 /** Smart Dev (Tier 2) — memory + GitHub Issues */
-export const SMART_FIXTURE = buildFixture('smart')
+const SMART_FIXTURE = buildFixture('smart')
 
 /** Production (Tier 3) — Linear, Slack, PostHog, daemon */
 export const PRODUCTION_FIXTURE = buildFixture('production')
@@ -69,7 +69,7 @@ export const PRODUCTION_FIXTURE = buildFixture('production')
 export const FULL_FIXTURE = buildFixture('full')
 
 /** GitLab Team (Tier 2) — GitLab VCS, GitLab Issues, no Slack, no daemon */
-export const GITLAB_TEAM_FIXTURE: TraqrConfig = {
+const GITLAB_TEAM_FIXTURE: TraqrConfig = {
   ...BASE_CONFIG,
   ...STARTER_PACK_DEFAULTS['smart'],
   starterPack: 'gitlab-team' as any,

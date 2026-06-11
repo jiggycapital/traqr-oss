@@ -60,4 +60,3 @@ export function resetVectorDB(): void {
   resetPostgresPool()
 }
 
-export default getVectorDB
