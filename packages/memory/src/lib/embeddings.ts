@@ -13,6 +13,7 @@
  */
 
 import OpenAI from 'openai'
+import { redactForEmbedding } from './pii-detection.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -390,17 +391,32 @@ export const EMBEDDING_CONFIG = {
 } as const
 
 /**
+ * Apply TD-856 PII redaction to embedding input. Default ON; set
+ * `MEMORY_REDACT_EMBEDDINGS=false` (or `0`) to disable as a kill-switch without
+ * a redeploy if a recall regression surfaces. Redaction runs on a local copy,
+ * so only the embedding vector + provider egress are affected — the caller's
+ * original text (→ raw `content` column, → BM25 tsvector) is left untouched.
+ * Because store AND query embeds both funnel through here, redaction stays
+ * consistent across the two, preserving recall.
+ */
+export function redactEmbeddingInput(text: string): string {
+  const flag = process.env.MEMORY_REDACT_EMBEDDINGS
+  if (flag === 'false' || flag === '0') return text
+  return redactForEmbedding(text)
+}
+
+/**
  * Generate embedding for a single text (backward-compatible entry point)
  */
 export async function generateEmbedding(text: string): Promise<EmbeddingResult> {
-  return getEmbeddingProvider().generate(text)
+  return getEmbeddingProvider().generate(redactEmbeddingInput(text))
 }
 
 /**
  * Generate embeddings for multiple texts in batch
  */
 export async function generateEmbeddingsBatch(texts: string[]): Promise<EmbeddingResult[]> {
-  return getEmbeddingProvider().generateBatch(texts)
+  return getEmbeddingProvider().generateBatch(texts.map(redactEmbeddingInput))
 }
 
 // ---------------------------------------------------------------------------

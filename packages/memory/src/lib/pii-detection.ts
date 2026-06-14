@@ -84,20 +84,39 @@ export function detectPii(content: string): PiiDetectionResult {
 }
 
 /**
- * Generate a redacted version of content for embedding generation.
- * PII is replaced with type-specific placeholders so semantic meaning is preserved
- * but actual values are not embedded in vector space.
+ * Redact high-sensitivity PII from text before it reaches the embedding
+ * provider and lands in vector space (TD-856).
+ *
+ * Scope is deliberately the four "never searched by value" types — credit
+ * card, SSN, phone, email — because:
+ *  - they carry ~zero semantic search weight (you search by the surrounding
+ *    context, not by the literal value), so redacting them costs ~nothing in
+ *    recall; and
+ *  - leaving them raw was a real EGRESS leak — the literal values were being
+ *    sent to the embedding API and encoded into vector space.
+ *
+ * `financialAmount` and `address` are intentionally NOT redacted here: dollar
+ * figures and street addresses are search-load-bearing for jiggy / life-CRM
+ * memories, and redacting them would degrade recall. (`detectPii` still FLAGS
+ * all six types for classification — this function governs only what reaches
+ * the embedding vector.)
+ *
+ * Wired inside `generateEmbedding`, so store and query text redact through the
+ * same path: a query containing an email embeds as `[EMAIL]` and still matches
+ * a stored `[EMAIL]`, keeping recall consistent even for the looser phone/ssn
+ * patterns. This does NOT touch the raw `content` column or the BM25 lexical
+ * index — those stay plaintext (governed by classification tiers + TD-715
+ * encryption); this is purely the vector-space / provider-egress layer.
  */
 export function redactForEmbedding(content: string): string {
   let redacted = content
 
-  // Replace in order of specificity (more specific patterns first)
+  // Order matters: consume a credit-card number before the ssn/phone patterns
+  // can match a sub-run of its digits.
   redacted = redacted.replace(PII_PATTERNS.creditCard, '[CREDIT_CARD]')
   redacted = redacted.replace(PII_PATTERNS.ssn, '[SSN]')
   redacted = redacted.replace(PII_PATTERNS.phone, '[PHONE]')
   redacted = redacted.replace(PII_PATTERNS.email, '[EMAIL]')
-  redacted = redacted.replace(PII_PATTERNS.financialAmount, '[AMOUNT]')
-  redacted = redacted.replace(PII_PATTERNS.address, '[ADDRESS]')
 
   return redacted
 }
