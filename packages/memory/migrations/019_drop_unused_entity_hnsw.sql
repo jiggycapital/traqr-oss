@@ -1,0 +1,53 @@
+-- 019_drop_unused_entity_hnsw.sql
+-- Drop the planner-unreachable HNSW index on memory_entities.embedding.
+--
+-- WHY (TD-865 item 5 — entity-vector-index audit, Feature5 /bethesda 2026-06-14)
+-- ---------------------------------------------------------------------------
+-- The 6/14 traqr-db saturation root cause was RAM pressure on a tight tier
+-- (mem 8916fb95 / 711fce / 03618c). `idx_entities_embedding` is 16 MB of
+-- duplicated 1536-dim vectors + HNSW graph over 1,979 entity rows, rebuilt on
+-- every memory_store (entity-pipeline dedup), held in cache — and it serves
+-- ZERO queries.
+--
+-- The ONLY consumer of entity-vector search is `search_entities()` (called by
+-- findEntityByEmbedding -> entity-pipeline.ts:160). That function is a THRESHOLD
+-- filter, not a pure k-NN, and at 1,979 rows the planner never chooses HNSW.
+-- Live EXPLAIN (ANALYZE, BUFFERS) on 2026-06-14, 6h post-restart:
+--
+--   Seq Scan on memory_entities e  (cost=0.00..80.88 rows=660)
+--     Filter: (NOT is_archived) AND (user_id = ...)
+--             AND ((1 - (embedding <=> probe)) >= 0.85)
+--     Rows Removed by Filter: 1978
+--   (idx_entities_embedding NOT used; pg_stat_user_indexes idx_scan = 0 over
+--    6h of full 16-slot fleet load — 2065 total traqr_memories idx scans in the
+--    same window, so the 0 is a real signal, not the post-restart 2-min trap.)
+--
+-- Dropping it changes ZERO query plans (already seq-scanning) and frees 16 MB
+-- RAM + the per-write HNSW maintenance on every entity upsert. This is the
+-- "68 MB of barely-read HNSW" lever from mem 03618c — the 52 MB
+-- idx_traqr_memories_active_embedding stays (10 scans/6h, serves store-time
+-- dedup k-NN); only the entity index is pure overhead.
+--
+-- NOT dropped here: the 3 GIN full-text indexes (search_vector_en/simple via
+-- bm25_search; search_vector via memory_bm25_search) — all back wired functions,
+-- so their 0-scan is a separate "is the BM25 hybrid path exercised / does it
+-- seq-scan on OR-queries" question, not an orphan. Left for a follow-up cave.
+--
+-- FUTURE NOTE: if entity-dedup latency (currently ~1.3 s/call seq-scan) becomes
+-- a priority, the fix is to restructure search_entities into a real k-NN
+-- (ORDER BY embedding <=> q LIMIT k, then threshold-check) AND recreate this
+-- index — not to keep a never-chosen index speculatively.
+--
+-- CONCURRENTLY: drop runs outside a txn to avoid the ACCESS EXCLUSIVE table lock
+-- on memory_entities while the fleet writes. If your migration runner wraps
+-- statements in a transaction, run the DROP via a direct (autocommit) session.
+--
+-- APPLIED to prod krzajogmytxbudzisydm on 2026-06-14 (Feature5, via direct
+-- DROP INDEX CONCURRENTLY). This file is the durable record + rollback.
+-- ---------------------------------------------------------------------------
+
+DROP INDEX CONCURRENTLY IF EXISTS public.idx_entities_embedding;
+
+-- ROLLBACK (if entity k-NN search is reintroduced AND restructured to use it):
+--   CREATE INDEX CONCURRENTLY idx_entities_embedding
+--     ON public.memory_entities USING hnsw (embedding vector_cosine_ops);
