@@ -752,7 +752,14 @@ export class PostgresVectorProvider implements VectorDBProvider {
 
   async ping(): Promise<boolean> {
     try {
-      await queryOne('SELECT 1 as ok')
+      // Touch the real memories table, not `SELECT 1`. A `SELECT 1` needs no
+      // heap/IO and returns instantly even when the instance is resource-starved
+      // and real memory ops are timing out — i.e. it false-passes a sick DB
+      // (proven in the 2026-06-14 traqr-db starvation outage, where `SELECT 1`
+      // probes passed 8/8 while every catalog/table query timed out — TD-862).
+      // A LIMIT 1 read of the table store/search actually use makes the probe
+      // fail honestly under starvation. Mirrors the Supabase provider's ping().
+      await queryOne(`SELECT id FROM ${getTableName()} LIMIT 1`)
       return true
     } catch {
       return false
