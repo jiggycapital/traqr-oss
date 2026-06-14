@@ -37,6 +37,9 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
 
+import { getVectorDB } from './vectordb/index.js'
+import { checkDbHealth, healthStatusCode } from './lib/health.js'
+
 import searchRoutes from './routes/search.js'
 import storeRoutes from './routes/store.js'
 import crudRoutes from './routes/crud.js'
@@ -61,8 +64,15 @@ import entityCronRoutes from './routes/entity-cron.js'
 export function createMemoryServer(): Hono {
   const app = new Hono()
 
-  // Health check
-  app.get('/health', (c) => c.json({ status: 'ok', service: '@traqr/memory' }))
+  // Health check — a real bounded liveness probe, not a static `ok`. The memory
+  // service exists to serve the vector DB, so "healthy" must mean "the DB is
+  // reachable", not "the process is up". A static ok false-passed the 6/14
+  // starvation outage; this exercises the same LIMIT-1 path store/search use and
+  // returns 503 (degraded) so `traqr status` + monitors read it as DOWN.
+  app.get('/health', async (c) => {
+    const health = await checkDbHealth(() => getVectorDB().ping())
+    return c.json({ ...health, service: '@traqr/memory' }, healthStatusCode(health))
+  })
 
   // Core routes (existing)
   app.route('/search', searchRoutes)

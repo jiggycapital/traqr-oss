@@ -10,6 +10,10 @@ export { createMemoryServer } from './server.js'
 
 // VectorDB layer
 export { getVectorDB, resetVectorDB } from './vectordb/index.js'
+
+// Liveness health probe (bounded DB ping for HTTP /health endpoints)
+export { checkDbHealth } from './lib/health.js'
+export type { DbHealthResult } from './lib/health.js'
 export type {
   VectorDBProvider,
   Memory,
