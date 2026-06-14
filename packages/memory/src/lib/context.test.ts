@@ -12,7 +12,7 @@
  * Run: npx tsx packages/memory/src/lib/context.test.ts
  */
 
-import { timedSearch } from './context.js'
+import { timedSearch, searchRetryDelayMs } from './context.js'
 import type { MemorySearchResult } from '../vectordb/types.js'
 
 let passed = 0
@@ -69,6 +69,17 @@ console.log('\n--- timedSearch retry (TD-796) ---')
   assert('persistent failure returns empty (unchanged contract)', out.results.length === 0)
   assert('persistent failure stops at max attempts (2)', searcher.callCount() === 2)
   assert('persistent failure labelled FAILED', out.timing.query === 'gotchas (FAILED)')
+}
+
+// 4. TD-862: the retry delay is jittered (not fixed 200ms) so the fleet's single
+//    retry wave de-synchronizes under DB degradation. Range [100, 300), mean ~200.
+{
+  assert('jitter floor: rng=0 → base 100ms', searchRetryDelayMs(() => 0) === 100)
+  assert('jitter ceil: rng→1 → < 300ms', searchRetryDelayMs(() => 0.999) < 300)
+  assert('jitter mid: rng=0.5 → 200ms (mean preserved)', searchRetryDelayMs(() => 0.5) === 200)
+  const a = searchRetryDelayMs(() => 0.1)
+  const b = searchRetryDelayMs(() => 0.8)
+  assert('distinct rng draws yield distinct delays (de-sync)', a !== b)
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

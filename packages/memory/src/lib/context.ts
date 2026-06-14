@@ -108,7 +108,20 @@ interface TimedSearchResult {
 // transient blips; a persistent failure still falls through to the same warn + empty
 // result as before (the public return contract is unchanged).
 const SEARCH_MAX_ATTEMPTS = 2 // 1 retry
-const SEARCH_RETRY_DELAY_MS = 200
+
+// TD-862: the retry delay is JITTERED, not fixed. When the DB degrades (e.g. the
+// 2026-06-14 starvation outage), every slot's first attempt fails at roughly the
+// same DB-failure latency, then — with a fixed 200ms delay — every slot fires its
+// single retry on the same +200ms offset, landing a synchronized second wave on an
+// already-starved instance. Jitter spreads that wave across a window so the fleet
+// de-synchronizes. Mean is held at ~200ms so the healthy-path latency is unchanged.
+const SEARCH_RETRY_BASE_MS = 100
+const SEARCH_RETRY_JITTER_MS = 200
+
+// Exported for unit testing; `rng` is injectable so the jitter range is assertable.
+export function searchRetryDelayMs(rng: () => number = Math.random): number {
+  return Math.floor(SEARCH_RETRY_BASE_MS + rng() * SEARCH_RETRY_JITTER_MS)
+}
 
 // `searcher` is injectable purely so the retry path is unit-testable without a live
 // DB (see context.test.ts); production always uses the default searchMemories.
@@ -133,7 +146,7 @@ export async function timedSearch(
     } catch (error) {
       lastError = error
       if (attempt < SEARCH_MAX_ATTEMPTS) {
-        await new Promise((resolve) => setTimeout(resolve, SEARCH_RETRY_DELAY_MS))
+        await new Promise((resolve) => setTimeout(resolve, searchRetryDelayMs()))
       }
     }
   }
