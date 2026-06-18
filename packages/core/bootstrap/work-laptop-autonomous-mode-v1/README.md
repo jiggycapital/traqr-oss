@@ -33,8 +33,9 @@ Nine short docs. Read them in order on first session. Re-reference them later as
 | `08-cross-tool.md` | AGENTS.md vs CLAUDE.md — which instruction file is canonical. Day-1 decision. |
 | `06-role-workflows.md` | Sales role example workflows. *(STUBBED — confirm role title first.)* |
 | `07-privacy.md` | IT-leak guardrails. What never leaves the work surface. |
+| `09-bedrock-primitive-map.md` | TraqrOS coordination primitives → Bedrock AgentCore equivalents (+ the "no equivalent" moats). Reference for designing agent systems on Bedrock, not first-day reading. |
 
-Read order: `00` → `01` → `02` → `03` → `04` → `05` → `08` → `06` → `07`. (`08` was added in the convergence pass; it reads with the tooling-setup docs, so the file number trails the read position.)
+Read order: `00` → `01` → `02` → `03` → `04` → `05` → `08` → `06` → `07`. (`08` was added in the convergence pass; it reads with the tooling-setup docs, so the file number trails the read position.) `09` is reference material — read it when designing an agent system on Bedrock is the task, not on day one.
 
 ## Provenance
 
