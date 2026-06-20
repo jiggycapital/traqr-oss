@@ -42,7 +42,7 @@ psql postgresql://postgres:postgres@localhost:5432/postgres -f setup.sql
 {
   "traqr-memory": {
     "command": "npx",
-    "args": ["traqr-memory-mcp"],
+    "args": ["traqr-memory-mcp@latest"],
     "env": {
       "SUPABASE_URL": "https://xxx.supabase.co",
       "SUPABASE_SERVICE_ROLE_KEY": "eyJ...",
@@ -57,7 +57,7 @@ psql postgresql://postgres:postgres@localhost:5432/postgres -f setup.sql
 {
   "traqr-memory": {
     "command": "npx",
-    "args": ["-p", "pg", "traqr-memory-mcp"],
+    "args": ["-p", "pg", "traqr-memory-mcp@latest"],
     "env": {
       "DATABASE_URL": "postgresql://user:pass@host:5432/dbname",
       "OPENAI_API_KEY": "sk-..."
@@ -71,7 +71,7 @@ psql postgresql://postgres:postgres@localhost:5432/postgres -f setup.sql
 {
   "traqr-memory": {
     "command": "npx",
-    "args": ["-p", "@aws-sdk/client-bedrock-runtime", "-p", "pg", "traqr-memory-mcp"],
+    "args": ["-p", "@aws-sdk/client-bedrock-runtime", "-p", "pg", "traqr-memory-mcp@latest"],
     "env": {
       "DATABASE_URL": "postgresql://user:pass@host:5432/dbname",
       "EMBEDDING_PROVIDER": "bedrock",
@@ -87,7 +87,7 @@ psql postgresql://postgres:postgres@localhost:5432/postgres -f setup.sql
 {
   "traqr-memory": {
     "command": "npx",
-    "args": ["traqr-memory-mcp"],
+    "args": ["traqr-memory-mcp@latest"],
     "env": {
       "SUPABASE_URL": "https://xxx.supabase.co",
       "SUPABASE_SERVICE_ROLE_KEY": "eyJ...",
@@ -102,7 +102,7 @@ psql postgresql://postgres:postgres@localhost:5432/postgres -f setup.sql
 {
   "traqr-memory": {
     "command": "npx",
-    "args": ["traqr-memory-mcp"],
+    "args": ["traqr-memory-mcp@latest"],
     "env": {
       "SUPABASE_URL": "https://xxx.supabase.co",
       "SUPABASE_SERVICE_ROLE_KEY": "eyJ...",

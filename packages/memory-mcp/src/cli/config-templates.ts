@@ -29,7 +29,12 @@ export function buildMcpConfig(answers: WizardAnswers): Record<string, any> {
   // Optional peer deps via npx -p
   if (answers.embedding === 'bedrock') args.push('-p', '@aws-sdk/client-bedrock-runtime')
   if (answers.db === 'postgres') args.push('-p', 'pg')
-  args.push('traqr-memory-mcp')
+  // Pin `@latest` (TD-864, Sean-approved 2026-06-15): an UNPINNED `traqr-memory-mcp`
+  // makes npx cache the first resolve and never re-check the registry, so users
+  // freeze at their install-time version and never receive published fixes. With
+  // `@latest`, npx re-checks the registry each spawn. Keep in sync with the README
+  // config blocks (the "Templates match the README exactly" contract above).
+  args.push('traqr-memory-mcp@latest')
 
   // Env vars
   const env: Record<string, string> = {}
