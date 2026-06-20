@@ -178,7 +178,7 @@ export class PostgresVectorProvider implements VectorDBProvider {
     }
 
     const rows = await query(
-      'SELECT * FROM search_memories($1::vector, $2, $3, $4, $5, $6, $7, $8)',
+      'SELECT * FROM search_memories($1::vector, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
       [
         embeddingStr,
         options.domainId || null,
@@ -188,6 +188,15 @@ export class PostgresVectorProvider implements VectorDBProvider {
         options.limit || 10,
         options.similarityThreshold || 0.3,
         options.latestOnly ?? true,
+        // Security parameters (TD-810) — the single-project branch previously
+        // omitted these, so p_max_classification defaulted to 'restricted'
+        // (= unfiltered), leaking confidential/restricted rows to lower-tier
+        // callers (e.g. memory_context at exploration). The cross-project
+        // branch above and the supabase provider already pass them; this
+        // restores parity. Fail-safe: no accessLevel → maxClassification
+        // resolves to 'restricted' → identical to the prior default.
+        maxClassification,
+        options.clientNamespace || null,
       ],
     )
     return rows.map((row: SearchResultRow) => rowToSearchResult(row))

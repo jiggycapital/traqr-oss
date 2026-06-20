@@ -9,7 +9,15 @@
 import { getVectorDB } from '../vectordb/index.js'
 import { generateEmbedding, formatEmbeddingForPgVector } from './embeddings.js'
 import { cohereRerank } from './rerank.js'
-import type { VectorDBProvider, MemorySearchResult, SearchOptions, Memory } from '../vectordb/types.js'
+import { CLASSIFICATION_RANK, ACCESS_LEVEL_MAX_CLASSIFICATION } from '../vectordb/types.js'
+import type {
+  VectorDBProvider,
+  MemorySearchResult,
+  SearchOptions,
+  Memory,
+  MemoryClassification,
+  MemoryAccessLevel,
+} from '../vectordb/types.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,6 +96,53 @@ export function reciprocalRankFusion(
   }
 
   return sorted
+}
+
+// ---------------------------------------------------------------------------
+// Classification Ceiling — defense-in-depth choke point (TD-810)
+// ---------------------------------------------------------------------------
+
+/**
+ * Drop any result whose classification exceeds the ceiling for the caller.
+ *
+ * TD-810: of the 4 retrieval strategies fused in searchMemoriesV2, only
+ * `semantic` threads accessLevel to the DB (search_memories has
+ * p_max_classification). bm25/temporal/graph — and the getById hydration of
+ * BM25/graph-only hits — are classification-BLIND. So a confidential/restricted
+ * row surfaced by any non-semantic strategy leaks regardless of accessLevel.
+ * This is the post-filter that closes that gap at the result boundary.
+ *
+ * FAIL-SAFE: when neither maxClassification nor accessLevel is provided there is
+ * no ceiling, so the input is returned UNCHANGED (byte-identical to pre-TD-810).
+ * FAIL-CLOSED: an unknown classification string (not in CLASSIFICATION_RANK) is
+ * dropped; a missing/undefined classification is treated as 'public' (kept).
+ *
+ * @param results        - hydrated, sorted results to filter
+ * @param accessLevel    - caller's access level → resolves a max classification
+ * @param maxClassification - explicit ceiling; overrides accessLevel when set
+ */
+export function applyClassificationCeiling<T extends { classification?: MemoryClassification }>(
+  results: T[],
+  accessLevel?: MemoryAccessLevel,
+  maxClassification?: MemoryClassification,
+): T[] {
+  // Resolve the ceiling. Explicit maxClassification wins; else derive from
+  // accessLevel; else no ceiling → fail-safe pass-through.
+  const ceiling: MemoryClassification | undefined =
+    maxClassification ??
+    (accessLevel ? ACCESS_LEVEL_MAX_CLASSIFICATION[accessLevel] : undefined)
+
+  if (!ceiling) return results
+
+  const ceilingRank = CLASSIFICATION_RANK[ceiling]
+
+  return results.filter((row) => {
+    const cls = row.classification ?? 'public'
+    const rank = CLASSIFICATION_RANK[cls as MemoryClassification]
+    // Unknown classification string → not in the rank table → fail closed.
+    if (rank === undefined) return false
+    return rank <= ceilingRank
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -394,7 +449,11 @@ export async function searchMemoriesV2(
     console.log(`[retrieval] q="${query.slice(0, 50)}" strategies=[${strategyLog}] entities=${resolvedEntityIds.length}`)
   }
 
-  const fused = reciprocalRankFusion(strategyResults, k, topN)
+  // TD-810: when a classification ceiling will apply, over-fetch the fused pool
+  // so the post-filter can drop over-tier rows and still return up to topN.
+  // No accessLevel/maxClassification → fuseLimit === topN → behavior unchanged.
+  const fuseLimit = options.accessLevel || options.maxClassification ? overFetchLimit : topN
+  const fused = reciprocalRankFusion(strategyResults, k, fuseLimit)
 
   if (fused.length === 0) {
     return []
@@ -457,7 +516,12 @@ export async function searchMemoriesV2(
   // 6. Final sort by RRF score
   hydratedResults.sort((a, b) => b.relevanceScore - a.relevanceScore)
 
-  const finalResults = hydratedResults.slice(0, topN)
+  // 6.5 TD-810: defense-in-depth classification choke point. Drops any row above
+  // the caller's ceiling — closing the leak from classification-blind strategies
+  // (bm25/temporal/graph + getById hydration). Fail-safe: no ceiling → unchanged.
+  const filtered = applyClassificationCeiling(hydratedResults, options.accessLevel, options.maxClassification)
+
+  const finalResults = filtered.slice(0, topN)
 
   // 7. TD-817: feedback write path — bump times_returned on what was ACTUALLY
   // returned to the caller (not the 2x over-fetched strategy candidates).

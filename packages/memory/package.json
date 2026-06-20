@@ -1,6 +1,6 @@
 {
   "name": "@traqr/memory",
-  "version": "0.2.22",
+  "version": "0.2.23",
   "description": "Persistent memory for AI agents. Multi-strategy retrieval (semantic + BM25 + RRF), 3-zone cosine triage, type-aware lifecycle, entity canonicalization. Postgres + pgvector.",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,7 +15,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "tsx src/lib/quality-gate.test.ts && tsx src/lib/retrieval.test.ts && tsx src/lib/context.test.ts && tsx src/lib/pii-detection.test.ts && tsx src/lib/health.test.ts",
+    "test": "tsx src/lib/quality-gate.test.ts && tsx src/lib/retrieval.test.ts && tsx src/lib/classification-ceiling.test.ts && tsx src/lib/context.test.ts && tsx src/lib/pii-detection.test.ts && tsx src/lib/health.test.ts",
     "migrate": "tsx src/migrate.ts"
   },
   "files": [
