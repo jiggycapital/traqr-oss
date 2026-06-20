@@ -13,9 +13,13 @@
  *
  * Three surfaces, two rules:
  *
- *   Title  — every ticket ID closes. Titles are concise and intentional; this is
- *            the established `/ship` convention, left untouched so no existing
- *            closure regresses.
+ *   Title  — every ticket ID closes (the established `/ship` convention), EXCEPT
+ *            two relational/revert shapes that are contextual cites, not close-intent
+ *            (TD-873): a REVERT title contributes no IDs (it undoes work, and an
+ *            auto-generated revert title carries the original PR's ID), and an ID
+ *            inside PARENTHESES does not close (the closing ticket always sits outside
+ *            parens; a parenthesized ID is a relational cite like
+ *            `revert(…): … (#2097 masked PTQ-97)` or `feat: … (TD-870 follow-up)`).
  *   Branch — every ticket ID closes. Branch names are auto-generated from the
  *            ticket (e.g. `seanfitzsimons/td-792-…`) and are high-signal.
  *   Body   — a ticket ID closes ONLY if its line is a closing DIRECTIVE: it
@@ -89,8 +93,29 @@ export function extractClosableTicketIds(
 
     const found: string[] = [];
 
-    // Title + branch: every ID closes (concise, intentional, high-signal).
-    found.push(...(title.match(idRe) || []));
+    // Title: every ID closes EXCEPT two relational/revert shapes (TD-873) that are
+    // contextual cites, not close-intent:
+    //   1. A REVERT title (`revert(scope): …`, `revert: …`, `Revert "…"`, with an
+    //      optional `#<PR>` /ship prefix) contributes NO title IDs. A revert undoes
+    //      work, so any ID it names is context — and an auto-generated revert title
+    //      carries the ORIGINAL PR's ticket ID outside parens (e.g.
+    //      `revert(nooktraqr): NTQ-1028 — merge user_profiles (#2104)`), so a re-close
+    //      would wrongly mark Done the very ticket the revert is undoing.
+    //   2. A title ID inside PARENTHESES does not close. The `/ship` convention always
+    //      places the closing ticket OUTSIDE parens (parens hold the commit scope like
+    //      `(poketraqr)`), so a parenthesized ID is a relational cite —
+    //      `revert(…): … (#2097 masked PTQ-97)`, `feat: … (TD-870 follow-up)`. These
+    //      false-closed the OPEN PTQ-97 (and re-closed already-Done TD-870 / TD-836)
+    //      on 2026-06-19 — the new proxy TD-795 predicted, the failures TD-873 filed.
+    // Branch and body directives are unchanged, so a revert (or any PR) that genuinely
+    // closes a ticket can still say so on a `Closes:`/`Fixes:`/`Resolves:` line.
+    const isRevert = /^[\s>*_]*(?:#\d+\s+)?revert\b/i.test(title);
+    if (!isRevert) {
+        const titleOutsideParens = title.replace(/\([^)]*\)/g, ' ');
+        found.push(...(titleOutsideParens.match(idRe) || []));
+    }
+
+    // Branch: every ID closes (auto-generated from the ticket, high-signal).
     found.push(...(branch.match(idRe) || []));
 
     // Body: a line closes IDs only when it is a closing DIRECTIVE — it begins with

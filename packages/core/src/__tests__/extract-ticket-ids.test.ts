@@ -161,6 +161,63 @@ describe('extractClosableTicketIds (TD-791: one shared keyword-gate closer)', ()
         });
     });
 
+    describe('TD-873 — revert/relational title cites do NOT close', () => {
+        it('the live PTQ-97 instance: revert title parenthetically citing an OPEN ticket does not close it', () => {
+            // PR #2098 reverted #2097; its title parenthetically noted that #2097 had
+            // masked PTQ-97 (a live, Sean-gated prod outage). The title-always-closes
+            // rule marked PTQ-97 Done — the bug TD-873 filed.
+            const title = '#2098 revert(poketraqr): restore loud 503 on missing Supabase env (#2097 masked PTQ-97)';
+            const out = extractClosableTicketIds(title, '', '', ['PTQ', 'TD', 'NTQ']);
+            expect(out).toEqual([]);
+            expect(out).not.toContain('PTQ-97');
+        });
+
+        it('non-revert parenthetical follow-up cite "(TD-870 follow-up)" does not close TD-870', () => {
+            const out = extractClosableTicketIds('#2036 fix(daemon): tighten the gate (TD-870 follow-up)', '', '', PREFIXES);
+            expect(out).toEqual([]);
+            expect(out).not.toContain('TD-870');
+        });
+
+        it('parenthetical cite "(TD-836 follow-up B)" does not close TD-836', () => {
+            const out = extractClosableTicketIds('#2007 feat(bethesda): menu (TD-836 follow-up B)', '', '', PREFIXES);
+            expect(out).toEqual([]);
+        });
+
+        it('revert of a closing PR does NOT re-close the ticket it is undoing (ID outside parens)', () => {
+            // Auto-generated revert titles carry the original PR's ticket ID outside
+            // parens. Re-closing it would mark Done the very ticket the revert undoes.
+            const title = 'revert(nooktraqr): NTQ-1028 — merge user_profiles on account-link (#2104)';
+            const out = extractClosableTicketIds(title, '', '', PREFIXES);
+            expect(out).toEqual([]);
+            expect(out).not.toContain('NTQ-1028');
+        });
+
+        it('PRESERVES the convention: a non-revert title with an outside-parens ID still closes', () => {
+            // The (nooktraqr) scope is stripped; NTQ-1028 sits outside parens → closes.
+            expect(extractClosableTicketIds('fix(nooktraqr): NTQ-1028 — merge user_profiles', '', '', PREFIXES))
+                .toEqual(['NTQ-1028']);
+        });
+
+        it('PRESERVES branch close on a revert PR (branch is auto-generated, high-signal)', () => {
+            // Title contributes nothing (revert), but the branch ID still closes —
+            // current behavior, locked so the title-only scope of TD-873 is explicit.
+            expect(extractClosableTicketIds('revert(x): undo a thing (#10)', 'seanfitzsimons/td-873-fix', '', PREFIXES))
+                .toEqual(['TD-873']);
+        });
+
+        it('a revert can still close explicitly via a body Closes: directive', () => {
+            const out = extractClosableTicketIds('revert(x): undo (#10)', '', 'Closes: TD-5', PREFIXES);
+            expect(out).toEqual(['TD-5']);
+        });
+
+        it('does not treat a non-leading "revert" as a revert ("Prevent revert loops, TD-9")', () => {
+            // The revert gate is anchored at title start, so an ID in a non-revert
+            // title that merely contains the word "revert" still closes.
+            expect(extractClosableTicketIds('feat: Prevent revert loops TD-9', '', '', PREFIXES))
+                .toEqual(['TD-9']);
+        });
+    });
+
     describe('prefix handling', () => {
         it('matches only configured prefixes', () => {
             // JGC is not in PREFIXES → ignored even on a Closes line.
