@@ -26,8 +26,9 @@ import type {
   TemporalSearchResult,
   GraphSearchResult,
   MemoryClassification,
+  MemoryAccessLevel,
 } from './types.js'
-import { ACCESS_LEVEL_MAX_CLASSIFICATION, CLASSIFICATION_RANK } from './types.js'
+import { ACCESS_LEVEL_MAX_CLASSIFICATION, CLASSIFICATION_RANK, exceedsClassificationCeiling } from './types.js'
 import { encrypt, isEncryptionEnabled } from '../lib/encryption.js'
 
 export class SupabaseVectorProvider implements VectorDBProvider {
@@ -212,7 +213,10 @@ export class SupabaseVectorProvider implements VectorDBProvider {
     return results
   }
 
-  async getById(id: string): Promise<Memory | null> {
+  async getById(
+    id: string,
+    opts?: { accessLevel?: MemoryAccessLevel; maxClassification?: MemoryClassification },
+  ): Promise<Memory | null> {
     const client = getMemoryClient()
 
     const { data, error } = await (client
@@ -227,8 +231,14 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       throw new Error(`Failed to get memory: ${error.message}`)
     }
 
+    const memory = rowToMemory(data as MemoryRow)
+    // TD-883: redact over-tier rows as not-found. No opts → no ceiling → unchanged.
+    if (exceedsClassificationCeiling(memory.classification, opts?.accessLevel, opts?.maxClassification)) {
+      return null
+    }
+
     this.auditLog('read', { memoryIds: [id], resultCount: 1 })
-    return rowToMemory(data as MemoryRow)
+    return memory
   }
 
   async update(id: string, updates: MemoryUpdate): Promise<Memory> {
@@ -859,10 +869,10 @@ export class SupabaseVectorProvider implements VectorDBProvider {
   // UTILITY OPERATIONS (abstracted from direct client calls)
   // ============================================================
 
-  async browse(options?: { domain?: string, category?: string, limit?: number }): Promise<BrowseResult[]> {
+  async browse(options?: { domain?: string, category?: string, limit?: number, accessLevel?: MemoryAccessLevel, maxClassification?: MemoryClassification }): Promise<BrowseResult[]> {
     const client = getMemoryClient()
     let query = (client.from(getTableName()) as any)
-      .select('domain, category, content, summary, id')
+      .select('domain, category, content, summary, id, classification')
       .eq('is_archived', false)
       .eq('is_forgotten', false)
 
@@ -872,13 +882,16 @@ export class SupabaseVectorProvider implements VectorDBProvider {
 
     const { data, error } = await query
     if (error) throw new Error(error.message)
-    return (data || []).map((r: any) => ({
-      id: r.id,
-      domain: r.domain ?? undefined,
-      category: r.category ?? undefined,
-      content: r.content,
-      summary: r.summary ?? undefined,
-    }))
+    return (data || [])
+      // TD-883: drop rows above the caller's classification ceiling (the memory_browse leak)
+      .filter((r: any) => !exceedsClassificationCeiling(r.classification, options?.accessLevel, options?.maxClassification))
+      .map((r: any) => ({
+        id: r.id,
+        domain: r.domain ?? undefined,
+        category: r.category ?? undefined,
+        content: r.content,
+        summary: r.summary ?? undefined,
+      }))
   }
 
   async forget(id: string): Promise<void> {

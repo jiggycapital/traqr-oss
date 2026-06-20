@@ -14,7 +14,7 @@ import { getUserId, getProjectId, getTableName, getMemoryConfig } from '../lib/c
 import { generateEmbedding, formatEmbeddingForPgVector } from '../lib/embeddings.js'
 import { rowToMemory, rowToSearchResult } from './converters.js'
 import type { MemoryRow, SearchResultRow } from './converters.js'
-import { ACCESS_LEVEL_MAX_CLASSIFICATION } from './types.js'
+import { ACCESS_LEVEL_MAX_CLASSIFICATION, exceedsClassificationCeiling } from './types.js'
 import type {
   VectorDBProvider,
   Memory,
@@ -26,6 +26,7 @@ import type {
   SearchOptions,
   MemoryCategory,
   MemoryClassification,
+  MemoryAccessLevel,
   BrowseResult,
   BM25SearchResult,
   TemporalSearchResult,
@@ -202,13 +203,21 @@ export class PostgresVectorProvider implements VectorDBProvider {
     return rows.map((row: SearchResultRow) => rowToSearchResult(row))
   }
 
-  async getById(id: string): Promise<Memory | null> {
+  async getById(
+    id: string,
+    opts?: { accessLevel?: MemoryAccessLevel; maxClassification?: MemoryClassification },
+  ): Promise<Memory | null> {
     const row = await queryOne(
       `SELECT * FROM ${getTableName()} WHERE id = $1`,
       [id],
     )
     if (!row) return null
-    return rowToMemory(row as MemoryRow)
+    const memory = rowToMemory(row as MemoryRow)
+    // TD-883: redact over-tier rows as not-found. No opts → no ceiling → unchanged.
+    if (exceedsClassificationCeiling(memory.classification, opts?.accessLevel, opts?.maxClassification)) {
+      return null
+    }
+    return memory
   }
 
   async update(id: string, updates: MemoryUpdate): Promise<Memory> {
@@ -681,7 +690,7 @@ export class PostgresVectorProvider implements VectorDBProvider {
   // UTILITY OPERATIONS
   // ============================================================
 
-  async browse(options?: { domain?: string, category?: string, limit?: number }): Promise<BrowseResult[]> {
+  async browse(options?: { domain?: string, category?: string, limit?: number, accessLevel?: MemoryAccessLevel, maxClassification?: MemoryClassification }): Promise<BrowseResult[]> {
     const table = getTableName()
     const conditions = ['is_archived = false', 'is_forgotten = false']
     const params: any[] = []
@@ -700,18 +709,21 @@ export class PostgresVectorProvider implements VectorDBProvider {
     params.push(limit)
 
     const rows = await query(
-      `SELECT id, domain, category, content, summary FROM ${table}
+      `SELECT id, domain, category, content, summary, classification FROM ${table}
        WHERE ${conditions.join(' AND ')}
        ORDER BY created_at DESC LIMIT $${paramIdx}`,
       params,
     )
-    return rows.map((r: any) => ({
-      id: r.id,
-      domain: r.domain ?? undefined,
-      category: r.category ?? undefined,
-      content: r.content,
-      summary: r.summary ?? undefined,
-    }))
+    return rows
+      // TD-883: drop rows above the caller's classification ceiling (the memory_browse leak)
+      .filter((r: any) => !exceedsClassificationCeiling(r.classification, options?.accessLevel, options?.maxClassification))
+      .map((r: any) => ({
+        id: r.id,
+        domain: r.domain ?? undefined,
+        category: r.category ?? undefined,
+        content: r.content,
+        summary: r.summary ?? undefined,
+      }))
   }
 
   async forget(id: string): Promise<void> {

@@ -13,7 +13,12 @@
  * Run: npx tsx packages/memory/src/lib/classification-ceiling.test.ts
  */
 
-import { applyClassificationCeiling } from './retrieval.js'
+import {
+  applyClassificationCeiling,
+  allowedClassificationsForCeiling,
+  resolveClassificationCeiling,
+} from './retrieval.js'
+import { exceedsClassificationCeiling } from '../vectordb/types.js'
 import type { MemoryClassification } from '../vectordb/types.js'
 
 let passed = 0
@@ -106,6 +111,91 @@ console.log('\n--- applyClassificationCeiling (TD-810) ---')
   const ids = out.map((r) => r.id)
   assert('unknown classification fails closed (dropped even at admin)', !ids.includes('bogus'))
   assert('known row alongside unknown still kept', ids.includes('pub') && out.length === 1)
+}
+
+// ===========================================================================
+// TD-883: browse + getById direct-retrieval ceilings.
+// The browse route filters at the DB via allowedClassificationsForCeiling;
+// the getById path redacts over-tier rows via exceedsClassificationCeiling.
+// These pure helpers back both surfaces, so pinning them pins the behavior.
+// ===========================================================================
+
+console.log('\n--- allowedClassificationsForCeiling (TD-883 browse) ---')
+
+// (a) browse summaries drop over-tier rows under exploration, keep public+internal.
+{
+  const allowed = allowedClassificationsForCeiling('exploration')
+  assert('exploration → allowed list defined', !!allowed)
+  assert('exploration allows public', !!allowed?.includes('public'))
+  assert('exploration allows internal', !!allowed?.includes('internal'))
+  assert('exploration drops confidential', !allowed?.includes('confidential'))
+  assert('exploration drops restricted', !allowed?.includes('restricted'))
+  assert('exploration allowed count is 2', allowed?.length === 2)
+  // 'internal' is in-tier → NULL rows (which hydrate to 'internal') are admitted.
+  assert('exploration admits NULL rows (internal in tier)', !!allowed?.includes('internal'))
+}
+
+// (b) browse with no accessLevel = unchanged (undefined → caller skips filter).
+{
+  const allowed = allowedClassificationsForCeiling()
+  assert('no accessLevel → undefined (no DB filter, unchanged behavior)', allowed === undefined)
+  assert('no ceiling resolved when neither arg given', resolveClassificationCeiling() === undefined)
+}
+
+// standard ceiling allows public/internal/confidential, drops restricted.
+{
+  const allowed = allowedClassificationsForCeiling('standard')
+  assert('standard allows confidential', !!allowed?.includes('confidential'))
+  assert('standard drops restricted', !allowed?.includes('restricted'))
+  assert('standard allowed count is 3', allowed?.length === 3)
+}
+
+// maxClassification overrides accessLevel (admin → internal ceiling).
+{
+  const allowed = allowedClassificationsForCeiling('admin', 'internal')
+  assert('override: admin+internal allows only public+internal', allowed?.length === 2 && !allowed?.includes('confidential'))
+}
+
+// confidential ceiling: NULL rows still admitted (internal < confidential).
+{
+  const allowed = allowedClassificationsForCeiling('standard')
+  assert('confidential ceiling still admits NULL (internal in tier)', !!allowed?.includes('internal'))
+}
+
+console.log('\n--- exceedsClassificationCeiling (TD-883 getById) ---')
+
+// (c) getById returns null for over-tier under a ceiling.
+{
+  assert('confidential exceeds exploration ceiling → redacted', exceedsClassificationCeiling('confidential', 'exploration') === true)
+  assert('restricted exceeds exploration ceiling → redacted', exceedsClassificationCeiling('restricted', 'exploration') === true)
+}
+
+// (c) getById returns the row when in-tier.
+{
+  assert('public in-tier at exploration → kept', exceedsClassificationCeiling('public', 'exploration') === false)
+  assert('internal in-tier at exploration → kept', exceedsClassificationCeiling('internal', 'exploration') === false)
+  assert('confidential in-tier at standard → kept', exceedsClassificationCeiling('confidential', 'standard') === false)
+}
+
+// (c) getById returns the row with no ceiling (no opts → never exceeds).
+{
+  assert('no ceiling → restricted never redacted', exceedsClassificationCeiling('restricted') === false)
+  assert('no ceiling → undefined classification never redacted', exceedsClassificationCeiling(undefined) === false)
+}
+
+// undefined classification treated as public (kept) even at lowest tier.
+{
+  assert('undefined classification at exploration → kept (public)', exceedsClassificationCeiling(undefined, 'exploration') === false)
+}
+
+// maxClassification overrides accessLevel in the getById predicate too.
+{
+  assert('admin+internal ceiling redacts confidential', exceedsClassificationCeiling('confidential', 'admin', 'internal') === true)
+}
+
+// fail-closed: unknown classification string is redacted (exceeds) even at admin.
+{
+  assert('unknown classification fails closed → redacted', exceedsClassificationCeiling('topsecret' as MemoryClassification, 'admin') === true)
 }
 
 console.log(`\n${'='.repeat(50)}`)

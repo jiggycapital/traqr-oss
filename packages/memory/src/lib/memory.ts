@@ -19,6 +19,8 @@ import type {
   MemoryExport,
   SearchOptions,
   MemoryCategory,
+  MemoryAccessLevel,
+  MemoryClassification,
 } from '../vectordb/types.js'
 
 // Re-export types
@@ -320,9 +322,13 @@ export async function searchMemories(
   return db.search(query, options)
 }
 
-export async function getMemory(id: string): Promise<Memory | null> {
+export async function getMemory(
+  id: string,
+  opts?: { accessLevel?: MemoryAccessLevel; maxClassification?: MemoryClassification },
+): Promise<Memory | null> {
   const db = getVectorDB()
-  return db.getById(id)
+  // TD-883: thread the optional classification ceiling. No opts → unchanged.
+  return db.getById(id, opts)
 }
 
 /**

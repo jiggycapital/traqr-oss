@@ -53,6 +53,28 @@ export const ACCESS_LEVEL_MAX_CLASSIFICATION: Record<MemoryAccessLevel, MemoryCl
   admin: 'restricted',         // /cos — full cross-namespace visibility
 }
 
+// TD-883: does a row's classification exceed the ceiling for a caller?
+// Shared, dependency-free predicate for the direct getById path (both
+// providers import from this module already, so no import cycle with the
+// retrieval-layer choke point). Mirrors applyClassificationCeiling's rules:
+//   - no accessLevel + no maxClassification → no ceiling → never exceeds
+//   - maxClassification overrides accessLevel
+//   - missing/undefined classification → treated as 'public' (never exceeds)
+//   - unknown classification string → fail closed (exceeds)
+export function exceedsClassificationCeiling(
+  classification: MemoryClassification | undefined,
+  accessLevel?: MemoryAccessLevel,
+  maxClassification?: MemoryClassification,
+): boolean {
+  const ceiling: MemoryClassification | undefined =
+    maxClassification ??
+    (accessLevel ? ACCESS_LEVEL_MAX_CLASSIFICATION[accessLevel] : undefined)
+  if (!ceiling) return false
+  const rank = CLASSIFICATION_RANK[(classification ?? 'public') as MemoryClassification]
+  if (rank === undefined) return true // unknown classification → fail closed
+  return rank > CLASSIFICATION_RANK[ceiling]
+}
+
 // Retention policies for data lifecycle (Glasswing TD-716)
 export type MemoryRetentionPolicy = 'permanent' | 'client_engagement' | 'session' | 'manual'
 
@@ -284,7 +306,11 @@ export interface VectorDBProvider {
   // Core operations
   store(memory: MemoryInput, domainId?: string): Promise<Memory>
   search(query: string, options?: SearchOptions & { precomputedEmbedding?: string }): Promise<MemorySearchResult[]>
-  getById(id: string): Promise<Memory | null>
+  // TD-883: optional classification ceiling. When opts carries accessLevel or
+  // maxClassification and the fetched row exceeds that ceiling, return null
+  // (treated as not-found for that tier). No opts → unchanged behavior, so the
+  // classification-blind hydration call in retrieval.ts stays compatible.
+  getById(id: string, opts?: { accessLevel?: MemoryAccessLevel; maxClassification?: MemoryClassification }): Promise<Memory | null>
   update(id: string, updates: MemoryUpdate): Promise<Memory>
   delete(id: string): Promise<void>
   validate(id: string): Promise<Memory>
@@ -341,7 +367,7 @@ export interface VectorDBProvider {
   archiveEntities(ids: string[]): Promise<number>
 
   // Utility operations (abstracted from direct client calls)
-  browse(options?: { domain?: string, category?: string, limit?: number }): Promise<BrowseResult[]>
+  browse(options?: { domain?: string, category?: string, limit?: number, accessLevel?: MemoryAccessLevel, maxClassification?: MemoryClassification }): Promise<BrowseResult[]>
   forget(id: string): Promise<void>
   createRelationship(sourceId: string, targetId: string, edgeType: string, metadata?: Record<string, unknown>): Promise<string | null>
   countEntityMentions(name: string, userId: string): Promise<number>

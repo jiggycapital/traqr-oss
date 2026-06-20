@@ -152,10 +152,14 @@ export function registerTools(server: McpServer) {
   server.tool(
     'memory_read',
     'Expand a memory by ID. Shows full content, metadata, version history, and related memories.',
-    { memoryId: z.string().uuid().describe('UUID of the memory') },
-    async ({ memoryId }) => {
+    {
+      memoryId: z.string().uuid().describe('UUID of the memory'),
+      accessLevel: z.enum(['exploration', 'standard', 'privileged', 'admin']).optional()
+        .describe('Caller tier ceiling; over-tier rows return not-found. Omit = unfiltered.'),
+    },
+    async ({ memoryId, accessLevel }) => {
       try {
-        const memory = await getMemory(memoryId)
+        const memory = await getMemory(memoryId, accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : undefined)
         if (!memory) return { content: [{ type: 'text' as const, text: `Memory ${memoryId} not found` }] }
         // TD-817: an explicit expansion is the citation signal. Guarded —
         // a counter failure must never block the read.
@@ -206,11 +210,13 @@ export function registerTools(server: McpServer) {
     {
       domain: z.string().optional(),
       category: categoryEnum.optional(),
+      accessLevel: z.enum(['exploration', 'standard', 'privileged', 'admin']).optional()
+        .describe('Caller tier ceiling; over-tier summaries are dropped. Omit = unfiltered.'),
     },
-    async ({ domain, category }) => {
+    async ({ domain, category, accessLevel }) => {
       try {
         const db = getVectorDB()
-        const data = await db.browse({ domain, category })
+        const data = await db.browse({ domain, category, ...(accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : {}) })
 
         if (!domain && !category) {
           // Return domain counts

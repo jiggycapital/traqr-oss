@@ -128,9 +128,7 @@ export function applyClassificationCeiling<T extends { classification?: MemoryCl
 ): T[] {
   // Resolve the ceiling. Explicit maxClassification wins; else derive from
   // accessLevel; else no ceiling → fail-safe pass-through.
-  const ceiling: MemoryClassification | undefined =
-    maxClassification ??
-    (accessLevel ? ACCESS_LEVEL_MAX_CLASSIFICATION[accessLevel] : undefined)
+  const ceiling = resolveClassificationCeiling(accessLevel, maxClassification)
 
   if (!ceiling) return results
 
@@ -143,6 +141,45 @@ export function applyClassificationCeiling<T extends { classification?: MemoryCl
     if (rank === undefined) return false
     return rank <= ceilingRank
   })
+}
+
+/**
+ * Resolve the effective classification ceiling for a caller.
+ *
+ * Explicit maxClassification wins; else derive from accessLevel; else undefined
+ * (= no ceiling, fail-safe). Shared by every surface that filters on the
+ * accessLevel/maxClassification pair (search, browse, getById) so the mapping
+ * lives in exactly one place (TD-883).
+ */
+export function resolveClassificationCeiling(
+  accessLevel?: MemoryAccessLevel,
+  maxClassification?: MemoryClassification,
+): MemoryClassification | undefined {
+  return (
+    maxClassification ??
+    (accessLevel ? ACCESS_LEVEL_MAX_CLASSIFICATION[accessLevel] : undefined)
+  )
+}
+
+/**
+ * The list of classification values at or below a ceiling, for DB-level
+ * `.in('classification', ...)` filtering (TD-883 browse surface).
+ *
+ * No ceiling → undefined (caller must skip filtering → unchanged behavior).
+ * NOTE: a NULL classification column hydrates to 'internal' (rowToMemory's
+ * `?? 'internal'`), so callers filtering at the DB must additionally admit NULL
+ * rows whenever 'internal' is in this list — `.in()` alone never matches NULL.
+ */
+export function allowedClassificationsForCeiling(
+  accessLevel?: MemoryAccessLevel,
+  maxClassification?: MemoryClassification,
+): MemoryClassification[] | undefined {
+  const ceiling = resolveClassificationCeiling(accessLevel, maxClassification)
+  if (!ceiling) return undefined
+  const ceilingRank = CLASSIFICATION_RANK[ceiling]
+  return (Object.keys(CLASSIFICATION_RANK) as MemoryClassification[]).filter(
+    (cls) => CLASSIFICATION_RANK[cls] <= ceilingRank,
+  )
 }
 
 // ---------------------------------------------------------------------------

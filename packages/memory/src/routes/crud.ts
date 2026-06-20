@@ -16,9 +16,11 @@ import {
   verifyRoundTrip,
   getDetailedStats,
 } from '../lib/memory.js'
-import type { MemoryCategory, MemoryUpdate } from '../vectordb/types.js'
+import type { MemoryCategory, MemoryUpdate, MemoryClassification, MemoryAccessLevel } from '../vectordb/types.js'
 
 const VALID_CATEGORIES: MemoryCategory[] = ['gotcha', 'pattern', 'fix', 'insight', 'question', 'preference', 'convention']
+const VALID_CLASSIFICATIONS: MemoryClassification[] = ['public', 'internal', 'confidential', 'restricted']
+const VALID_ACCESS_LEVELS: MemoryAccessLevel[] = ['exploration', 'standard', 'privileged', 'admin']
 
 const app = new Hono()
 
@@ -31,7 +33,28 @@ app.get('/get', async (c) => {
       return c.json({ success: false, error: 'id parameter required' }, 400)
     }
 
-    const memory = await getMemory(id)
+    // Classification ceiling (TD-883) — parsed exactly like search.ts. An
+    // over-tier row is redacted to not-found (404) for that caller. No
+    // accessLevel/maxClassification → no ceiling → unchanged behavior.
+    const maxClassificationParam = c.req.query('maxClassification')
+    let maxClassification: MemoryClassification | undefined
+    if (maxClassificationParam) {
+      if (!VALID_CLASSIFICATIONS.includes(maxClassificationParam as MemoryClassification)) {
+        return c.json({ success: false, error: `maxClassification must be one of: ${VALID_CLASSIFICATIONS.join(', ')}` }, 400)
+      }
+      maxClassification = maxClassificationParam as MemoryClassification
+    }
+
+    const accessLevelParam = c.req.query('accessLevel')
+    let accessLevel: MemoryAccessLevel | undefined
+    if (accessLevelParam) {
+      if (!VALID_ACCESS_LEVELS.includes(accessLevelParam as MemoryAccessLevel)) {
+        return c.json({ success: false, error: `accessLevel must be one of: ${VALID_ACCESS_LEVELS.join(', ')}` }, 400)
+      }
+      accessLevel = accessLevelParam as MemoryAccessLevel
+    }
+
+    const memory = await getMemory(id, { accessLevel, maxClassification })
 
     if (!memory) {
       return c.json({ success: false, error: 'Memory not found' }, 404)
