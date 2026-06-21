@@ -60,3 +60,17 @@ export function resetVectorDB(): void {
   resetPostgresPool()
 }
 
+/**
+ * Inject a provider instance directly. TEST-ONLY seam (TD-885).
+ *
+ * Lets an integration test drive searchMemoriesV2 (which calls getVectorDB())
+ * through a fake VectorDBProvider, so the live retrieval path — including the
+ * classification-blind bm25/graph getById hydration that leaked in TD-810
+ * commit-1 — can be exercised without a live DB. Mirrors resetVectorDB(); it is
+ * never reached by production code (no caller passes a provider in). Pair with
+ * resetVectorDB() in a finally to restore the singleton.
+ */
+export function setVectorDB(provider: VectorDBProvider): void {
+  providerInstance = provider
+}
+

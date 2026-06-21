@@ -68,6 +68,19 @@ export function resetPostgresPool(): void {
   }
 }
 
+/**
+ * Inject a pool object directly. TEST-ONLY seam (TD-885).
+ *
+ * Lets a contract test capture the positional args that
+ * PostgresVectorProvider.search() passes to query() — without a live DB. This
+ * is the regression guard for the TD-810 commit-2 leak, where search() passed
+ * only 8 args and the DB defaulted p_max_classification to 'restricted'
+ * (= show-all). Mirrors resetPostgresPool(); never reached by production code.
+ */
+export function setPostgresPool(pool: any): void {
+  _pool = pool
+}
+
 // ---------------------------------------------------------------------------
 // Query Helpers
 // ---------------------------------------------------------------------------

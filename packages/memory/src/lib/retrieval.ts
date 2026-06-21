@@ -403,6 +403,13 @@ export async function searchMemoriesV2(
 
   // 3. Run active strategies in parallel
   // Keep full semantic results for hydration + BM25 content for reranking
+  //
+  // TD-885 regression-guard fidelity: the classification post-filter (step 6.5)
+  // is exercised end-to-end by classification-enforcement.integration.test.ts via
+  // a fake provider that emits over-tier rows from EACH strategy below. If you add
+  // a NEW retrieval strategy here, add a fake over-tier row for it in that test's
+  // fakeProvider — otherwise its "0 over-tier rows across every path" assertion
+  // passes blind to the new path, and a classification leak ships green.
   let semanticFullResults: MemorySearchResult[] = []
   let bm25ContentMap = new Map<string, string>()
 
