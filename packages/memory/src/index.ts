@@ -9,7 +9,10 @@
 export { createMemoryServer } from './server.js'
 
 // VectorDB layer
-export { getVectorDB, resetVectorDB } from './vectordb/index.js'
+// setVectorDB is the test-only provider-injection seam (TD-885); re-exported at
+// the root so cross-package integration tests (e.g. memory-mcp tool contracts,
+// TD-887) can drive the live path through a fake provider without a DB.
+export { getVectorDB, resetVectorDB, setVectorDB } from './vectordb/index.js'
 
 // Liveness health probe (bounded DB ping for HTTP /health endpoints)
 export { checkDbHealth } from './lib/health.js'

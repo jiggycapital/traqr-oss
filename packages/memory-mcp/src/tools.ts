@@ -256,7 +256,15 @@ export function registerTools(server: McpServer) {
           taskDescription,
           ...(accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : {}),
         })
-        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
+        // memory_context is an AGENT priming tool — return the bounded promptContext
+        // prose (HARD_CAP=15 + extractSummary 150-char cap + small per-search limits,
+        // with [MEM-xxxxxx] shortcodes + a `Total: N` footer), NOT the full SessionContext.
+        // Its 6 full-content arrays + recentLearnings ballooned to 61KB for tasks matching
+        // long memories → overflowed the MCP token cap → spilled to a file → silent Phase-0
+        // priming failure fleet-wide (TD-889; recurred 6/10 + 6/20, ~96% of the payload was
+        // full-content bloat). assembleSessionContext is unchanged: the HTTP /context route
+        // and other programmatic callers still receive the full structured object.
+        return { content: [{ type: 'text' as const, text: result.promptContext }] }
       } catch (err) { return errorResult('memory_context', err) }
     },
   )
@@ -399,11 +407,22 @@ export function registerTools(server: McpServer) {
       category: categoryEnum.optional().describe('Override auto-category for corrected memory'),
       tags: z.array(controlledTagEnum).optional().describe('Override auto-tags'),
       confidence: z.number().min(0).max(1).default(0.9),
+      accessLevel: z.enum(['exploration', 'standard', 'privileged', 'admin']).optional()
+        .describe('Agent access tier. Gates the read of the memory being corrected: an over-tier target redacts as not-found (TD-883/884 parity). Default: no ceiling.'),
     },
-    async ({ wrongMemoryId, correctedContent, reason, category, tags, confidence }) => {
+    async ({ wrongMemoryId, correctedContent, reason, category, tags, confidence, accessLevel }) => {
       try {
-        // 1. Verify the wrong memory exists
-        const wrongMemory = await getMemory(wrongMemoryId)
+        // 1. Verify the wrong memory exists.
+        // TD-887: thread the classification ceiling into the read. memory_correct
+        // echoes wrongMemory.summary back to the caller (step 6 below); without a
+        // ceiling that is a metadata-disclosure surface the TD-883/884 read-arc
+        // never swept. getMemory(accessLevel) redacts an over-tier target as null
+        // → falls into the not-found branch → no summary leaks. No accessLevel →
+        // fail-safe pass-through (byte-identical to pre-TD-887).
+        const wrongMemory = await getMemory(
+          wrongMemoryId,
+          accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : undefined,
+        )
         if (!wrongMemory) {
           return { content: [{ type: 'text' as const, text: `Memory ${wrongMemoryId} not found. Cannot correct a non-existent memory.` }] }
         }
