@@ -955,7 +955,7 @@ DECLARE
   mention_count INTEGER;
 BEGIN
   SELECT COUNT(*) INTO mention_count
-  FROM traqr_memories m
+  FROM public.traqr_memories m
   WHERE m.user_id = p_user_id
     AND m.is_archived = FALSE
     AND m.is_forgotten = FALSE
