@@ -543,7 +543,14 @@ export async function searchMemoriesV2(
   // Fetch non-semantic results by ID (BM25/graph-only hits)
   if (idsToFetch.length > 0) {
     const fetched = await Promise.all(
-      idsToFetch.map(({ id }) => provider.getById(id).catch(() => null)),
+      // TD-884: thread the ceiling so non-semantic (BM25/graph) hydration never
+      // decrypts over-tier content — the getById choke-point also redacts these as
+      // null, ahead of the applyClassificationCeiling drop below (defense-in-depth).
+      idsToFetch.map(({ id }) =>
+        provider
+          .getById(id, { accessLevel: options.accessLevel, maxClassification: options.maxClassification })
+          .catch(() => null),
+      ),
     )
     for (let i = 0; i < fetched.length; i++) {
       const memory = fetched[i]

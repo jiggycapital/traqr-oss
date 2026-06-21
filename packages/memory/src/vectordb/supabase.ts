@@ -231,7 +231,9 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       throw new Error(`Failed to get memory: ${error.message}`)
     }
 
-    const memory = rowToMemory(data as MemoryRow)
+    // TD-884: pass the ceiling into the converter so over-tier content is never
+    // decrypted (not just dropped post-hydration). No opts → unchanged.
+    const memory = rowToMemory(data as MemoryRow, opts)
     // TD-883: redact over-tier rows as not-found. No opts → no ceiling → unchanged.
     if (exceedsClassificationCeiling(memory.classification, opts?.accessLevel, opts?.maxClassification)) {
       return null

@@ -10,11 +10,23 @@ import type {
   MemorySearchResult,
   MemoryCategory,
   MemoryClassification,
+  MemoryAccessLevel,
   MemoryDurability,
   MemoryRetentionPolicy,
   MemoryType,
 } from './types.js'
+import { exceedsClassificationCeiling } from './types.js'
 import { decrypt } from '../lib/encryption.js'
+
+// TD-884 fork B: optional classification ceiling for the decryption choke-point.
+// When present and the row's classification exceeds the caller's tier, content is
+// never decrypted (left as the [ENCRYPTED] placeholder). Mirrors the getById/browse
+// opts shape so call sites pass the same object through. No opts → no ceiling →
+// decrypts as before (fail-safe pass-through for trusted internal callers).
+export interface ClassificationCeilingOpts {
+  accessLevel?: MemoryAccessLevel
+  maxClassification?: MemoryClassification
+}
 
 // Database row type matching traqr_memories schema
 export interface MemoryRow {
@@ -81,10 +93,23 @@ export interface SearchResultRow extends MemoryRow {
   relevance_score: number
 }
 
-export function rowToMemory(row: MemoryRow): Memory {
-  // Transparent decryption: if encrypted_content exists, decrypt it
+export function rowToMemory(row: MemoryRow, opts?: ClassificationCeilingOpts): Memory {
+  // Effective classification — a NULL column hydrates to 'internal' (see the
+  // returned `classification` field below). Computed once so the decryption gate
+  // and the returned field share one source of truth.
+  const classification = (row.classification as MemoryClassification) ?? 'internal'
+
+  // Transparent decryption: if encrypted_content exists, decrypt it — UNLESS the
+  // caller's tier is below the row's classification (TD-884 fork B). Gating at this
+  // single converter choke-point means over-tier content is NEVER decrypted, even
+  // transiently, regardless of which read path fetched the row — strictly safer than
+  // the surface-level "decrypt-then-drop" filters. No opts → no ceiling → decrypts as
+  // before (internal/trusted callers unchanged); fail-safe pass-through.
   let content = row.content
-  if (row.encrypted_content && row.encryption_iv && row.encryption_tag) {
+  const overTier = opts
+    ? exceedsClassificationCeiling(classification, opts.accessLevel, opts.maxClassification)
+    : false
+  if (!overTier && row.encrypted_content && row.encryption_iv && row.encryption_tag) {
     const decrypted = decrypt({
       ciphertext: row.encrypted_content,
       iv: row.encryption_iv,
@@ -137,7 +162,7 @@ export function rowToMemory(row: MemoryRow): Memory {
     forgetAfter: row.forget_after ? new Date(row.forget_after) : undefined,
     sourceTool: row.source_tool ?? undefined,
     // v3: Security classification
-    classification: (row.classification as MemoryClassification) ?? 'internal',
+    classification,
     clientNamespace: row.client_namespace ?? undefined,
     containsPii: row.contains_pii ?? false,
     // v4: Retention policies
@@ -146,9 +171,9 @@ export function rowToMemory(row: MemoryRow): Memory {
   }
 }
 
-export function rowToSearchResult(row: SearchResultRow): MemorySearchResult {
+export function rowToSearchResult(row: SearchResultRow, opts?: ClassificationCeilingOpts): MemorySearchResult {
   return {
-    ...rowToMemory(row),
+    ...rowToMemory(row, opts),
     currentConfidence: row.current_confidence,
     similarity: row.similarity,
     relevanceScore: row.relevance_score,

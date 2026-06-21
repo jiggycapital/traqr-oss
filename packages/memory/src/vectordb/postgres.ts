@@ -225,7 +225,9 @@ export class PostgresVectorProvider implements VectorDBProvider {
       [id],
     )
     if (!row) return null
-    const memory = rowToMemory(row as MemoryRow)
+    // TD-884: pass the ceiling into the converter so over-tier content is never
+    // decrypted (not just dropped post-hydration). No opts → unchanged.
+    const memory = rowToMemory(row as MemoryRow, opts)
     // TD-883: redact over-tier rows as not-found. No opts → no ceiling → unchanged.
     if (exceedsClassificationCeiling(memory.classification, opts?.accessLevel, opts?.maxClassification)) {
       return null
