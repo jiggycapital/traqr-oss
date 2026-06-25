@@ -369,6 +369,30 @@ export async function findEntitiesInQuery(
 // ---------------------------------------------------------------------------
 
 /**
+ * Surface a dead/failing OPTIONAL retrieval strategy ONCE per process.
+ *
+ * TD-894: the bm25/temporal/graph legs each `.catch(() => [])` on failure. When
+ * all three threw `42P01` (search_path='' + unqualified tables), fusion silently
+ * degraded to semantic-only and the no-op rotted undetected for MONTHS — the
+ * exact "silent proxy" failure the proxy-invariant warns about. A broken RPC
+ * errors on EVERY call, so warn-once-per-process keeps the signal loud without
+ * flooding logs on every search. (Semantic stays warn-always at its own call
+ * site — it's the critical leg; you want every transient failure, not just the
+ * first.)
+ */
+const warnedDeadStrategies = new Set<string>()
+function noteStrategyFailure(strategy: string, err: unknown): StrategyResult {
+  if (!warnedDeadStrategies.has(strategy)) {
+    warnedDeadStrategies.add(strategy)
+    console.warn(
+      `[retrieval] "${strategy}" strategy failed — degrading to remaining strategies (warn-once/process):`,
+      err,
+    )
+  }
+  return { strategy, items: [] }
+}
+
+/**
  * Multi-strategy search with RRF fusion.
  *
  * Runs semantic + BM25 in parallel (always), plus temporal and graph
@@ -451,7 +475,7 @@ export async function searchMemoriesV2(
             items: results.map((r, i) => ({ id: r.id, rank: i + 1 })),
           }
         })
-        .catch(() => ({ strategy: 'bm25', items: [] })),
+        .catch((err) => noteStrategyFailure('bm25', err)),
     )
   }
 
@@ -466,7 +490,7 @@ export async function searchMemoriesV2(
           strategy: 'temporal',
           items: results.map((r, i) => ({ id: r.id, rank: i + 1 })),
         }))
-        .catch(() => ({ strategy: 'temporal', items: [] })),
+        .catch((err) => noteStrategyFailure('temporal', err)),
     )
   }
 
@@ -480,7 +504,7 @@ export async function searchMemoriesV2(
           strategy: 'graph',
           items: results.map((r, i) => ({ id: r.id, rank: i + 1 })),
         }))
-        .catch(() => ({ strategy: 'graph', items: [] })),
+        .catch((err) => noteStrategyFailure('graph', err)),
     )
   }
 

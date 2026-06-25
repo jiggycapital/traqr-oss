@@ -22,6 +22,15 @@ if (cliFlag === '--install') { await import('./cli/install.js'); process.exit(0)
 if (cliFlag === '--setup') { await import('./cli/setup-db.js'); process.exit(0) }
 if (cliFlag === '--verify') { await import('./cli/verify.js'); process.exit(0) }
 if (cliFlag === '--print-instructions') { await import('./cli/instructions.js'); process.exit(0) }
+if (cliFlag === '--print-fingerprint') {
+  // Content sha256 of the dist this build would load. The orient freshness
+  // detector compares it against a running process's stamped marker (content,
+  // not mtime) to tell a real stale process from a turbo cache-replay that only
+  // bumped file mtimes. Handled in the early block so it never touches the DB.
+  const { computeLoadedFingerprint } = await import('./lib/fingerprint.js')
+  process.stdout.write(computeLoadedFingerprint() + '\n')
+  process.exit(0)
+}
 if (cliFlag === '--help' || cliFlag === '-h') {
   console.log(`
   traqr-memory-mcp — MCP server for persistent AI agent memory
@@ -33,6 +42,7 @@ if (cliFlag === '--help' || cliFlag === '-h') {
     --setup               Run setup.sql on your database
     --verify              Health check + round trip test
     --print-instructions  Print CLAUDE.md memory instructions
+    --print-fingerprint   Print sha256 of the loaded dist (staleness detector)
     --help, -h            Show this help
 
   No flags: start MCP server (for MCP client config, not direct use)
@@ -155,6 +165,15 @@ async function checkSchemaAndReport() {
 async function main() {
   const transport = new StdioServerTransport()
   await checkSchemaAndReport()
+  // Stamp this process's loaded-code fingerprint so the orient freshness detector
+  // can tell a genuinely stale child from a turbo cache-replay (mtime-only) churn.
+  // Advisory + best-effort: never blocks or fails the boot.
+  try {
+    const { writeRuntimeMarker } = await import('./lib/fingerprint.js')
+    writeRuntimeMarker()
+  } catch {
+    /* marker is advisory */
+  }
   await server.connect(transport)
 }
 
