@@ -198,26 +198,36 @@ const DATE_PATTERNS = [
 
 /**
  * Detect which search strategies should be activated for a query.
- * Semantic + BM25 always run. Temporal activates on date patterns.
- * Graph activates when entity seed IDs are provided.
+ *
+ * TD-894 Path B (Sean-approved, Granola "Ultracode response 2" 2026-06-22:
+ * "Let's do infrastructure… let's do Path B. I trust your guidance… there's a
+ * ton of bloat in here"): the auto-detected default is now SEMANTIC-ONLY.
+ *
+ * Why: `bm25_search`/`temporal_search`/`graph_search` all carry `search_path=''`
+ * with unqualified table refs → every live call throws 42P01 (swallowed to []),
+ * so BM25/temporal/graph fusion has been a production no-op for months while
+ * still paying per-search dead RPC round-trips. The recall A/B on a *repaired*
+ * BM25 also showed equal-weight RRF evicting Sean's curated steering memories on
+ * conceptual queries (q08), so re-enabling as-is would regress recall. Per Path B
+ * we stop invoking the dead legs by default and reclaim the 21 MB of GIN indexes
+ * (migration 021); TD-587 (the never-ran hybrid) is superseded.
+ *
+ * The bm25/temporal/graph legs in searchMemoriesV2 remain reachable via an
+ * explicit `options.strategies` override (preserves the TD-810/885 classification
+ * regression test + any deliberate caller); they are simply no longer auto-on.
+ * `entityIds`/`temporalRange` are still returned so an override caller can drive
+ * graph/temporal, but they no longer flip a strategy on by themselves.
  */
 export function detectStrategies(
   query: string,
   entityIds?: string[],
 ): DetectedStrategies {
-  const strategies: SearchStrategy[] = ['semantic', 'bm25']
+  const strategies: SearchStrategy[] = ['semantic']
 
+  // Date pattern still parsed so an explicit temporal-override caller gets a
+  // range, but it no longer auto-activates the (dead) temporal leg.
   const hasDatePattern = DATE_PATTERNS.some((p) => p.test(query))
-  let temporalRange: { start: Date; end: Date } | undefined
-
-  if (hasDatePattern) {
-    strategies.push('temporal')
-    temporalRange = parseTemporalRange(query)
-  }
-
-  if (entityIds && entityIds.length > 0) {
-    strategies.push('graph')
-  }
+  const temporalRange = hasDatePattern ? parseTemporalRange(query) : undefined
 
   return {
     strategies,
@@ -395,8 +405,11 @@ function noteStrategyFailure(strategy: string, err: unknown): StrategyResult {
 /**
  * Multi-strategy search with RRF fusion.
  *
- * Runs semantic + BM25 in parallel (always), plus temporal and graph
- * when detected. Fuses results via Reciprocal Rank Fusion.
+ * Default path is SEMANTIC-ONLY as of TD-894 Path B (see detectStrategies): the
+ * bm25/temporal/graph legs are dead in prod (42P01) and re-enabling as-is
+ * regresses curated-memory recall, so they no longer auto-activate. They remain
+ * reachable — and RRF-fused — via an explicit `options.strategies` override,
+ * which keeps the TD-810/885 classification post-filter exercised end-to-end.
  * Returns MemorySearchResult[] for backward compatibility.
  */
 export async function searchMemoriesV2(
@@ -410,9 +423,13 @@ export async function searchMemoriesV2(
   const k = options.rrfK || 60
   const overFetchLimit = topN * 2
 
-  // 0.5 Auto-resolve entities from query (if no explicit entityIds)
+  // 0.5 Auto-resolve entities from query — ONLY when a caller explicitly opts
+  // into the graph leg via options.strategies. TD-894 Path B made the default
+  // path semantic-only, so the per-search findEntitiesByNames round-trip (which
+  // exists solely to seed the dead `graph_search`) is pure overhead otherwise.
   let resolvedEntityIds = options.entityIds || []
-  if (resolvedEntityIds.length === 0) {
+  const wantsGraph = options.strategies?.includes('graph') ?? false
+  if (wantsGraph && resolvedEntityIds.length === 0) {
     resolvedEntityIds = await findEntitiesInQuery(query, provider)
   }
 

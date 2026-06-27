@@ -75,26 +75,33 @@ assert('empty strategies → []', reciprocalRankFusion([]).length === 0)
 // ============================================================
 console.log('\n--- detectStrategies ---')
 
-assert('semantic + bm25 always on', (() => {
+// TD-894 Path B (Sean-approved 2026-06-22): the auto-detected default is now
+// SEMANTIC-ONLY. bm25/temporal/graph are dead in prod (42P01) and no longer
+// auto-activate; they stay reachable only via an explicit options.strategies
+// override (exercised by classification-enforcement.integration.test.ts).
+assert('default is semantic-only (no auto bm25/temporal/graph)', (() => {
   const d = detectStrategies('what do we know about caching')
-  return d.strategies.includes('semantic') && d.strategies.includes('bm25')
+  return (
+    d.strategies.includes('semantic') &&
+    !d.strategies.includes('bm25') &&
+    !d.strategies.includes('temporal') &&
+    !d.strategies.includes('graph')
+  )
 })())
 
-assert('no temporal/graph for a plain query', (() => {
-  const d = detectStrategies('how does the daemon work')
-  return !d.strategies.includes('temporal') && !d.strategies.includes('graph')
-})())
-
-assert('date phrase activates temporal', (() => {
+assert('date phrase no longer auto-activates the dead temporal leg', (() => {
   const d = detectStrategies('what happened last week with the deploy')
-  return d.strategies.includes('temporal') && d.temporalRange !== undefined
+  return !d.strategies.includes('temporal')
 })())
 
-assert('ISO date activates temporal', detectStrategies('the 2026-03-15 incident').strategies.includes('temporal'))
+assert('date phrase still parses a temporalRange (for override callers)', (() => {
+  const d = detectStrategies('what happened last week with the deploy')
+  return d.temporalRange !== undefined
+})())
 
-assert('entityIds activate graph', (() => {
+assert('entityIds no longer auto-activate the dead graph leg', (() => {
   const d = detectStrategies('AVGO thesis', ['ent-1'])
-  return d.strategies.includes('graph') && d.graphSeedIds?.length === 1
+  return !d.strategies.includes('graph') && d.graphSeedIds?.length === 1
 })())
 
 // ============================================================

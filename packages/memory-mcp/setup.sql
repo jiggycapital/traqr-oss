@@ -301,11 +301,13 @@ CREATE INDEX IF NOT EXISTS idx_traqr_memories_temporal
   ON traqr_memories(valid_at, invalid_at)
   WHERE is_archived = FALSE AND is_forgotten = FALSE;
 
--- traqr_memories: v2 BM25 tsvector indexes (GIN for full-text search)
-CREATE INDEX IF NOT EXISTS idx_traqr_memories_search_en
-  ON traqr_memories USING gin(search_vector_en);
-CREATE INDEX IF NOT EXISTS idx_traqr_memories_search_simple
-  ON traqr_memories USING gin(search_vector_simple);
+-- traqr_memories: v2 BM25 tsvector GIN indexes — REMOVED in TD-894 Path B
+-- (migration 021). bm25_search is dead in prod (search_path='' + unqualified
+-- ref → 42P01) and no longer auto-runs (retrieval.ts is semantic-only), so these
+-- GIN indexes backed nothing live and cost ~15 MB RAM + per-write maintenance.
+-- The search_vector_en/simple COLUMNS stay (cheap, still populated); only the
+-- indexes are gone. Re-add only if BM25 fusion is repaired to a selective,
+-- index-usable query shape (see migration 021 rollback).
 
 -- traqr_memory_history
 CREATE INDEX IF NOT EXISTS idx_traqr_memory_history_memory

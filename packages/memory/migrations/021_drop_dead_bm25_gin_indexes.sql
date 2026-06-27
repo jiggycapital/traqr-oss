@@ -1,0 +1,56 @@
+-- 021_drop_dead_bm25_gin_indexes.sql
+-- Drop the 3 BM25 full-text GIN indexes that serve only the dead fusion legs.
+--
+-- WHY (TD-894 Path B — Sean-approved, Granola "Ultracode response 2" 2026-06-22:
+-- "Let's do infrastructure… let's do Path B. I trust your guidance… there's a
+-- ton of bloat in here")
+-- ---------------------------------------------------------------------------
+-- `bm25_search`/`temporal_search`/`graph_search` carry `SET search_path = ''`
+-- with UNQUALIFIED table refs → every live call throws 42P01 (swallowed to [])
+-- on traqr-db (krzajogmytxbudzisydm), so BM25 fusion has been a production no-op
+-- for months (TD-587's "shipped" hybrid never actually ran). Migration 019
+-- (drop_unused_entity_hnsw) explicitly deferred these 3 GIN indexes to "a
+-- follow-up cave… is the BM25 hybrid path exercised / does it seq-scan" — this
+-- is that cave, and Path B answers it: don't keep the legs.
+--
+-- The companion code change (retrieval.ts detectStrategies → semantic-only)
+-- stops invoking the dead legs on the default search path, so these indexes now
+-- back NOTHING live:
+--   * idx_traqr_memories_search_en   (gin search_vector_en)     ← bm25_search only
+--   * idx_traqr_memories_search_simple (gin search_vector_simple) ← bm25_search only
+--   * idx_traqr_memories_bm25        (gin search_vector)         ← memory_bm25_search,
+--                                       which has no TS caller (orphan, 0 lifetime scans)
+--
+-- Lifetime scans at drop time (pg_stat_user_indexes, krzajogmytxbudzisydm
+-- 2026-06-26): bm25=0, search_en=7, search_simple=6 — i.e. effectively zero
+-- against hundreds of memory_searches/day; the handful are investigation EXPLAINs.
+-- Combined ~21.8 MB (6.6 + 6.8 + 8.3 MB) of GIN held in RAM + maintained on every
+-- memory_store — the exact "21 MB unused GIN" / "ton of bloat" Path B reclaims on
+-- the constrained tier (TD-862 #3: compute tier is the dominant lever).
+--
+-- The bm25/temporal/graph FUNCTIONS + provider methods are intentionally LEFT in
+-- place (still reachable via an explicit options.strategies override, which keeps
+-- the TD-810/885 classification regression test exercised). Their teardown +
+-- the classification-blind-surface cleanup + the cheap exact-ID recall
+-- augmentation are a deliberate follow-up slice, not part of this no-regret drop.
+--
+-- CONCURRENTLY: drop runs outside a txn to avoid the ACCESS EXCLUSIVE lock on
+-- traqr_memories while the fleet writes. If your migration runner wraps statements
+-- in a transaction, run these via a direct (autocommit) session.
+--
+-- APPLIED to prod krzajogmytxbudzisydm on 2026-06-26 (Feature1, via direct
+-- DROP INDEX CONCURRENTLY). This file is the durable record + rollback.
+-- ---------------------------------------------------------------------------
+
+DROP INDEX CONCURRENTLY IF EXISTS public.idx_traqr_memories_search_en;
+DROP INDEX CONCURRENTLY IF EXISTS public.idx_traqr_memories_search_simple;
+DROP INDEX CONCURRENTLY IF EXISTS public.idx_traqr_memories_bm25;
+
+-- ROLLBACK (only if BM25 fusion is repaired AND re-wired to a selective,
+-- index-usable query shape — not OR-explode — per TD-894 Path A):
+--   CREATE INDEX CONCURRENTLY idx_traqr_memories_search_en
+--     ON public.traqr_memories USING gin (search_vector_en);
+--   CREATE INDEX CONCURRENTLY idx_traqr_memories_search_simple
+--     ON public.traqr_memories USING gin (search_vector_simple);
+--   CREATE INDEX CONCURRENTLY idx_traqr_memories_bm25
+--     ON public.traqr_memories USING gin (search_vector);
