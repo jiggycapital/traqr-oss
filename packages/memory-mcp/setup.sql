@@ -574,7 +574,7 @@ RETURNS TABLE (
   source_tool VARCHAR
 )
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 BEGIN
   RETURN QUERY
@@ -651,7 +651,7 @@ RETURNS TABLE (
   source_tool VARCHAR
 )
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 BEGIN
   RETURN QUERY
@@ -701,7 +701,7 @@ RETURNS TABLE (
   reason TEXT
 )
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 BEGIN
   RETURN QUERY
@@ -762,7 +762,7 @@ RETURNS TABLE (
   memory_type TEXT
 )
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 DECLARE
   tsquery_en tsquery;
@@ -803,6 +803,7 @@ END;
 $$;
 
 -- 6f. temporal_search — valid_at range + embedding similarity
+-- search_path = public: references traqr_memories table
 CREATE OR REPLACE FUNCTION temporal_search(
   p_query_embedding vector(1536),
   p_date_start TIMESTAMPTZ,
@@ -820,7 +821,7 @@ RETURNS TABLE (
   valid_at TIMESTAMPTZ
 )
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 DECLARE
   date_mid TIMESTAMPTZ;
@@ -851,6 +852,7 @@ END;
 $$;
 
 -- 6g. graph_search — link expansion CTE traversing memory_relationships
+-- search_path = public: references traqr_memories + memory_relationships
 CREATE OR REPLACE FUNCTION graph_search(
   p_seed_ids UUID[],
   p_edge_types TEXT[] DEFAULT ARRAY['updates', 'extends', 'derives', 'related'],
@@ -866,7 +868,7 @@ RETURNS TABLE (
   depth INTEGER
 )
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 BEGIN
   RETURN QUERY
@@ -926,7 +928,7 @@ RETURNS TABLE (
   mentions_count INTEGER
 )
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 BEGIN
   RETURN QUERY
@@ -970,7 +972,7 @@ $$;
 CREATE OR REPLACE FUNCTION forget_expired_memories()
 RETURNS INTEGER
 LANGUAGE plpgsql
-SET search_path = ''
+SET search_path = public
 AS $$
 DECLARE
   forgotten_count INTEGER;
