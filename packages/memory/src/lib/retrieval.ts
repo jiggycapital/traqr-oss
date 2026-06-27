@@ -183,6 +183,98 @@ export function allowedClassificationsForCeiling(
 }
 
 // ---------------------------------------------------------------------------
+// Exact-ID / acronym recall augmentation (TD-906 Slice B)
+// ---------------------------------------------------------------------------
+
+/**
+ * How deep to scan the semantic candidate pool for an exact-ID rescue. Only
+ * applied when the query carries an exact-ID/acronym token (otherwise the
+ * over-fetch is unchanged), so conceptual queries pay nothing.
+ */
+export const EXACT_ID_RECALL_POOL = 100
+
+/** All-caps function words a caps-typing user might use — never a ticker/acronym. */
+const ACRONYM_STOPWORDS = new Set([
+  'AND', 'THE', 'FOR', 'NOT', 'ALL', 'ANY', 'WITH', 'FROM', 'THIS', 'THAT',
+  'WHAT', 'WHEN', 'WHERE', 'WHY', 'HOW', 'YOU', 'ARE', 'WAS', 'WERE', 'HAS',
+  'HAD', 'CAN', 'WHO', 'WILL', 'OUR',
+])
+
+/** Escape a string for literal use inside a RegExp (tokens may carry `.`, e.g. BRK.B). */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Extract high-precision exact-match tokens from a query: structured IDs
+ * (ticket keys like TD-865, JGC-294, MTQ-129) and upper-case acronyms/tickers
+ * (HNSW, RRF, AVGO). These are exactly the queries where semantic embeddings
+ * under-retrieve (TD-894 recall A/B) — a short ID/acronym carries little
+ * distributional signal, so the literal-matching memory ranks low or off the
+ * page. Lower-case prose yields NOTHING here, which is what keeps the
+ * augmentation a no-op on conceptual queries (no steering-memory eviction).
+ *
+ * A bare acronym that is merely the prefix of a captured ID (the `MTQ` in
+ * `MTQ-129`) is dropped — it would match every ticket in that team and is noise.
+ */
+export function extractExactIdTokens(query: string): string[] {
+  const idTokens: string[] = []
+  for (const m of query.matchAll(/\b[A-Z]{2,}-\d+\b/g)) idTokens.push(m[0])
+  const idPrefixes = new Set(idTokens.map((t) => t.split('-')[0]))
+
+  const tokens = new Set<string>(idTokens)
+  for (const m of query.matchAll(/\b[A-Z][A-Z0-9]{2,}\b/g)) {
+    const t = m[0]
+    if (idPrefixes.has(t) || ACRONYM_STOPWORDS.has(t)) continue
+    tokens.add(t)
+  }
+  return [...tokens]
+}
+
+/**
+ * From a candidate pool (already classification-filtered semantic results), the
+ * entries whose content/summary/tags name ANY of `tokens` as a whole token,
+ * excluding ids already in `excludeIds`. Pool order is preserved (the rows were
+ * semantically ranked) so the caller appends them BELOW the curated head without
+ * re-ranking.
+ *
+ * Matched case-SENSITIVELY at WORD BOUNDARIES — IDs/acronyms are upper-case
+ * canonical, so a short token (`SE`, `MA`) never fires on lower-case prose or
+ * inside a larger token (`SE` ⊄ `SEC`, `TD-916` ⊄ `TD-9161`). Same guard shape
+ * as the coordination prior-work matcher (TD-917).
+ */
+export function findExactIdMatches<
+  T extends { id: string; content: string; summary?: string; tags?: string[] },
+>(pool: readonly T[], tokens: readonly string[], excludeIds: ReadonlySet<string>): T[] {
+  if (tokens.length === 0) return []
+  const re = new RegExp(`\\b(?:${tokens.map(escapeRegExp).join('|')})\\b`)
+  const out: T[] = []
+  for (const row of pool) {
+    if (excludeIds.has(row.id)) continue
+    const haystack = `${row.content}\n${row.summary ?? ''}\n${(row.tags ?? []).join(' ')}`
+    if (re.test(haystack)) out.push(row)
+  }
+  return out
+}
+
+/**
+ * Append exact-ID recall `matches` BELOW the curated `head`, capped at `topN`.
+ * Augment-not-rerank (mem 03618ca7): the head keeps its order; only the weakest
+ * head rows are displaced when matches need the room — and only ever on a query
+ * that carried an exact-ID token, so conceptual recall is untouched.
+ */
+export function appendExactIdMatches<T extends { id: string }>(
+  head: readonly T[],
+  matches: readonly T[],
+  topN: number,
+): T[] {
+  if (matches.length === 0) return [...head]
+  const capped = matches.slice(0, topN)
+  const keepHead = Math.max(0, topN - capped.length)
+  return [...head.slice(0, keepHead), ...capped]
+}
+
+// ---------------------------------------------------------------------------
 // Strategy Detection (TD-159)
 // ---------------------------------------------------------------------------
 
@@ -423,6 +515,14 @@ export async function searchMemoriesV2(
   const k = options.rrfK || 60
   const overFetchLimit = topN * 2
 
+  // TD-906 Slice B: when the query names an exact identifier (ticket ID like
+  // TD-865, acronym like HNSW), the literal-matching memory ranks low or off the
+  // page semantically. Scan deeper so the augmentation step (6.7) can rescue it.
+  // Empty for ordinary prose → the semantic fetch is unchanged.
+  const exactIdTokens = extractExactIdTokens(query)
+  const semanticOverFetch =
+    exactIdTokens.length > 0 ? Math.max(overFetchLimit, EXACT_ID_RECALL_POOL) : overFetchLimit
+
   // 0.5 Auto-resolve entities from query — ONLY when a caller explicitly opts
   // into the graph leg via options.strategies. TD-894 Path B made the default
   // path semantic-only, so the per-search findEntitiesByNames round-trip (which
@@ -461,7 +561,7 @@ export async function searchMemoriesV2(
       provider
         .search(query, {
           ...options,
-          limit: overFetchLimit,
+          limit: semanticOverFetch,
           precomputedEmbedding: embeddingStr,
         })
         .then((results) => {
@@ -615,17 +715,43 @@ export async function searchMemoriesV2(
 
   const finalResults = filtered.slice(0, topN)
 
+  // 6.7 TD-906 Slice B — exact-ID/acronym recall augmentation (augment-not-rerank).
+  // Semantic embeddings under-retrieve literal identifiers (ticket IDs like TD-865,
+  // acronyms like HNSW) — the one proven BM25 upside (TD-894 recall A/B). Reclaim
+  // ONLY that: rescue any deeper-pool semantic candidate that names the query's
+  // exact-ID token and APPEND it below the curated head. No exact-ID token → the
+  // block is skipped, so conceptual recall (and Sean's steering memories) stays
+  // byte-identical to pre-TD-906. The pool is already classification-filtered by the
+  // semantic RPC; applyClassificationCeiling re-runs as a defense-in-depth backstop
+  // so the augmentation can never widen the caller's tier.
+  let returnedResults = finalResults
+  if (exactIdTokens.length > 0 && finalResults.length > 0) {
+    const headIds = new Set(finalResults.map((r) => r.id))
+    const matches = applyClassificationCeiling(
+      findExactIdMatches(semanticFullResults, exactIdTokens, headIds),
+      options.accessLevel,
+      options.maxClassification,
+    )
+    if (matches.length > 0) {
+      // Keep the tail strictly below the head's weakest score so the array stays
+      // monotonic non-increasing (and clearly reads as augmentation, not a re-rank).
+      const tailCeil = Math.max(0, finalResults[finalResults.length - 1].relevanceScore)
+      const tail = matches.map((m, i) => ({ ...m, relevanceScore: tailCeil - (i + 1) * 1e-6 }))
+      returnedResults = appendExactIdMatches(finalResults, tail, topN)
+    }
+  }
+
   // 7. TD-817: feedback write path — bump times_returned on what was ACTUALLY
   // returned to the caller (not the 2x over-fetched strategy candidates).
   // Awaited but guarded: a counter failure must never fail the search, and
   // fire-and-forget is the TD-830 unwatched-write class.
-  if (finalResults.length > 0) {
+  if (returnedResults.length > 0) {
     try {
-      await provider.bumpReturned(finalResults.map((r) => r.id))
+      await provider.bumpReturned(returnedResults.map((r) => r.id))
     } catch (err) {
       console.warn('[retrieval] Failed to bump times_returned:', err)
     }
   }
 
-  return finalResults
+  return returnedResults
 }

@@ -180,6 +180,61 @@ const fakeProvider = {
 }
 
 // ===========================================================================
+// 1b. INTEGRATION — TD-906 Slice B exact-ID recall augmentation respects the
+//     ceiling on its NEW path (rescue a deeper-pool match, never an over-tier one).
+// ===========================================================================
+//
+// The augmentation rescues semantic candidates that name the query's exact-ID
+// token but ranked BELOW topN. It pulls from semanticFullResults (the raw
+// over-fetch pool) and re-applies applyClassificationCeiling — so an over-tier
+// row that matches the token must NEVER be surfaced, even though it sits in the
+// pool. This is the new-path analogue of the FIDELITY NOTE above.
+
+console.log('\n--- searchMemoriesV2 exact-ID augmentation classification enforcement (TD-906 Slice B) ---')
+
+function rowWith(id: string, classification: MemoryClassification, content: string): MemorySearchResult {
+  return { ...searchRow(id, classification), content }
+}
+
+{
+  // 5 in-tier head rows (no token) + 3 below-topN rows: an in-tier token match
+  // (must be rescued), a plain in-tier non-match (must stay cut), and an
+  // over-tier token match (must be dropped by the ceiling backstop).
+  const pool: MemorySearchResult[] = [
+    ...Array.from({ length: 5 }, (_, i) => rowWith(`head-${i}`, 'internal', `head row ${i}, no identifier`)),
+    rowWith('rescue-int', 'internal', 'the TD-999 analysis lives here'),
+    rowWith('plain-below', 'internal', 'a below-topN row with no identifier'),
+    rowWith('leak-conf', 'confidential', 'confidential note that also cites TD-999'),
+  ]
+  const augProvider = {
+    async search() { return pool },
+    async getById(id: string) { return byId[id] ?? null },
+    async bumpReturned() {},
+    async citeMemory() {},
+  } as unknown as VectorDBProvider
+
+  setVectorDB(augProvider)
+  let res: MemorySearchResult[] = []
+  let ctrl: MemorySearchResult[] = []
+  try {
+    // Exact-ID query → augmentation fires.
+    res = await searchMemoriesV2('TD-999 recall probe', { accessLevel: 'exploration', limit: 5 })
+    // Control: conceptual query (no token) → augmentation is a no-op.
+    ctrl = await searchMemoriesV2('conceptual probe with no identifier', { accessLevel: 'exploration', limit: 5 })
+  } finally {
+    resetVectorDB()
+  }
+
+  const ids = res.map((r) => r.id)
+  assert('augmentation rescues the in-tier below-topN token match', ids.includes('rescue-int'))
+  assert('augmentation NEVER surfaces the over-tier token match (ceiling backstop)', !ids.includes('leak-conf'))
+  assert('augmentation does not rescue a below-topN NON-match', !ids.includes('plain-below'))
+  assert('result still capped at topN', res.length === 5)
+  assert('zero over-tier rows in the augmented result', res.every((r) => r.classification !== 'confidential' && r.classification !== 'restricted'))
+  assert('control (no exact-ID token) leaves the below-topN match cut — augmentation is the cause', !ctrl.map((r) => r.id).includes('rescue-int'))
+}
+
+// ===========================================================================
 // 2. CONTRACT — PostgresVectorProvider.search() arg passing (commit-2).
 // ===========================================================================
 //

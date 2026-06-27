@@ -10,7 +10,14 @@
  * Run: npx tsx packages/memory/src/lib/retrieval.test.ts
  */
 
-import { reciprocalRankFusion, detectStrategies, parseTemporalRange } from './retrieval.js'
+import {
+  reciprocalRankFusion,
+  detectStrategies,
+  parseTemporalRange,
+  extractExactIdTokens,
+  findExactIdMatches,
+  appendExactIdMatches,
+} from './retrieval.js'
 
 let passed = 0
 let failed = 0
@@ -140,6 +147,85 @@ assert('no date pattern → 30-day default', (() => {
   const { start, end } = parseTemporalRange('no temporal words here')
   const days = Math.round((end.getTime() - start.getTime()) / 86_400_000)
   return days === 30
+})())
+
+// ============================================================
+// extractExactIdTokens (TD-906 Slice B)
+// ============================================================
+console.log('\n--- extractExactIdTokens ---')
+
+assert('single ticket ID', extractExactIdTokens('TD-865').join() === 'TD-865')
+assert('multiple IDs across prose', (() => {
+  const t = extractExactIdTokens('how does TD-865 relate to JGC-294 here')
+  return t.includes('TD-865') && t.includes('JGC-294')
+})())
+assert('acronym extracted (>=3 upper chars)', extractExactIdTokens('the HNSW index for search').includes('HNSW'))
+assert('ID captured but its bare team-prefix dropped (MTQ ⊄ tokens)', (() => {
+  const t = extractExactIdTokens('MTQ-129 cron fix')
+  return t.includes('MTQ-129') && !t.includes('MTQ')
+})())
+assert('conceptual lower-case query → NO tokens (the no-op guard)',
+  extractExactIdTokens('how does Sean think about concentration versus diversification').length === 0)
+assert('all-caps function words are not acronyms', extractExactIdTokens('AND THE FOR WITH').length === 0)
+assert('lower-case ticket id is not extracted (upper-case convention)', extractExactIdTokens('the td-865 fix').length === 0)
+assert('two-letter acronym is below the >=3 bar (precision)', extractExactIdTokens('SE and MA today').length === 0)
+
+// ============================================================
+// findExactIdMatches (TD-906 Slice B)
+// ============================================================
+console.log('\n--- findExactIdMatches ---')
+
+const pool = [
+  { id: 'p1', content: 'the TD-865 fix landed', summary: '', tags: [] },
+  { id: 'p2', content: 'unrelated note about caching', summary: '', tags: [] },
+  { id: 'p3', content: 'see ref TD-8655 elsewhere', summary: '', tags: [] }, // must NOT match TD-865
+  { id: 'p4', content: 'no id here', summary: 'mentions HNSW in summary', tags: [] },
+  { id: 'p5', content: 'plain', summary: '', tags: ['TD-865', 'misc'] },
+]
+
+assert('matches a whole-token ID in content', (() => {
+  const m = findExactIdMatches(pool, ['TD-865'], new Set())
+  return m.length === 2 && m[0].id === 'p1' && m[1].id === 'p5'
+})())
+assert('does NOT match an ID inside a longer token (TD-865 ⊄ TD-8655)', (() => {
+  const m = findExactIdMatches(pool, ['TD-865'], new Set())
+  return !m.some((r) => r.id === 'p3')
+})())
+assert('matches an acronym in summary', findExactIdMatches(pool, ['HNSW'], new Set()).some((r) => r.id === 'p4'))
+assert('excludeIds removes already-returned rows', (() => {
+  const m = findExactIdMatches(pool, ['TD-865'], new Set(['p1']))
+  return m.length === 1 && m[0].id === 'p5'
+})())
+assert('preserves pool order', (() => {
+  const m = findExactIdMatches(pool, ['TD-865', 'HNSW'], new Set())
+  return m.map((r) => r.id).join() === 'p1,p4,p5'
+})())
+assert('no tokens → no matches', findExactIdMatches(pool, [], new Set()).length === 0)
+
+// ============================================================
+// appendExactIdMatches (TD-906 Slice B) — augment-not-rerank
+// ============================================================
+console.log('\n--- appendExactIdMatches ---')
+
+const head10 = Array.from({ length: 10 }, (_, i) => ({ id: `h${i}` }))
+const head3 = Array.from({ length: 3 }, (_, i) => ({ id: `h${i}` }))
+
+assert('empty matches → head unchanged (copy)', (() => {
+  const r = appendExactIdMatches(head3, [], 10)
+  return r.length === 3 && r.map((x) => x.id).join() === 'h0,h1,h2'
+})())
+assert('room to spare → appends below without displacing head', (() => {
+  const r = appendExactIdMatches(head3, [{ id: 'm0' }, { id: 'm1' }], 10)
+  return r.map((x) => x.id).join() === 'h0,h1,h2,m0,m1'
+})())
+assert('full head → displaces only the weakest head rows for the tail', (() => {
+  const r = appendExactIdMatches(head10, [{ id: 'm0' }, { id: 'm1' }], 10)
+  return r.length === 10 && r.map((x) => x.id).join() === 'h0,h1,h2,h3,h4,h5,h6,h7,m0,m1'
+})())
+assert('tail never overflows topN (matches capped)', (() => {
+  const many = Array.from({ length: 20 }, (_, i) => ({ id: `m${i}` }))
+  const r = appendExactIdMatches(head3, many, 5)
+  return r.length === 5 && r[r.length - 1].id === 'm4' && !r.some((x) => x.id.startsWith('h'))
 })())
 
 // ============================================================
