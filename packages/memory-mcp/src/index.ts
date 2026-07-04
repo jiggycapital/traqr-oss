@@ -28,11 +28,11 @@ if (cliFlag === '--print-fingerprint') {
   // not mtime) to tell a real stale process from a turbo cache-replay that only
   // bumped file mtimes. Handled in the early block so it never touches the DB.
   const { computeLoadedFingerprint } = await import('./lib/fingerprint.js')
-  process.stdout.write(computeLoadedFingerprint() + '\n')
+  process.stdout.write(computeLoadedFingerprint() + '\n') // stdout-ok: pre-transport CLI early-exit
   process.exit(0)
 }
 if (cliFlag === '--help' || cliFlag === '-h') {
-  console.log(`
+  console.log(/* stdout-ok: pre-transport CLI early-exit — --help exits before the stdio transport starts */ `
   traqr-memory-mcp — MCP server for persistent AI agent memory
 
   Usage: npx traqr-memory-mcp [flag]
@@ -123,7 +123,7 @@ const server = new McpServer({
 
 registerTools(server)
 
-const REQUIRED_SCHEMA_VERSION = 2
+const REQUIRED_SCHEMA_VERSION = 3
 
 async function checkSchemaAndReport() {
   const dbProvider = supabaseUrl ? 'Supabase' : 'Postgres'

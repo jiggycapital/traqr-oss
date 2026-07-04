@@ -19,6 +19,7 @@ import { createClient } from '@supabase/supabase-js'
 import { readFileSync, readdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { selectForwardMigrations } from './lib/migration-files.js'
 
 const MIGRATIONS_TABLE = '_traqr_migrations'
 
@@ -49,13 +50,15 @@ async function migrate() {
     }
   })
 
-  // Find migration files
+  // Find migration files. Rollback scripts are manual-recovery tools and
+  // must never run as forward migrations — see selectForwardMigrations.
   const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations')
-  const files = readdirSync(migrationsDir)
-    .filter(f => f.endsWith('.sql'))
-    .sort()
+  const { forward: files, rollbacks } = selectForwardMigrations(readdirSync(migrationsDir))
 
   console.log(`Found ${files.length} migration files`)
+  if (rollbacks.length > 0) {
+    console.log(`Ignoring ${rollbacks.length} rollback script(s): ${rollbacks.join(', ')}`)
+  }
 
   // Check which have been applied. An unreadable tracking table must be
   // fatal: treating it as "nothing applied" would re-run every migration.

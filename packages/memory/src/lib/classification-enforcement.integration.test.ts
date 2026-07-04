@@ -14,11 +14,13 @@
  *     it to 'restricted' (= show-all). The helper was never even reached.
  *
  * This file is the live-path regression guard TD-810 acceptance item 4 asked
- * for. Two sections:
- *   1. INTEGRATION — drive searchMemoriesV2 through a fake VectorDBProvider that
- *      yields over-tier rows across the semantic + bm25 + graph paths (the last
- *      two via the classification-blind getById hydration), assert the live path
- *      returns ZERO over-tier rows at the exploration ceiling. Catches commit-1.
+ * for. (TD-906 Slice C removed the bm25/temporal/graph legs + their getById
+ * hydration entirely — deletion is the strongest fix for a classification-blind
+ * path. Section 1 now drives the one surviving strategy.) Sections:
+ *   1. INTEGRATION — drive searchMemoriesV2 through a fake VectorDBProvider
+ *      whose semantic pool contains over-tier rows, assert the step-6.5
+ *      post-filter returns ZERO over-tier rows at the exploration ceiling
+ *      (the fail-safe backstop behind the DB-level filter). Catches commit-1.
  *   2. CONTRACT — capture the positional args PostgresVectorProvider.search()
  *      passes to query() via a fake pool, assert p_max_classification rides in
  *      arg 9 (single-project) / arg 12 (cross-project). Catches commit-2 — no DB.
@@ -92,53 +94,34 @@ function searchRow(id: string, classification: MemoryClassification): MemorySear
 // 1. INTEGRATION — searchMemoriesV2 live path drops over-tier rows (commit-1).
 // ===========================================================================
 //
-// Fake provider yields over-tier rows across all three active strategies:
-//   - semantic  → sem-int (internal, kept) + sem-conf (confidential, DROP)
-//                 these land in semanticFullResults → hydrated via semanticMap
-//   - bm25      → bm25-pub (public, kept) + bm25-restr (restricted, DROP)
-//                 NEW ids not in semantic → hydrated via the BLIND getById path
-//   - graph     → graph-conf (confidential, DROP)
-//                 NEW id → also via the BLIND getById path
-// At exploration the ceiling is 'internal', so only public+internal survive.
+// TD-906 Slice C: semantic is the ONLY strategy (the bm25/temporal/graph legs
+// and the classification-blind getById hydration of their hits are deleted).
+// The fake provider emits over-tier rows in the semantic pool itself; the real
+// RPC already DB-filters on p_max_classification (Section 2 pins that), so this
+// asserts the step-6.5 post-filter as the fail-safe BACKSTOP at the result
+// boundary. At exploration the ceiling is 'internal' → only public+internal
+// survive.
 
 console.log('\n--- searchMemoriesV2 live-path classification enforcement (TD-885 / TD-810 commit-1) ---')
 
-// Rows that arrive ONLY via bm25/graph must be hydrated by getById (the path
-// that was classification-blind in commit-1, now backstopped by the post-filter).
-const byId: Record<string, Memory> = {
-  'bm25-pub': mem('bm25-pub', 'public'),
-  'bm25-restr': mem('bm25-restr', 'restricted'),
-  'graph-conf': mem('graph-conf', 'confidential'),
-}
-
-const getByIdCalls: string[] = []
+// Fixture rows for Section 1b's provider stub (getById is defined there for
+// interface completeness; nothing on the live path calls it anymore).
+const byId: Record<string, Memory> = {}
 
 // FIDELITY NOTE (TD-885): this fake emits over-tier rows ONLY from the retrieval
-// paths searchMemoriesV2 dispatches today — search (semantic), bm25Search,
-// graphSearch, and the getById hydration of bm25/graph-only hits. The "0 over-tier
+// paths searchMemoriesV2 dispatches today — search (semantic). The "0 over-tier
 // rows across every path" assertion is only as complete as this fixture. If a new
 // retrieval strategy is added to searchMemoriesV2, emit an over-tier row for it
 // here too (see the matching note at retrieval.ts step 3) — else this guard passes
 // blind to the new path.
 const fakeProvider = {
   async search() {
-    return [searchRow('sem-int', 'internal'), searchRow('sem-conf', 'confidential')]
-  },
-  async bm25Search() {
     return [
-      { id: 'bm25-pub', content: 'content-bm25-pub', bm25Score: 1 },
-      { id: 'bm25-restr', content: 'content-bm25-restr', bm25Score: 1 },
+      searchRow('sem-int', 'internal'),
+      searchRow('sem-pub', 'public'),
+      searchRow('sem-conf', 'confidential'),
+      searchRow('sem-restr', 'restricted'),
     ]
-  },
-  async graphSearch() {
-    return [{ id: 'graph-conf', content: 'content-graph-conf', graphScore: 1, edgeType: 'related', depth: 1 }]
-  },
-  async temporalSearch() {
-    return []
-  },
-  async getById(id: string) {
-    getByIdCalls.push(id)
-    return byId[id] ?? null
   },
   async bumpReturned() {
     /* no-op */
@@ -154,8 +137,6 @@ const fakeProvider = {
   try {
     results = await searchMemoriesV2('classification regression probe', {
       accessLevel: 'exploration',
-      strategies: ['semantic', 'bm25', 'graph'], // force all 3 (skip detectStrategies)
-      entityIds: ['seed-1'], // non-empty → graph seeds present + skips findEntitiesInQuery (no network)
       limit: 10,
     })
   } finally {
@@ -168,14 +149,10 @@ const fakeProvider = {
   )
 
   assert('live path returns ZERO over-tier rows at exploration (the leak both fixes closed)', overTier.length === 0)
-  assert('in-tier internal row (semantic) survives', ids.includes('sem-int'))
-  assert('in-tier public row (bm25, getById-hydrated) survives', ids.includes('bm25-pub'))
-  assert('confidential semantic row dropped', !ids.includes('sem-conf'))
-  assert('restricted bm25 row dropped (its getById hydration was classification-blind)', !ids.includes('bm25-restr'))
-  assert('confidential graph row dropped', !ids.includes('graph-conf'))
-  // Prove the blind getById hydration path (commit-1's leak surface) was ACTUALLY
-  // exercised — otherwise the test could pass without touching the bug class.
-  assert('getById hydration ran for bm25/graph-only hits (commit-1 leak path exercised)', getByIdCalls.length >= 2)
+  assert('in-tier internal row survives', ids.includes('sem-int'))
+  assert('in-tier public row survives', ids.includes('sem-pub'))
+  assert('confidential row dropped at step 6.5 (backstop behind the DB filter)', !ids.includes('sem-conf'))
+  assert('restricted row dropped at step 6.5 (backstop behind the DB filter)', !ids.includes('sem-restr'))
   assert('exactly the two in-tier rows survive', results.length === 2)
 }
 

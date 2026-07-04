@@ -305,7 +305,7 @@ export async function storeWithDedup(
     processEntitiesForMemory(result.memory.id, input.content, getUserId())
       .then((r) => {
         if (r.created > 0 || r.linked > 0) {
-          console.log(`[entity] ${result.memory.id.slice(0, 6)}: ${r.candidates} candidates, ${r.created} created, ${r.merged} merged, ${r.linked} linked`)
+          console.error(`[entity] ${result.memory.id.slice(0, 6)}: ${r.candidates} candidates, ${r.created} created, ${r.merged} merged, ${r.linked} linked`)
         }
       })
       .catch((err) => console.warn('[entity] Extraction failed:', err instanceof Error ? err.message : err))

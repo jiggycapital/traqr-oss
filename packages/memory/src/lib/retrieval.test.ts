@@ -1,19 +1,19 @@
 /**
- * Retrieval — RRF Fusion + Strategy Detection + Temporal Parsing tests.
+ * Retrieval — RRF scoring + exact-ID recall augmentation tests.
  *
- * Covers the pure, deterministic core of searchMemoriesV2 (TD-158/159/160):
- * reciprocalRankFusion, detectStrategies, parseTemporalRange. The Cohere rerank
- * + DB-backed strategies are exercised separately (they require a live provider
- * + COHERE_API_KEY); these tests pin the fusion math + routing that run on every
- * memory search fleet-wide.
+ * Covers the pure, deterministic core of searchMemoriesV2:
+ * reciprocalRankFusion (the scoring contract) and the TD-906 Slice B exact-ID
+ * helpers. The Cohere rerank + DB-backed semantic search are exercised
+ * separately (they require a live provider + COHERE_API_KEY); these tests pin
+ * the math that runs on every memory search fleet-wide. (detectStrategies /
+ * parseTemporalRange / the bm25/temporal/graph legs were removed in TD-906
+ * Slice C — semantic is the only strategy.)
  *
  * Run: npx tsx packages/memory/src/lib/retrieval.test.ts
  */
 
 import {
   reciprocalRankFusion,
-  detectStrategies,
-  parseTemporalRange,
   extractExactIdTokens,
   findExactIdMatches,
   appendExactIdMatches,
@@ -49,11 +49,13 @@ assert('empty strategies → []', reciprocalRankFusion([]).length === 0)
   assert('strategies tracked', fused[0].strategies.join() === 'semantic')
 }
 
-// Multi-strategy: an item in BOTH strategies outranks an item in only one
+// Multi-list: an item in BOTH ranked lists outranks an item in only one
+// (RRF is a pure utility over labeled rank lists; semantic is the only live
+// strategy since TD-906 Slice C, but the math stays list-count-generic.)
 {
   const fused = reciprocalRankFusion([
     { strategy: 'semantic', items: [{ id: 'x', rank: 1 }, { id: 'y', rank: 2 }] },
-    { strategy: 'bm25', items: [{ id: 'x', rank: 1 }, { id: 'z', rank: 2 }] },
+    { strategy: 'other', items: [{ id: 'x', rank: 1 }, { id: 'z', rank: 2 }] },
   ])
   const x = fused.find((f) => f.id === 'x')!
   const y = fused.find((f) => f.id === 'y')!
@@ -76,78 +78,6 @@ assert('empty strategies → []', reciprocalRankFusion([]).length === 0)
   const fused = reciprocalRankFusion([{ strategy: 'semantic', items: [{ id: 'first', rank: 1 }, { id: 'tenth', rank: 10 }] }])
   assert('rank 1 scores above rank 10', fused[0].id === 'first' && fused[0].rrfScore > fused[1].rrfScore)
 }
-
-// ============================================================
-// detectStrategies
-// ============================================================
-console.log('\n--- detectStrategies ---')
-
-// TD-894 Path B (Sean-approved 2026-06-22): the auto-detected default is now
-// SEMANTIC-ONLY. bm25/temporal/graph are dead in prod (42P01) and no longer
-// auto-activate; they stay reachable only via an explicit options.strategies
-// override (exercised by classification-enforcement.integration.test.ts).
-assert('default is semantic-only (no auto bm25/temporal/graph)', (() => {
-  const d = detectStrategies('what do we know about caching')
-  return (
-    d.strategies.includes('semantic') &&
-    !d.strategies.includes('bm25') &&
-    !d.strategies.includes('temporal') &&
-    !d.strategies.includes('graph')
-  )
-})())
-
-assert('date phrase no longer auto-activates the dead temporal leg', (() => {
-  const d = detectStrategies('what happened last week with the deploy')
-  return !d.strategies.includes('temporal')
-})())
-
-assert('date phrase still parses a temporalRange (for override callers)', (() => {
-  const d = detectStrategies('what happened last week with the deploy')
-  return d.temporalRange !== undefined
-})())
-
-assert('entityIds no longer auto-activate the dead graph leg', (() => {
-  const d = detectStrategies('AVGO thesis', ['ent-1'])
-  return !d.strategies.includes('graph') && d.graphSeedIds?.length === 1
-})())
-
-// ============================================================
-// parseTemporalRange
-// ============================================================
-console.log('\n--- parseTemporalRange ---')
-
-assert('"yesterday" → ~1 day window', (() => {
-  const { start, end } = parseTemporalRange('yesterday')
-  const days = (end.getTime() - start.getTime()) / 86_400_000
-  return days >= 0.5 && days <= 2
-})())
-
-assert('"last month" → ~30 day window', (() => {
-  const { start, end } = parseTemporalRange('last month')
-  return start < end && (end.getTime() - start.getTime()) > 20 * 86_400_000
-})())
-
-assert('"3 days ago" → 3-day lookback', (() => {
-  const { start, end } = parseTemporalRange('something 3 days ago')
-  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000)
-  return days === 3
-})())
-
-assert('"March 2026" → month start', (() => {
-  const { start } = parseTemporalRange('the March 2026 print')
-  return start.getFullYear() === 2026 && start.getMonth() === 2 && start.getDate() === 1
-})())
-
-assert('ISO "2026-03-15" → that day', (() => {
-  const { start } = parseTemporalRange('on 2026-03-15')
-  return start.getFullYear() === 2026 && start.getMonth() === 2 && start.getDate() === 15
-})())
-
-assert('no date pattern → 30-day default', (() => {
-  const { start, end } = parseTemporalRange('no temporal words here')
-  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000)
-  return days === 30
-})())
 
 // ============================================================
 // extractExactIdTokens (TD-906 Slice B)

@@ -123,12 +123,13 @@ app.get('/', async (c) => {
       options.limit = Math.min(limit * 3, MAX_LIMIT) // over-fetch for post-filter
     }
 
-    // v2: multi-strategy fusion (semantic + BM25 + temporal + graph via RRF)
+    // v2: semantic + exact-ID recall augmentation (TD-906). The legacy
+    // `entityIds` param was dropped in Slice C — it only seeded the removed
+    // graph leg and had been a no-op since TD-894 Path B (#2348).
     const useFusion = c.req.query('fusion') !== 'false'
-    const entityIds = c.req.query('entityIds')?.split(',').filter(Boolean)
 
     let results = useFusion
-      ? await searchMemoriesV2(query.trim(), { ...options, entityIds })
+      ? await searchMemoriesV2(query.trim(), options)
       : await searchMemories(query.trim(), options)
 
     // Post-filter by domain (column not in RPC)

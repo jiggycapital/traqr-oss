@@ -22,9 +22,6 @@ import type {
   SearchOptions,
   MemoryCategory,
   BrowseResult,
-  BM25SearchResult,
-  TemporalSearchResult,
-  GraphSearchResult,
   MemoryClassification,
   MemoryAccessLevel,
 } from './types.js'
@@ -621,90 +618,6 @@ export class SupabaseVectorProvider implements VectorDBProvider {
   }
 
   // ============================================================
-  // v2 Search Strategies (I-M4) — additive, graceful degradation
-  // ============================================================
-
-  async bm25Search(queryText: string, options?: {
-    projectId?: string, domain?: string, category?: string,
-    limit?: number, minScore?: number
-  }): Promise<BM25SearchResult[]> {
-    const client = getMemoryClient()
-    const { data, error } = await (client.rpc as any)('bm25_search', {
-      p_query_text: queryText,
-      p_project_id: options?.projectId || null,
-      p_domain: options?.domain || null,
-      p_category: options?.category || null,
-      p_limit: options?.limit || 20,
-      p_min_score: options?.minScore || 0.01,
-    })
-    if (error) {
-      console.error('[VectorDB] BM25 search error:', error)
-      return []
-    }
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      content: row.content,
-      summary: row.summary ?? undefined,
-      bm25Score: row.bm25_score,
-      domain: row.domain ?? undefined,
-      category: row.category ?? undefined,
-      memoryType: row.memory_type ?? undefined,
-    }))
-  }
-
-  async temporalSearch(query: string, dateStart: Date, dateEnd: Date, options?: {
-    projectId?: string, similarityThreshold?: number, limit?: number, precomputedEmbedding?: string
-  }): Promise<TemporalSearchResult[]> {
-    const client = getMemoryClient()
-    const embeddingStr = options?.precomputedEmbedding
-      ?? formatEmbeddingForPgVector((await generateEmbedding(query)).embedding)
-    const { data, error } = await (client.rpc as any)('temporal_search', {
-      p_query_embedding: embeddingStr,
-      p_date_start: dateStart.toISOString(),
-      p_date_end: dateEnd.toISOString(),
-      p_project_id: options?.projectId || null,
-      p_similarity_threshold: options?.similarityThreshold || 0.3,
-      p_limit: options?.limit || 20,
-    })
-    if (error) {
-      console.error('[VectorDB] Temporal search error:', error)
-      return []
-    }
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      content: row.content,
-      summary: row.summary ?? undefined,
-      similarity: row.similarity,
-      temporalProximity: row.temporal_proximity,
-      validAt: new Date(row.valid_at),
-    }))
-  }
-
-  async graphSearch(seedIds: string[], options?: {
-    edgeTypes?: string[], maxDepth?: number, limit?: number
-  }): Promise<GraphSearchResult[]> {
-    const client = getMemoryClient()
-    const { data, error } = await (client.rpc as any)('graph_search', {
-      p_seed_ids: seedIds,
-      p_edge_types: options?.edgeTypes || ['updates', 'extends', 'derives', 'related'],
-      p_max_depth: options?.maxDepth || 2,
-      p_limit: options?.limit || 20,
-    })
-    if (error) {
-      console.error('[VectorDB] Graph search error:', error)
-      return []
-    }
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      content: row.content,
-      summary: row.summary ?? undefined,
-      graphScore: row.graph_score,
-      edgeType: row.edge_type,
-      depth: row.depth,
-    }))
-  }
-
-  // ============================================================
   // ENTITY OPERATIONS
   // ============================================================
 
@@ -806,33 +719,6 @@ export class SupabaseVectorProvider implements VectorDBProvider {
     if (error && error.code !== '23505') { // ignore duplicate links
       console.warn('[VectorDB] Error linking memory to entity:', error.message)
     }
-  }
-
-  async findEntitiesByNames(names: string[]): Promise<{ id: string; name: string }[]> {
-    if (names.length === 0) return []
-    const client = getMemoryClient()
-    const lowerNames = names.map((n) => n.toLowerCase().trim()).filter(Boolean)
-    const { data, error } = await (client.from('memory_entities') as any)
-      .select('id, name')
-      .eq('user_id', getUserId())
-      .eq('is_archived', false)
-      .in('name', lowerNames) // exact match on lowercase names
-    if (error || !data) {
-      // Fallback: try ILIKE for case-insensitive matching
-      const results: { id: string; name: string }[] = []
-      for (const name of lowerNames.slice(0, 10)) { // limit to avoid N+1 explosion
-        const { data: d } = await (client.from('memory_entities') as any)
-          .select('id, name')
-          .eq('user_id', getUserId())
-          .eq('is_archived', false)
-          .ilike('name', name)
-          .limit(1)
-          .maybeSingle()
-        if (d) results.push({ id: d.id, name: d.name })
-      }
-      return results
-    }
-    return (data || []).map((d: any) => ({ id: d.id, name: d.name }))
   }
 
   async findOrphanedEntities(): Promise<string[]> {

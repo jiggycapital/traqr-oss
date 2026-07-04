@@ -33,9 +33,6 @@ export type {
   MemoryClassification,
   MemoryAccessLevel,
   MemoryRetentionPolicy,
-  BM25SearchResult,
-  TemporalSearchResult,
-  GraphSearchResult,
   BrowseResult,
   ProviderConfig,
 } from './vectordb/types.js'
@@ -115,20 +112,16 @@ export type {
   SystemHealth,
 } from './lib/memory.js'
 
-// Multi-strategy retrieval (v2)
+// Retrieval (v2 — semantic-only since TD-906 Slice C)
 export {
   searchMemoriesV2,
   reciprocalRankFusion,
-  detectStrategies,
-  parseTemporalRange,
-  findEntitiesInQuery,
 } from './lib/retrieval.js'
 export type {
   SearchV2Options,
   SearchStrategy,
   FusedItem,
   StrategyResult,
-  DetectedStrategies,
 } from './lib/retrieval.js'
 
 // Embeddings

@@ -65,7 +65,7 @@ VCS is auto-detected from your git remote. No configuration needed.
 
 ## License
 
-- **@traqr/memory, traqr-memory-mcp, @traqr/daemon, @traqr/server:** [FSL-1.1-ALv2](./LICENSE) — use freely for any purpose except offering a competing commercial service. Converts to Apache-2.0 after 2 years.
+- **@traqr/memory, traqr-memory-mcp, @traqr/daemon:** [FSL-1.1-ALv2](./LICENSE) — use freely for any purpose except offering a competing commercial service. Converts to Apache-2.0 after 2 years.
 - **@traqr/core, @traqr/cli, @traqr/kv:** [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
 
 **What this means:** Install it, use it, modify it, build products on it — all permitted. The only restriction: don't fork it and sell it as a competing memory-as-a-service product.

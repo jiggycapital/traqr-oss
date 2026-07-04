@@ -44,7 +44,7 @@ export async function cohereRerank(
   const apiKey = process.env.COHERE_API_KEY
   if (!apiKey) {
     if (!missingKeyLogged) {
-      console.info('[rerank] COHERE_API_KEY not set — skipping rerank, using RRF scores')
+      console.error('[rerank] COHERE_API_KEY not set — skipping rerank, using RRF scores')
       missingKeyLogged = true
     }
     return null

@@ -194,7 +194,7 @@ async function shouldSkipExtraction(searchText: string): Promise<boolean> {
       similarityThreshold: 0.8,
     })
     if (existing.length >= 3) {
-      console.log(`[learning-extractor] Preflight dedup: ${existing.length} memories at >0.8 similarity, skipping extraction`)
+      console.error(`[learning-extractor] Preflight dedup: ${existing.length} memories at >0.8 similarity, skipping extraction`)
       return true
     }
   } catch {

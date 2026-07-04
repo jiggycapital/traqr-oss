@@ -302,12 +302,12 @@ CREATE INDEX IF NOT EXISTS idx_traqr_memories_temporal
   WHERE is_archived = FALSE AND is_forgotten = FALSE;
 
 -- traqr_memories: v2 BM25 tsvector GIN indexes — REMOVED in TD-894 Path B
--- (migration 021). bm25_search is dead in prod (search_path='' + unqualified
--- ref → 42P01) and no longer auto-runs (retrieval.ts is semantic-only), so these
--- GIN indexes backed nothing live and cost ~15 MB RAM + per-write maintenance.
--- The search_vector_en/simple COLUMNS stay (cheap, still populated); only the
--- indexes are gone. Re-add only if BM25 fusion is repaired to a selective,
--- index-usable query shape (see migration 021 rollback).
+-- (migration 021); the bm25_search/temporal_search/graph_search FUNCTIONS were
+-- then removed from this schema in TD-906 Slice C (they were dead in prod:
+-- search_path='' + unqualified refs → 42P01 on every call, and retrieval.ts is
+-- semantic-only). The search_vector_en/simple COLUMNS stay (cheap, still
+-- populated) as the raw material if a repaired, selective BM25 ever returns
+-- (see migration 021 rollback for the index definitions).
 
 -- traqr_memory_history
 CREATE INDEX IF NOT EXISTS idx_traqr_memory_history_memory
@@ -742,176 +742,6 @@ BEGIN
 END;
 $$;
 
--- 6e. bm25_search — keyword search over dual tsvectors
--- NOTE: ts_rank_cd returns REAL; cast to ::FLOAT. VARCHAR columns need ::TEXT.
-CREATE OR REPLACE FUNCTION bm25_search(
-  p_query_text TEXT,
-  p_project_id UUID DEFAULT NULL,
-  p_domain TEXT DEFAULT NULL,
-  p_category TEXT DEFAULT NULL,
-  p_limit INTEGER DEFAULT 20,
-  p_min_score FLOAT DEFAULT 0.01
-)
-RETURNS TABLE (
-  id UUID,
-  content TEXT,
-  summary TEXT,
-  bm25_score FLOAT,
-  domain TEXT,
-  category TEXT,
-  memory_type TEXT
-)
-LANGUAGE plpgsql
-SET search_path = public
-AS $$
-DECLARE
-  tsquery_en tsquery;
-  tsquery_simple tsquery;
-  or_query TEXT;
-BEGIN
-  -- Split query words into OR terms for better recall.
-  -- "engagement ring proposal" -> "engagement | ring | proposal"
-  -- ts_rank_cd naturally ranks docs with MORE matching terms higher.
-  or_query := regexp_replace(trim(p_query_text), '\s+', ' | ', 'g');
-  tsquery_en := to_tsquery('english', or_query);
-  tsquery_simple := to_tsquery('simple', or_query);
-
-  RETURN QUERY
-  SELECT
-    m.id,
-    m.content,
-    m.summary::TEXT,
-    GREATEST(
-      ts_rank_cd(m.search_vector_en, tsquery_en),
-      ts_rank_cd(m.search_vector_simple, tsquery_simple)
-    )::FLOAT AS bm25_score,
-    m.domain::TEXT,
-    m.category::TEXT,
-    m.memory_type::TEXT
-  FROM traqr_memories m
-  WHERE (m.search_vector_en @@ tsquery_en
-         OR m.search_vector_simple @@ tsquery_simple)
-    AND m.is_archived = FALSE
-    AND m.is_forgotten = FALSE
-    AND (m.invalid_at IS NULL OR m.invalid_at > NOW())
-    AND (p_project_id IS NULL OR m.project_id = p_project_id)
-    AND (p_domain IS NULL OR m.domain = p_domain)
-    AND (p_category IS NULL OR m.category = p_category)
-  ORDER BY bm25_score DESC
-  LIMIT p_limit;
-END;
-$$;
-
--- 6f. temporal_search — valid_at range + embedding similarity
--- search_path = public: references traqr_memories table
-CREATE OR REPLACE FUNCTION temporal_search(
-  p_query_embedding vector(1536),
-  p_date_start TIMESTAMPTZ,
-  p_date_end TIMESTAMPTZ,
-  p_project_id UUID DEFAULT NULL,
-  p_similarity_threshold FLOAT DEFAULT 0.3,
-  p_limit INTEGER DEFAULT 20
-)
-RETURNS TABLE (
-  id UUID,
-  content TEXT,
-  summary TEXT,
-  similarity FLOAT,
-  temporal_proximity FLOAT,
-  valid_at TIMESTAMPTZ
-)
-LANGUAGE plpgsql
-SET search_path = public
-AS $$
-DECLARE
-  date_mid TIMESTAMPTZ;
-  total_days FLOAT;
-BEGIN
-  date_mid := p_date_start + (p_date_end - p_date_start) / 2;
-  total_days := GREATEST(EXTRACT(EPOCH FROM (p_date_end - p_date_start)) / 86400.0, 1.0);
-
-  RETURN QUERY
-  SELECT
-    m.id,
-    m.content,
-    m.summary,
-    1 - (m.embedding <=> p_query_embedding) AS similarity,
-    GREATEST(0.0, 1.0 - (
-      ABS(EXTRACT(EPOCH FROM (m.valid_at - date_mid)) / 86400.0) / (total_days / 2.0)
-    )) AS temporal_proximity,
-    m.valid_at
-  FROM traqr_memories m
-  WHERE m.valid_at BETWEEN p_date_start AND p_date_end
-    AND m.is_archived = FALSE
-    AND m.is_forgotten = FALSE
-    AND (p_project_id IS NULL OR m.project_id = p_project_id)
-    AND 1 - (m.embedding <=> p_query_embedding) >= p_similarity_threshold
-  ORDER BY similarity DESC
-  LIMIT p_limit;
-END;
-$$;
-
--- 6g. graph_search — link expansion CTE traversing memory_relationships
--- search_path = public: references traqr_memories + memory_relationships
-CREATE OR REPLACE FUNCTION graph_search(
-  p_seed_ids UUID[],
-  p_edge_types TEXT[] DEFAULT ARRAY['updates', 'extends', 'derives', 'related'],
-  p_max_depth INTEGER DEFAULT 2,
-  p_limit INTEGER DEFAULT 20
-)
-RETURNS TABLE (
-  id UUID,
-  content TEXT,
-  summary TEXT,
-  graph_score FLOAT,
-  edge_type TEXT,
-  depth INTEGER
-)
-LANGUAGE plpgsql
-SET search_path = public
-AS $$
-BEGIN
-  RETURN QUERY
-  WITH RECURSIVE graph_walk AS (
-    -- Seed: direct neighbors of seed memories
-    SELECT
-      mr.target_memory_id AS memory_id,
-      mr.edge_type,
-      mr.confidence AS score,
-      1 AS depth
-    FROM memory_relationships mr
-    WHERE mr.source_memory_id = ANY(p_seed_ids)
-      AND mr.edge_type = ANY(p_edge_types)
-
-    UNION ALL
-
-    -- Expand: neighbors of neighbors (0.7 decay per hop)
-    SELECT
-      mr.target_memory_id,
-      mr.edge_type,
-      gw.score * mr.confidence * 0.7 AS score,
-      gw.depth + 1
-    FROM graph_walk gw
-    JOIN memory_relationships mr ON mr.source_memory_id = gw.memory_id
-    WHERE gw.depth < p_max_depth
-      AND mr.edge_type = ANY(p_edge_types)
-  )
-  SELECT
-    m.id,
-    m.content,
-    m.summary,
-    MAX(gw.score) AS graph_score,
-    (ARRAY_AGG(gw.edge_type ORDER BY gw.score DESC))[1] AS edge_type,
-    MIN(gw.depth) AS depth
-  FROM graph_walk gw
-  JOIN traqr_memories m ON m.id = gw.memory_id
-  WHERE m.is_archived = FALSE AND m.is_forgotten = FALSE
-  GROUP BY m.id, m.content, m.summary
-  ORDER BY graph_score DESC
-  LIMIT p_limit;
-END;
-$$;
-
 -- 6h. search_entities — embedding-based entity lookup
 CREATE OR REPLACE FUNCTION search_entities(
   p_user_id UUID,
@@ -1032,6 +862,15 @@ INSERT INTO schema_version (version, description)
 VALUES (2, 'Memory Engine v2 -- pipeline, retrieval, temporal, entities (M5-M9)')
 ON CONFLICT (version) DO NOTHING;
 
+-- v3 stamps no schema changes (see upgrade-v3.sql) -- it marks the v0.2.0
+-- server release (BYO providers, teaching errors, schema detection). A fresh
+-- setup.sql install produces a v3-equivalent schema, so stamp v3 here too;
+-- otherwise a fresh install lands at v2 and the v3-expecting server cries
+-- "v2 detected, v3 required" on every boot (TD-941).
+INSERT INTO schema_version (version, description)
+VALUES (3, 'v0.2.0 -- BYO providers, teaching errors, schema detection (no DDL changes)')
+ON CONFLICT (version) DO NOTHING;
+
 -- Migration tracking table (so migrate.ts runner works for future migrations)
 CREATE TABLE IF NOT EXISTS _traqr_migrations (
   name TEXT PRIMARY KEY,
@@ -1066,5 +905,3 @@ ON CONFLICT DO NOTHING;
 --   WHERE table_name = 'traqr_memories' ORDER BY ordinal_position;
 --
 -- SELECT indexname FROM pg_indexes WHERE tablename = 'traqr_memories';
---
--- SELECT * FROM bm25_search('test query', NULL, NULL, NULL, 5, 0.01);

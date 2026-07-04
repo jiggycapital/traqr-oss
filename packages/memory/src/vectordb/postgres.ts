@@ -28,9 +28,6 @@ import type {
   MemoryClassification,
   MemoryAccessLevel,
   BrowseResult,
-  BM25SearchResult,
-  TemporalSearchResult,
-  GraphSearchResult,
 } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -457,84 +454,6 @@ export class PostgresVectorProvider implements VectorDBProvider {
   }
 
   // ============================================================
-  // v2 SEARCH STRATEGIES
-  // ============================================================
-
-  async bm25Search(queryText: string, options?: {
-    projectId?: string, domain?: string, category?: string,
-    limit?: number, minScore?: number
-  }): Promise<BM25SearchResult[]> {
-    const rows = await query(
-      'SELECT * FROM bm25_search($1, $2, $3, $4, $5, $6)',
-      [
-        queryText,
-        options?.projectId || null,
-        options?.domain || null,
-        options?.category || null,
-        options?.limit || 20,
-        options?.minScore || 0.01,
-      ],
-    )
-    return rows.map((row: any) => ({
-      id: row.id,
-      content: row.content,
-      summary: row.summary ?? undefined,
-      bm25Score: row.bm25_score,
-      domain: row.domain ?? undefined,
-      category: row.category ?? undefined,
-      memoryType: row.memory_type ?? undefined,
-    }))
-  }
-
-  async temporalSearch(queryText: string, dateStart: Date, dateEnd: Date, options?: {
-    projectId?: string, similarityThreshold?: number, limit?: number, precomputedEmbedding?: string
-  }): Promise<TemporalSearchResult[]> {
-    const embeddingStr = options?.precomputedEmbedding
-      ?? formatEmbeddingForPgVector((await generateEmbedding(queryText)).embedding)
-    const rows = await query(
-      'SELECT * FROM temporal_search($1::vector, $2, $3, $4, $5, $6)',
-      [
-        embeddingStr,
-        dateStart.toISOString(),
-        dateEnd.toISOString(),
-        options?.projectId || null,
-        options?.similarityThreshold || 0.3,
-        options?.limit || 20,
-      ],
-    )
-    return rows.map((row: any) => ({
-      id: row.id,
-      content: row.content,
-      summary: row.summary ?? undefined,
-      similarity: row.similarity,
-      temporalProximity: row.temporal_proximity,
-      validAt: new Date(row.valid_at),
-    }))
-  }
-
-  async graphSearch(seedIds: string[], options?: {
-    edgeTypes?: string[], maxDepth?: number, limit?: number
-  }): Promise<GraphSearchResult[]> {
-    const rows = await query(
-      'SELECT * FROM graph_search($1, $2, $3, $4)',
-      [
-        seedIds,
-        options?.edgeTypes || ['updates', 'extends', 'derives', 'related'],
-        options?.maxDepth || 2,
-        options?.limit || 20,
-      ],
-    )
-    return rows.map((row: any) => ({
-      id: row.id,
-      content: row.content,
-      summary: row.summary ?? undefined,
-      graphScore: row.graph_score,
-      edgeType: row.edge_type,
-      depth: row.depth,
-    }))
-  }
-
-  // ============================================================
   // LIFECYCLE
   // ============================================================
 
@@ -648,31 +567,6 @@ export class PostgresVectorProvider implements VectorDBProvider {
         console.warn('[VectorDB] Error linking memory to entity:', err?.message || err)
       }
     }
-  }
-
-  async findEntitiesByNames(names: string[]): Promise<{ id: string; name: string }[]> {
-    if (names.length === 0) return []
-    const lowerNames = names.map(n => n.toLowerCase().trim()).filter(Boolean)
-    const placeholders = lowerNames.map((_, i) => `$${i + 3}`).join(', ')
-    const rows = await query(
-      `SELECT id, name FROM memory_entities
-       WHERE user_id = $1 AND is_archived = false AND LOWER(name) IN (${placeholders})`,
-      [getUserId(), ...lowerNames],
-    )
-    if (rows.length > 0) return rows.map((d: any) => ({ id: d.id, name: d.name }))
-
-    // Fallback: ILIKE for case-insensitive matching
-    const results: { id: string; name: string }[] = []
-    for (const name of lowerNames.slice(0, 10)) {
-      const row = await queryOne(
-        `SELECT id, name FROM memory_entities
-         WHERE user_id = $1 AND is_archived = false AND name ILIKE $2
-         LIMIT 1`,
-        [getUserId(), name],
-      )
-      if (row) results.push({ id: row.id, name: row.name })
-    }
-    return results
   }
 
   async findOrphanedEntities(): Promise<string[]> {

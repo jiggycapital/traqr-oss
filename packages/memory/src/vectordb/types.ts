@@ -181,35 +181,6 @@ export interface MemorySearchResult extends Memory {
   relevanceScore: number     // similarity * currentConfidence * citationBoost
 }
 
-// v2 search result types for multi-strategy retrieval
-export interface BM25SearchResult {
-  id: string
-  content: string
-  summary?: string
-  bm25Score: number
-  domain?: string
-  category?: string
-  memoryType?: string
-}
-
-export interface TemporalSearchResult {
-  id: string
-  content: string
-  summary?: string
-  similarity: number
-  temporalProximity: number
-  validAt: Date
-}
-
-export interface GraphSearchResult {
-  id: string
-  content: string
-  summary?: string
-  graphScore: number
-  edgeType: string
-  depth: number
-}
-
 // Search options
 export interface SearchOptions {
   domainId?: string
@@ -308,8 +279,7 @@ export interface VectorDBProvider {
   search(query: string, options?: SearchOptions & { precomputedEmbedding?: string }): Promise<MemorySearchResult[]>
   // TD-883: optional classification ceiling. When opts carries accessLevel or
   // maxClassification and the fetched row exceeds that ceiling, return null
-  // (treated as not-found for that tier). No opts → unchanged behavior, so the
-  // classification-blind hydration call in retrieval.ts stays compatible.
+  // (treated as not-found for that tier). No opts → unchanged behavior.
   getById(id: string, opts?: { accessLevel?: MemoryAccessLevel; maxClassification?: MemoryClassification }): Promise<Memory | null>
   update(id: string, updates: MemoryUpdate): Promise<Memory>
   delete(id: string): Promise<void>
@@ -331,18 +301,6 @@ export interface VectorDBProvider {
   // Health
   ping(): Promise<boolean>
 
-  // v2: Multi-strategy search
-  bm25Search(queryText: string, options?: {
-    projectId?: string, domain?: string, category?: string,
-    limit?: number, minScore?: number
-  }): Promise<BM25SearchResult[]>
-  temporalSearch(query: string, dateStart: Date, dateEnd: Date, options?: {
-    projectId?: string, similarityThreshold?: number, limit?: number, precomputedEmbedding?: string
-  }): Promise<TemporalSearchResult[]>
-  graphSearch(seedIds: string[], options?: {
-    edgeTypes?: string[], maxDepth?: number, limit?: number
-  }): Promise<GraphSearchResult[]>
-
   // v2: Lifecycle
   invalidate(id: string): Promise<void>
   supersede(id: string): Promise<void>
@@ -362,7 +320,6 @@ export interface VectorDBProvider {
   createEntity(entity: { name: string, entityType: string, embedding?: string, userId?: string }): Promise<any>
   incrementEntityMentions(entityId: string): Promise<void>
   linkMemoryToEntity(memoryId: string, entityId: string, role?: string): Promise<void>
-  findEntitiesByNames(names: string[]): Promise<{ id: string; name: string }[]>
   findOrphanedEntities(): Promise<string[]>
   archiveEntities(ids: string[]): Promise<number>
 
