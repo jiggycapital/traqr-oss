@@ -837,6 +837,32 @@ export interface TraqrConfig {
       gaps: number;
     };
   }>;
+
+  /** Podcast synthesizer (/podcast) — machine-readable feed list the skill + life-os cron iterate over.
+   *  Seeded from podcast.md's prose table; was `null` (skill read only prose) until 2026-07-04. */
+  podcast?: {
+    /** Master switch for the /podcast surface */
+    enabled: boolean;
+    /** Phase-1 policy: try free transcript sources before paid transcription (podcast.md Phase 1) */
+    transcriptFirst?: boolean;
+    /** Sean's curated feed list — one entry per subscribed show */
+    feeds: Array<{
+      /** /podcast arg slug, e.g. 'acquired' | 'pmt' | 'trapdraw' | 'dwarkesh' */
+      slug: string;
+      /** Display name */
+      name: string;
+      /** Verified RSS URL (null = placeholder awaiting a concrete pick) */
+      rss: string | null;
+      /** Publish cadence, e.g. 'weekly' | 'monthly' | 'weekdays' | 'biweekly' */
+      cadence?: string;
+      /** Content domain */
+      domain?: string;
+      /** Whether this feed is active for --latest sweeps */
+      enabled: boolean;
+      /** Optional note (e.g. why a placeholder feed is disabled) */
+      note?: string;
+    }>;
+  };
 }
 
 /**
