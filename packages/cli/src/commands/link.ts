@@ -120,7 +120,6 @@ async function linkObsidian(config: TraqrConfig, configDir: string) {
   }
   await writeConfigDelta(config, delta, configDir)
   console.log(`  Obsidian linked: ${resolved}`)
-  console.log('  Run "traqr vault init" to create the research folder structure.')
   suggestRender()
 }
 

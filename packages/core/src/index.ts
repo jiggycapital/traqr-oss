@@ -56,10 +56,6 @@ export {
   validateDependencies,
 } from './skill-engine.js'
 
-// Vault generator — Obsidian vault initialization
-export type { VaultInitResult } from './vault-generator.js'
-export { initVault } from './vault-generator.js'
-
 // Alias generator — per-project shell alias files for multi-project support
 export type { AliasGeneratorOptions } from './alias-generator.js'
 export { generateAliasContent, writeAliasFile } from './alias-generator.js'
