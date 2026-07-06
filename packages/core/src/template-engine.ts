@@ -706,26 +706,6 @@ export function getFeatureFlags(config: TraqrConfig): Record<string, boolean> {
 }
 
 /**
- * Scan a template for {{VAR}} placeholders that aren't in the known TemplateVars keys.
- * Returns unknown var names so callers can surface warnings.
- */
-export function validateTemplate(
-  template: string,
-  vars: TemplateVars
-): { unknownVars: string[] } {
-  const varPattern = /\{\{([A-Z_]+)\}\}/g;
-  const knownKeys = new Set(Object.keys(vars));
-  const unknownVars: string[] = [];
-  let match;
-  while ((match = varPattern.exec(template)) !== null) {
-    if (!knownKeys.has(match[1])) {
-      unknownVars.push(match[1]);
-    }
-  }
-  return { unknownVars: Array.from(new Set(unknownVars)) };
-}
-
-/**
  * Replace all {{VAR}} placeholders, {{#IF_TIER_N+}}...{{/IF_TIER_N+}} conditionals,
  * and {{#IF_FEATURE}}...{{/IF_FEATURE}} feature conditionals in a template.
  *

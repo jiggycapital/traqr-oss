@@ -16,14 +16,9 @@ export {
   DESIGN_FLAVOR_DEFAULTS,
   BORDER_RADIUS_MAP,
   ANIMATION_PARAMS,
-  DEMO_ENV_VARS,
   PROVISIONING_TIERS,
   calculateAutomationScore,
   getProvisioningOrder,
-  getProvisioningPasses,
-  getDemoProvisioningState,
-  migrateConfigV1ToV2,
-  isConfigV2,
 } from './config-schema.js'
 
 // Template engine — slot generation, template vars, rendering
@@ -33,12 +28,11 @@ export {
   buildTemplateVars,
   buildSubAppTemplateVars,
   getFeatureFlags,
-  validateTemplate,
   renderTemplate,
 } from './template-engine.js'
 
 // Config resolver — org/project config loading, 5-level hierarchy, project registry
-export type { OrgConfig, ResolvedConfig, ProjectRegistryEntry, VcsDetection, CorporateDetection } from './config-resolver.js'
+export type { OrgConfig, ResolvedConfig, ProjectRegistryEntry, VcsDetection } from './config-resolver.js'
 export {
   deepMerge,
   mergePreferredStack,
@@ -51,27 +45,16 @@ export {
   getProjectRegistry,
   detectMonorepo,
   detectVcsProvider,
-  detectCorporateEnvironment,
 } from './config-resolver.js'
 
 // Skill engine — frontmatter parsing, discovery, dependency validation
-export type { SkillTier, SkillCategory, SkillRequirements, SkillManifest, SystemSkillManifest, ValidationResult } from './skill-engine.js'
+export type { SkillTier, SkillCategory, SkillRequirements, SkillManifest, ValidationResult } from './skill-engine.js'
 export {
   parseSkillManifest,
-  parseSystemSkillManifest,
   loadSkills,
-  loadAllSkills,
-  loadSystemSkills,
-  topologicalSort,
-  resolveSkill,
   getSkillsByTier,
-  getSkillsByCategory,
   validateDependencies,
 } from './skill-engine.js'
-
-// Skill generator — dual-interface view generation (.claude/ → .kiro/)
-export type { GenerateResult, GenerateOptions } from './skill-generator.js'
-export { generateSkillViews } from './skill-generator.js'
 
 // Vault generator — Obsidian vault initialization
 export type { VaultInitResult } from './vault-generator.js'

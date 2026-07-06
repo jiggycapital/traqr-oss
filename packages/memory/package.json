@@ -1,6 +1,6 @@
 {
   "name": "@traqr/memory",
-  "version": "0.2.36",
+  "version": "0.2.37",
   "description": "Persistent memory for AI agents. Multi-strategy retrieval (semantic + BM25 + RRF), 3-zone cosine triage, type-aware lifecycle, entity canonicalization. Postgres + pgvector.",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,7 +24,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@supabase/supabase-js": "^2.93.3",
+    "@supabase/supabase-js": "^2.101.1",
     "@hono/node-server": "^1.8.0",
     "hono": "^4.0.0",
     "openai": "^4.77.0"

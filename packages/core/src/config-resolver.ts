@@ -461,16 +461,6 @@ export interface VcsDetection {
 }
 
 /**
- * Corporate environment detection signals.
- */
-export interface CorporateDetection {
-  isLikelyCorporate: boolean;
-  signals: string[];
-  awsProfile: string | null;
-  awsRegion: string | null;
-}
-
-/**
  * Auto-detect VCS provider from git remote origin URL.
  * Handles GitHub, GitLab (cloud + self-hosted), and CodeCommit.
  * Falls back to GitHub detection for backward compatibility.
@@ -578,52 +568,6 @@ export function detectVcsProvider(projectRoot?: string): VcsDetection {
   }
 
   return result;
-}
-
-/**
- * Detect corporate environment signals.
- * Checks for AWS profiles, scoped npm registries, and VPN indicators.
- */
-export function detectCorporateEnvironment(): CorporateDetection {
-  const signals: string[] = [];
-  let awsProfile: string | null = null;
-  let awsRegion: string | null = null;
-
-  // Check AWS profile
-  if (process.env.AWS_PROFILE) {
-    signals.push(`AWS_PROFILE=${process.env.AWS_PROFILE}`);
-    awsProfile = process.env.AWS_PROFILE;
-  }
-  if (process.env.AWS_DEFAULT_REGION || process.env.AWS_REGION) {
-    awsRegion = process.env.AWS_DEFAULT_REGION || process.env.AWS_REGION || null;
-    signals.push(`AWS_REGION=${awsRegion}`);
-  }
-
-  // Check for scoped npm registry (corporate artifact proxy)
-  try {
-    const npmrcPath = path.join(process.env.HOME || '', '.npmrc');
-    if (fs.existsSync(npmrcPath)) {
-      const npmrc = fs.readFileSync(npmrcPath, 'utf-8');
-      if (npmrc.includes('registry=') && !npmrc.includes('registry.npmjs.org')) {
-        signals.push('Custom npm registry detected');
-      }
-    }
-  } catch { /* ignore */ }
-
-  // Check for AWS config file
-  try {
-    const awsConfigPath = path.join(process.env.HOME || '', '.aws', 'config');
-    if (fs.existsSync(awsConfigPath)) {
-      signals.push('AWS config file present');
-    }
-  } catch { /* ignore */ }
-
-  return {
-    isLikelyCorporate: signals.length >= 2,
-    signals,
-    awsProfile,
-    awsRegion,
-  };
 }
 
 /**

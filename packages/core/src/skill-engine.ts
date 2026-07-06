@@ -44,25 +44,6 @@ export interface SkillManifest {
   requirements: SkillRequirements
   /** Original file path (set by loadSkills) */
   filePath?: string
-  /** Where this skill was discovered from (set by loadAllSkills) */
-  source?: 'platform' | 'workspace'
-}
-
-/**
- * Extended manifest for composable system skills (traqr-system-*.md).
- * Adds system identity, config ownership, and mode capabilities.
- */
-export interface SystemSkillManifest extends SkillManifest {
-  /** Config section key this system manages (e.g., 'config', 'worktrees') */
-  system: string
-  /** Which TraqrConfig key this skill reads/writes */
-  configSection: string
-  /** Supported execution modes */
-  capabilities: {
-    setup: boolean
-    audit: boolean
-    upgrade: boolean
-  }
 }
 
 export interface ValidationResult {
@@ -225,52 +206,6 @@ export async function loadSkills(skillsDir: string): Promise<SkillManifest[]> {
 }
 
 /**
- * Load skills from multiple directories with workspace-wins-on-collision merging.
- * Platform skills (.claude/commands/) are loaded first, then workspace skills
- * (workspaces/<name>/skills/) override on name collision.
- *
- * This enables SalesOS skills to coexist with Traqr platform skills
- * in the same monorepo, with workspace-specific skills taking precedence.
- */
-export async function loadAllSkills(options: {
-  platformDir: string
-  workspaceDirs?: string[]
-}): Promise<SkillManifest[]> {
-  // Load platform skills
-  const platform = await loadSkills(options.platformDir)
-  for (const s of platform) s.source = 'platform'
-
-  // Load workspace skills
-  const workspace: SkillManifest[] = []
-  for (const dir of options.workspaceDirs ?? []) {
-    try {
-      const skills = await loadSkills(dir)
-      for (const s of skills) s.source = 'workspace'
-      workspace.push(...skills)
-    } catch {
-      // Skip missing workspace dirs — not all workspaces have skills
-    }
-  }
-
-  // Merge: workspace wins on name collision
-  const byName = new Map<string, SkillManifest>()
-  for (const s of platform) byName.set(s.name, s)
-  for (const s of workspace) byName.set(s.name, s)
-
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
-}
-
-/**
- * Resolve a skill by name from a loaded manifest list.
- */
-export function resolveSkill(
-  name: string,
-  skills: SkillManifest[],
-): SkillManifest | undefined {
-  return skills.find(s => s.name === name)
-}
-
-/**
  * Filter skills by tier. Returns skills available at the given tier.
  * 'any' tier skills are always included. Numeric tiers include skills
  * at that tier or lower.
@@ -286,16 +221,6 @@ export function getSkillsByTier(
     if (s.tier === 'any') return true
     return Number(s.tier) <= tierNum
   })
-}
-
-/**
- * Filter skills by category.
- */
-export function getSkillsByCategory(
-  skills: SkillManifest[],
-  category: SkillCategory,
-): SkillManifest[] {
-  return skills.filter(s => s.category === category)
 }
 
 /**
@@ -320,87 +245,4 @@ export function validateDependencies(skills: SkillManifest[]): ValidationResult 
   }
 
   return { valid: errors.length === 0, errors }
-}
-
-// ============================================================
-// System Skill Discovery (traqr-system-*.md)
-// ============================================================
-
-/**
- * Parse a SystemSkillManifest from raw file content.
- * Returns null if the file isn't a valid system skill (missing frontmatter
- * or category !== 'system').
- */
-export function parseSystemSkillManifest(content: string): SystemSkillManifest | null {
-  const base = parseSkillManifest(content)
-  if (!base) return null
-  if (base.category !== 'system') return null
-
-  // Re-parse frontmatter to extract system-specific fields
-  const match = content.match(FRONTMATTER_RE)
-  if (!match) return null
-  const raw = parseFrontmatterBlock(match[1])
-
-  const caps = (raw.capabilities ?? {}) as Record<string, unknown>
-
-  return {
-    ...base,
-    system: String(raw.system ?? ''),
-    configSection: String(raw.configSection ?? ''),
-    capabilities: {
-      setup: caps.setup === true,
-      audit: caps.audit === true,
-      upgrade: caps.upgrade === true,
-    },
-  }
-}
-
-/**
- * Load all system skill manifests from a directory.
- * Discovers files matching `traqr-system-*.md` and parses their frontmatter.
- */
-export async function loadSystemSkills(skillsDir: string): Promise<SystemSkillManifest[]> {
-  const entries = await readdir(skillsDir)
-  const systemFiles = entries.filter(f => f.startsWith('traqr-system-') && f.endsWith('.md'))
-
-  const manifests: SystemSkillManifest[] = []
-  for (const file of systemFiles) {
-    const filePath = join(skillsDir, file)
-    const content = await readFile(filePath, 'utf-8')
-    const manifest = parseSystemSkillManifest(content)
-    if (manifest) {
-      manifest.filePath = filePath
-      manifests.push(manifest)
-    }
-  }
-
-  return manifests.sort((a, b) => a.name.localeCompare(b.name))
-}
-
-/**
- * Topologically sort system skills by their dependency graph.
- * Skills with no dependencies come first. If a skill depends on another,
- * the dependency is guaranteed to appear earlier in the result.
- */
-export function topologicalSort(skills: SystemSkillManifest[]): SystemSkillManifest[] {
-  const nameMap = new Map(skills.map(s => [s.name, s]))
-  const visited = new Set<string>()
-  const result: SystemSkillManifest[] = []
-
-  function visit(name: string) {
-    if (visited.has(name)) return
-    visited.add(name)
-    const skill = nameMap.get(name)
-    if (!skill) return
-    for (const dep of skill.dependencies) {
-      visit(dep)
-    }
-    result.push(skill)
-  }
-
-  for (const skill of skills) {
-    visit(skill.name)
-  }
-
-  return result
 }
