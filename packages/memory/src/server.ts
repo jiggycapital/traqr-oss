@@ -1,7 +1,8 @@
 /**
  * @traqr/memory — Standalone Hono HTTP Server
  *
- * Provides 11 memory API routes as a standalone server.
+ * Provides 20 memory API route groups (Hono sub-routers) plus a /health
+ * endpoint as a standalone server.
  * Drop-in replacement for NookTraqr's Next.js memory API routes.
  *
  * Usage:

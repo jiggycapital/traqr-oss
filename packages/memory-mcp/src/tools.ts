@@ -1,7 +1,7 @@
 /**
  * MCP Tool Handlers
  *
- * 10 memory tools calling @traqr/memory library functions directly.
+ * 12 memory tools calling @traqr/memory library functions directly.
  * No HTTP layer, no apiCall(), no localhost server needed.
  */
 

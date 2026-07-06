@@ -8,7 +8,7 @@
  *   --verify              Health check + round trip test
  *   --print-instructions  Print CLAUDE.md memory instructions
  *
- * Standalone MCP server for AI agents. 10 memory tools powered by
+ * Standalone MCP server for AI agents. 12 memory tools powered by
  * Postgres + pgvector. Multi-strategy retrieval (semantic + BM25 + RRF),
  * cosine triage, LLM borderline decisions, entity extraction.
  *

@@ -50,6 +50,13 @@ const fakeServer = {
 } as unknown as McpServer
 registerTools(fakeServer)
 
+// --- Registered-tool count matches the documented "12 tools" (TD-977 F10) ---
+// index.ts, tools.ts, and package.json all advertise a tool count in prose; this
+// pins it to what registerTools() actually wires so a doc-vs-code drift (the docs
+// said "10"/"11" while 12 were registered) fails here instead of silently.
+console.log('\n--- registered tool count (TD-977 F10) ---')
+assert('exactly 12 memory tools are registered', handlers.size === 12)
+
 // Fake provider: record the opts getById receives, then return null so
 // memory_correct short-circuits to "not found" (never touches store/archive/DB).
 let lastGetByIdOpts: unknown = 'UNSET'
