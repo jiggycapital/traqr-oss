@@ -362,11 +362,6 @@ export async function archiveMemory(id: string, reason?: string): Promise<Memory
   return db.archive(id, reason)
 }
 
-export async function unarchiveMemory(id: string): Promise<Memory> {
-  const db = getVectorDB()
-  return db.unarchive(id)
-}
-
 // ============================================================
 // BULK OPERATIONS
 // ============================================================
@@ -374,15 +369,6 @@ export async function unarchiveMemory(id: string): Promise<Memory> {
 export async function exportAllMemories(domainId?: string): Promise<MemoryExport[]> {
   const db = getVectorDB()
   return db.exportAll(domainId)
-}
-
-export async function importMemories(
-  memories: MemoryExport[],
-  domainId?: string
-): Promise<number> {
-  const db = getVectorDB()
-  const domain = domainId || (await db.getDefaultDomain()).id
-  return db.importBulk(memories, domain)
 }
 
 // ============================================================
