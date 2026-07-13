@@ -54,9 +54,22 @@ export function deriveDomain(content: string): string {
 
 export function deriveCategory(content: string): string {
   const c = content.toLowerCase()
-  if (/\b(gotcha|critical|never\s+trust|always\s+check|warning|silently.fail|broke\b)/i.test(c)) return 'gotcha'
+  // gotcha — generic pitfalls PLUS the fleet's substrate-invariant / proxy-trap
+  // lesson class, which was previously falling through to `insight` (TD-726).
+  // Purely additive: the second clause only pulls memories OUT of `insight`,
+  // never reclassifies anything the first clause already matched.
+  if (
+    /\b(gotcha|critical|never\s+trust|always\s+check|warning|silently.fail|broke\b)/i.test(c) ||
+    /(substrate.invariant|stale.proxy|proxy.?trap|never\s+grade\s+on|grade\s+on\s+the\s+proxy|silently\s+(drop|dropped|restore|restored|suppress|suppressed)|foot.?gun)/i.test(c)
+  ) return 'gotcha'
   if (/\b(fix|bug|root.cause|resolved|patch|was.broken|caused.by)/i.test(c)) return 'fix'
-  if (/\b(prefer|values?|wants?|hates?|loves?|style|personality|blunt|direct)/i.test(c)) return 'preference'
+  // preference — how Sean likes things done PLUS explicit steering / philosophy
+  // markers ("[STEERING …]", "Sean steered/redirect/greenlit", "Sean's taste")
+  // that the capture triggers name but the base keywords missed (TD-726).
+  if (
+    /\b(prefer|values?|wants?|hates?|loves?|style|personality|blunt|direct)/i.test(c) ||
+    /(\[steering|sean\s+steered|sean'?s\s+(steering|preference|directive|explicit|taste|lean|posture|framing)|steering\s+(direction|message|note)|sean\s+(explicitly\s+)?(prefers|wants|redirect|greenlit|ratified))/i.test(c)
+  ) return 'preference'
   if (/\b(pattern|approach|technique|strategy|method|architecture|flywheel)/i.test(c)) return 'pattern'
   if (/\b(convention|rule|naming|structure|format|must.be|required)/i.test(c)) return 'convention'
   if (/\b(question|unclear|investigate|explore|wonder|unsolved)/i.test(c)) return 'question'

@@ -11,6 +11,7 @@
 
 import { Hono } from 'hono'
 import { storeWithDedup, citeMemory } from '../lib/memory.js'
+import { deriveAll } from '../lib/auto-derive.js'
 import { passesIngestionGate } from '../lib/quality-gate.js'
 import type { MemoryCategory } from '../vectordb/types.js'
 
@@ -45,15 +46,31 @@ app.post('/', async (c) => {
       if (!gate.passes) continue
 
       try {
+        // Auto-derive missing fields from content, mirroring the /store and
+        // /pulse routes. Previously this path hardcoded `category: 'insight'`
+        // and empty tags whenever the caller omitted them — a session-capture
+        // derivation gap that dumped uncategorized learnings into `insight`
+        // (a primary driver of the 44%-insight skew, TD-726). Explicit
+        // caller-supplied category/tags still win.
+        const content = learning.content.trim()
+        const derived = deriveAll(content, {
+          category: learning.category || undefined,
+          tags: learning.tags && learning.tags.length > 0 ? learning.tags : undefined,
+          sourceTool: 'capture-session',
+        })
         const result = await storeWithDedup({
-          content: learning.content.trim(),
-          category: learning.category || 'insight',
-          tags: learning.tags || [],
+          content,
+          summary: derived.summary,
+          category: derived.category as MemoryCategory,
+          tags: derived.tags,
           sourceType: 'session',
           sourceRef,
           sourceProject,
           confidence: learning.confidence ?? 0.6,
-          sourceTool: 'capture-session',
+          domain: derived.domain,
+          topic: derived.topic,
+          memoryType: derived.memoryType,
+          sourceTool: derived.sourceTool,
         })
         if (result.deduplicated) {
           memoriesDeduplicated++
