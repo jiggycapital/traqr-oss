@@ -64,7 +64,11 @@ export function registerTools(server: McpServer) {
       'Use when you learn a fact, preference, or pattern worth keeping. Override any field if auto-detection is wrong.',
     {
       content: z.string().max(50000).describe('What you learned — be specific. Include WHAT, WHY, WHERE.'),
-      summary: z.string().max(120).optional().describe('Override auto-summary (max 120 chars)'),
+      // Truncate an over-long override to 120 rather than hard-rejecting it — matches
+      // deriveSummary's own clip (auto-derive.ts:126) and the auto-summary path (tools.ts:46),
+      // so a slightly-too-long crafted summary is clipped, not bounced with a retry-forcing
+      // validation error. summary stays a short search-result label; DB column is varchar(500).
+      summary: z.string().transform((s) => (s.length > 120 ? s.slice(0, 117) + '...' : s)).optional().describe('Override auto-summary (clipped to 120 chars if longer)'),
       category: categoryEnum.optional().describe('Override auto-category'),
       domain: z.enum(['sean', 'traqr', 'tooling', 'universal', 'nooktraqr', 'pokotraqr', 'poketraqr', 'milestraqr', 'jiggy']).optional()
         .describe('Override auto-domain (sean, traqr, tooling, universal, app name)'),
