@@ -317,7 +317,7 @@ Based on the compound output, classify into:
 |-------|-------------------|
 | **ACTIVE** | Phase file exists AND is recent (< 2 hours). Currently has a session running work. |
 | **DIRTY** | `git status --porcelain` has output, no active session. Uncommitted work sitting idle. |
-| **HAS_WORK** | Commits ahead of main (AHEAD > 0), no active session. Work done but not shipped. |
+| **HAS_WORK** | AHEAD > 0, no active session, AND the branch's touched files are not already identical in main (squash-merge guard below). Genuinely-unshipped work. |
 | **PR_OPEN** | Branch has an open PR. Waiting on review/merge. |
 | **IDLE** | On main or slot branch, clean, no session. Available for new work. |
 | **MISSING** | Worktree directory doesn't exist. Slot not created yet. |
@@ -327,6 +327,17 @@ Detect PR_OPEN via `gh pr list --head <branch>`.
 {{#IF_GITLAB}}
 Detect PR_OPEN via `glab mr list --source-branch <branch>`.
 {{/IF_GITLAB}}
+
+> **Squash-merge guard — do NOT classify HAS_WORK on AHEAD > 0 alone.** A squash-merged branch keeps `AHEAD > 0` forever: the squash lands a *new* commit in main, so the branch's original commits are never ancestors of `origin/main` even though their content shipped. Before calling a slot HAS_WORK — especially before naming a finished-but-unshipped branch — confirm the content is genuinely absent from main:
+> ```bash
+> FILES=$(git diff --name-only origin/main...HEAD)
+> if [ -z "$FILES" ] || git diff --quiet origin/main HEAD -- $FILES; then
+>   echo "CONTENT_IN_MAIN — stale branch, already shipped; do NOT flag"
+> else
+>   echo "GENUINELY_AHEAD — real unshipped content"
+> fi
+> ```
+> Grade on file-content-in-main, not branch-merge-status — the branch≠content trap.
 
 ### 1E: Extract Active Slot Topics
 
