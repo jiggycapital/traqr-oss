@@ -317,12 +317,13 @@ If fails, proceed — learnings captured on merge.
 ```bash
 SLOT_NAME=$(basename $(pwd))
 SESSION_FILE="/tmp/{{SESSION_PREFIX}}-session-metrics-${SLOT_NAME}.json"
-START_TIME=$(jq -r '.startedAt // empty' "$SESSION_FILE" 2>/dev/null)
-TICKET_ID=$(jq -r '.linearTicket // empty' "$SESSION_FILE" 2>/dev/null)
-TASK_DESC=$(jq -r '.task // empty' "$SESSION_FILE" 2>/dev/null)
-if [ -n "$START_TIME" ]; then
-  START_EPOCH=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$START_TIME" "+%s" 2>/dev/null || echo "0")
-  ELAPSED_MIN=$(( ($(date "+%s") - START_EPOCH) / 60 ))
+# The session-metrics writer (scripts/hooks/track-session-*.sh) emits epoch-seconds
+# fields — .slot / .start_ts / .prompt_count / .last_prompt_ts — and has no Linear
+# ticket or task at hook time. So read .start_ts (an integer, NOT an ISO string) and
+# leave ticket/task null; they are not capturable here (TD-1056).
+START_TS=$(jq -r '.start_ts // empty' "$SESSION_FILE" 2>/dev/null)
+if [ -n "$START_TS" ]; then
+  ELAPSED_MIN=$(( ($(date "+%s") - START_TS) / 60 ))
   [ "$ELAPSED_MIN" -lt 60 ] && DURATION="${ELAPSED_MIN}m" || DURATION="$((ELAPSED_MIN / 60))h $((ELAPSED_MIN % 60))m"
 else DURATION="unknown"; fi
 
@@ -331,8 +332,6 @@ CC_BODY=$(jq -nc \
   --arg phase "shipped" \
   --arg meta "PR #<PR_NUMBER>" \
   --arg duration "$DURATION" \
-  --arg ticketId "$TICKET_ID" \
-  --arg task "$TASK_DESC" \
   --argjson filesChanged <FILES_CHANGED> \
   --argjson insertions <INSERTIONS> \
   --argjson deletions <DELETIONS> \
@@ -341,8 +340,7 @@ CC_BODY=$(jq -nc \
   '{slot:$slot, phase:$phase, meta:$meta, sessionSummary:{
     filesChanged:$filesChanged, insertions:$insertions, deletions:$deletions,
     prNumber:$prNumber, prUrl:$prUrl, learningsCaptured:0, duration:$duration,
-    ticketId:(if $ticketId == "" then null else $ticketId end),
-    task:(if $task == "" then null else $task end)
+    ticketId:null, task:null
   }}')
 
 curl -s --max-time 5 -X POST "{{PROJECT_API_BASE}}/control-center/state" \
