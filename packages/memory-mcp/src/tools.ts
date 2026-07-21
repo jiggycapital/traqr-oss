@@ -106,7 +106,7 @@ export function registerTools(server: McpServer) {
         }
         const memory = await storeMemory(input)
         return {
-          content: [{ type: 'text' as const, text: `Stored [${derived.domain}/${derived.category}] ${derived.summary}` }],
+          content: [{ type: 'text' as const, text: `Stored [${derived.domain}/${derived.category}] id=${memory.id} ${derived.summary}` }],
         }
       } catch (err) { return errorResult('memory_store', err) }
     },
@@ -350,6 +350,14 @@ export function registerTools(server: McpServer) {
 
         const parts: string[] = []
         parts.push(`Captured ${successful.filter((r: any) => !r?.deduplicated).length}, merged ${successful.filter((r: any) => r?.merged).length} | Zones: ${zones.noop} noop, ${zones.add} new, ${zones.borderline} borderline`)
+        // Echo stored IDs — without them a same-session correction cannot complete the
+        // archive-supersede protocol (fresh captures lag the search index by minutes, so
+        // the just-stored row is unfindable; micro-frictions 7/20, twice in one session).
+        // On a noop/merge the id is the EXISTING memory's — exactly the row a correction targets.
+        const idParts = successful
+          .filter((r: any) => r?.memory?.id)
+          .map((r: any) => `#${r.index + 1}=${r.memory.id} (${r.zone})`)
+        if (idParts.length > 0) parts.push(`IDs: ${idParts.join(' · ')}`)
         // Surface the two paths that previously read as a silent "Captured 0":
         if (deduplicated > 0) parts.push(`Deduplicated: ${deduplicated} capture(s) matched an existing memory and were not re-stored (expected, not a failure).`)
         if (errored > 0) parts.push(`WARNING: ${errored} capture(s) FAILED to store (embedding/triage error) and were NOT saved — retry, or fall back to memory_store. See server logs for the cause.`)
