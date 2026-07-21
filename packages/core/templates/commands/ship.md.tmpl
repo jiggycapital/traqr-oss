@@ -316,7 +316,7 @@ If fails, proceed — learnings captured on merge.
 
 ```bash
 SLOT_NAME=$(basename $(pwd))
-SESSION_FILE="/tmp/{{SESSION_PREFIX}}-session-${SLOT_NAME}.json"
+SESSION_FILE="/tmp/{{SESSION_PREFIX}}-session-metrics-${SLOT_NAME}.json"
 START_TIME=$(jq -r '.startedAt // empty' "$SESSION_FILE" 2>/dev/null)
 TICKET_ID=$(jq -r '.linearTicket // empty' "$SESSION_FILE" 2>/dev/null)
 TASK_DESC=$(jq -r '.task // empty' "$SESSION_FILE" 2>/dev/null)

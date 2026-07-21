@@ -63,7 +63,7 @@ cd "{{WORKTREES_PATH}}/<SLOT>" && \
   echo "=== STATUS ===" && git status --porcelain && \
   echo "=== UNPUSHED ===" && git log origin/main..HEAD --oneline && \
   echo "=== DIFF_STAT ===" && git diff origin/main..HEAD --stat && \
-  echo "=== SESSION ===" && cat /tmp/{{SESSION_PREFIX}}-session-<SLOT>.json 2>/dev/null || echo "NO_SESSION"
+  echo "=== SESSION ===" && cat /tmp/{{SESSION_PREFIX}}-session-metrics-<SLOT>.json 2>/dev/null || echo "NO_SESSION"
 ```
 
 ### 3. Five-Outcome Categorization + Execute
