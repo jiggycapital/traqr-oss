@@ -331,12 +331,13 @@ Detect PR_OPEN via `glab mr list --source-branch <branch>`.
 > **Squash-merge guard — do NOT classify HAS_WORK on AHEAD > 0 alone.** A squash-merged branch keeps `AHEAD > 0` forever: the squash lands a *new* commit in main, so the branch's original commits are never ancestors of `origin/main` even though their content shipped. Before calling a slot HAS_WORK — especially before naming a finished-but-unshipped branch — confirm the content is genuinely absent from main:
 > ```bash
 > FILES=$(git diff --name-only origin/main...HEAD)
-> if [ -z "$FILES" ] || git diff --quiet origin/main HEAD -- $FILES; then
+> if [ -z "$FILES" ] || ! git diff --name-only origin/main HEAD | grep -qxF "$FILES"; then
 >   echo "CONTENT_IN_MAIN — stale branch, already shipped; do NOT flag"
 > else
 >   echo "GENUINELY_AHEAD — real unshipped content"
 > fi
 > ```
+> **Do not "simplify" this back to `git diff --quiet ... -- $FILES`.** The Bash tool runs **zsh**, which does not word-split unquoted `$FILES`, so a multi-file branch passes ONE newline-joined pathspec that matches nothing — `--quiet` then exits 0 and every multi-file branch reads CONTENT_IN_MAIN. That inverts the guard on exactly the branches worth protecting (single-file branches pass by luck). Comparing the two `--name-only` sets never word-splits, so it is correct in both shells and for paths with spaces (TD-1062).
 > Grade on file-content-in-main, not branch-merge-status — the branch≠content trap.
 
 ### 1E: Extract Active Slot Topics
