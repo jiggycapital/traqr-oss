@@ -96,11 +96,48 @@ if (correct) {
   assert('no accessLevel → getById receives undefined (byte-identical fail-safe)', lastGetByIdOpts === undefined)
 }
 
+// --- memory_pulse empty-captures is never success-shaped (TD-1069) ---
+// PR #1689 surfaced the silent capture-failure paths (errored / deduplicated /
+// dropped / tooShort), but left one: when the captures array itself arrives empty,
+// every one of those counters reads 0 and the summary line is byte-identical to a
+// genuine all-noop batch. An agent reads "Captured 0, merged 0 | Zones: 0 noop,
+// 0 new, 0 borderline" as success and moves on having lost the whole batch
+// (observed 2026-07-27: a 4-memory batch vanished this way; the same items stored
+// fine one-at-a-time via memory_store seconds later).
+//
+// Hermetic: captures:[] means Promise.all runs over an empty array — no triage, no
+// DB. The search-only case injects a fake provider that throws on any method, which
+// the handler's `.catch(() => [])` absorbs, so no live DB is needed there either.
+console.log('\n--- memory_pulse empty-captures warning (TD-1069) ---')
+
+const pulse = handlers.get('memory_pulse')
+assert('memory_pulse tool is registered', typeof pulse === 'function')
+
+if (pulse) {
+  // Case 1: no captures AND no search → this call stored nothing. Must say so.
+  const res1 = await pulse({ captures: [], searchLimit: 3 })
+  const text1 = res1.content[0].text
+  assert('0 captures + no search → WARNING that nothing was stored', text1.includes('WARNING: 0 captures received'))
+  assert('0 captures + no search → tells the caller how to recover', text1.includes('memory_store'))
+
+  // Case 2: no captures BUT a search was requested → legitimate search-only pulse,
+  // so it must NOT cry wolf with the data-loss WARNING.
+  const throwingProvider = new Proxy({}, {
+    get() { return () => { throw new Error('no DB in test') } },
+  }) as unknown as Parameters<typeof setVectorDB>[0]
+  setVectorDB(throwingProvider)
+  const res2 = await pulse({ captures: [], search: 'anything', searchLimit: 3 })
+  resetVectorDB()
+  const text2 = res2.content[0].text
+  assert('0 captures + search → no false data-loss WARNING', !text2.includes('WARNING: 0 captures received'))
+  assert('0 captures + search → labelled a search-only pulse', text2.includes('search-only pulse'))
+}
+
 console.log(`\n${'='.repeat(50)}`)
 console.log(`Results: ${passed} passed, ${failed} failed`)
 if (failed > 0) {
-  console.log('MEMORY_CORRECT FORWARDING CONTRACT FAILED')
+  console.log('MEMORY-MCP TOOL CONTRACT TESTS FAILED')
   process.exit(1)
 } else {
-  console.log('All memory_correct forwarding-contract tests passed!')
+  console.log('All memory-mcp tool-contract tests passed!')
 }

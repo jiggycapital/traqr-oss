@@ -363,6 +363,16 @@ export function registerTools(server: McpServer) {
         if (errored > 0) parts.push(`WARNING: ${errored} capture(s) FAILED to store (embedding/triage error) and were NOT saved — retry, or fall back to memory_store. See server logs for the cause.`)
         if (dropped > 0) parts.push(`WARNING: ${dropped} capture(s) dropped — batch limit is ${MAX_CAPTURES}. Send multiple pulse calls for larger batches.`)
         if (tooShort > 0) parts.push(`Filtered: ${tooShort} capture(s) skipped (content < 20 chars)`)
+        // The one all-zeros path #1689 left unwarned: the captures array itself arrived empty.
+        // Every counter above reads 0, so the summary line is byte-identical to a genuine
+        // all-noop batch — an agent reads "Captured 0" as success and moves on having lost the
+        // batch (TD-1069, 2026-07-27: a 4-memory batch vanished this way; the same items stored
+        // fine one-at-a-time via memory_store seconds later).
+        if (captures.length === 0) {
+          parts.push(search
+            ? `Note: 0 captures in this call — search-only pulse.`
+            : `WARNING: 0 captures received AND no search requested — this call stored NOTHING. If you sent a batch, it did not reach the server. Re-send, or fall back to per-item memory_store.`)
+        }
 
         const summary = parts.join('\n')
         const text = searchResults.length > 0
