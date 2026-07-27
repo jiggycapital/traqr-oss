@@ -34,6 +34,19 @@ import { ask, confirm, select, info, askValidated, closePrompts } from '../lib/p
 import { writeFiles } from '../lib/writer.js'
 import { checkPrerequisites } from '../lib/checks.js'
 
+/**
+ * git resolves GIT_DIR/GIT_WORK_TREE from the environment BEFORE it looks at cwd,
+ * so passing `cwd` does NOT scope a git call to that directory. Anything git runs
+ * — a hook, or a wrapper invoked from one — inherits both vars, and under an
+ * inherited GIT_DIR a pathless `git init` initializes the INHERITED repo while
+ * `git add -A` stages the inherited work tree. That is how TD-1064 put a stray
+ * `core.bare=true` on the shared config and broke every worktree at once. The
+ * daemon's test fixtures were hardened against this; these scaffolding paths were
+ * not, and they are strictly worse — they follow the init with `add -A` + `commit`.
+ * Scrub the vars so cwd is the only thing that decides which repo we touch.
+ */
+const GIT_ENV = { ...process.env, GIT_DIR: undefined, GIT_WORK_TREE: undefined }
+
 const RAQR_WELCOME = `
 ╭─────────────────────────────────────────────────────────────╮
 │      /\\___/\\                                                │
@@ -119,8 +132,8 @@ async function scaffoldNewProject(): Promise<string> {
 
   if (framework === 'none') {
     await fs.mkdir(projectDir, { recursive: true })
-    execSync('git init', { cwd: projectDir, stdio: 'pipe' })
-    execSync('git commit --allow-empty -m "chore: initial commit"', { cwd: projectDir, stdio: 'pipe' })
+    execSync('git init', { cwd: projectDir, stdio: 'pipe', env: GIT_ENV })
+    execSync('git commit --allow-empty -m "chore: initial commit"', { cwd: projectDir, stdio: 'pipe', env: GIT_ENV })
   } else {
     console.log(`\n  Scaffolding ${name}...`)
     const cmds: Record<string, string> = {
@@ -136,8 +149,8 @@ async function scaffoldNewProject(): Promise<string> {
     }
     // Ensure git is initialized
     if (!existsSync(path.join(projectDir, '.git'))) {
-      execSync('git init', { cwd: projectDir, stdio: 'pipe' })
-      execSync('git add -A && git commit -m "chore: initial scaffold"', { cwd: projectDir, stdio: 'pipe', shell: '/bin/sh' })
+      execSync('git init', { cwd: projectDir, stdio: 'pipe', env: GIT_ENV })
+      execSync('git add -A && git commit -m "chore: initial scaffold"', { cwd: projectDir, stdio: 'pipe', shell: '/bin/sh', env: GIT_ENV })
     }
   }
 

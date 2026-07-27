@@ -24,6 +24,16 @@ import {
 import { writeFiles } from '../lib/writer.js'
 import { ask, select, closePrompts } from '../lib/prompts.js'
 
+/**
+ * git reads GIT_DIR/GIT_WORK_TREE from the environment before it considers cwd, so
+ * `cwd` alone does not scope these calls to projectDir. Under an inherited GIT_DIR
+ * (anything invoked from a git hook) the sequence below would init, stage, and
+ * commit the INHERITED repo instead — the TD-1064 leak class that put a stray
+ * `core.bare=true` on the shared config. Scrub both vars. See init.ts for the
+ * matching guard.
+ */
+const GIT_ENV = { ...process.env, GIT_DIR: undefined, GIT_WORK_TREE: undefined }
+
 type GoldenPath = keyof typeof GOLDEN_PATH_DEFAULTS
 type StarterPack = keyof typeof STARTER_PACK_DEFAULTS
 
@@ -167,10 +177,10 @@ async function run() {
 
   // 6. Git init + initial commit
   try {
-    execSync('git init', { cwd: projectDir, stdio: 'pipe' })
-    execSync('git add -A', { cwd: projectDir, stdio: 'pipe' })
+    execSync('git init', { cwd: projectDir, stdio: 'pipe', env: GIT_ENV })
+    execSync('git add -A', { cwd: projectDir, stdio: 'pipe', env: GIT_ENV })
     execSync('git commit -m "chore: scaffold DevOS monorepo via traqr scaffold"', {
-      cwd: projectDir, stdio: 'pipe'
+      cwd: projectDir, stdio: 'pipe', env: GIT_ENV
     })
     console.log('  Initialized git repository')
   } catch {
