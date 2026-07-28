@@ -22,6 +22,7 @@
 
 process.env.EMBEDDING_PROVIDER = 'none'
 
+import { z } from 'zod'
 import { registerTools } from './tools.js'
 import { setVectorDB, resetVectorDB } from '@traqr/memory'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -43,9 +44,11 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<ToolResult>
 
 // Capture the tool handlers registerTools() wires onto the server.
 const handlers = new Map<string, ToolHandler>()
+const schemas = new Map<string, Record<string, z.ZodTypeAny>>()
 const fakeServer = {
-  tool(name: string, _desc: string, _schema: unknown, handler: ToolHandler) {
+  tool(name: string, _desc: string, schema: Record<string, z.ZodTypeAny>, handler: ToolHandler) {
     handlers.set(name, handler)
+    schemas.set(name, schema)
   },
 } as unknown as McpServer
 registerTools(fakeServer)
@@ -131,6 +134,55 @@ if (pulse) {
   const text2 = res2.content[0].text
   assert('0 captures + search → no false data-loss WARNING', !text2.includes('WARNING: 0 captures received'))
   assert('0 captures + search → labelled a search-only pulse', text2.includes('search-only pulse'))
+}
+
+// --- memory_pulse preserves per-item provenance/security fields (TD-1069) ---
+// memory_store threads confidence / sourceReliability / classification into the
+// stored row. memory_pulse — the DOCUMENTED batch path for the same captures —
+// did not declare them, and zod STRIPS unknown keys instead of rejecting. So a
+// caller that sent them got success-shaped output with the values silently gone:
+// every pulsed memory pinned at confidence 0.6, classification auto-derived, and
+// sourceReliability unset. A `restricted` capture batched via pulse was stored at
+// whatever auto-derivation picked — a silent SECURITY-TIER downgrade, not just a
+// lost hint. Same class as the empty-batch drop above: silent loss, no error.
+//
+// Tested at the SCHEMA seam, not through the handler: threading the values into
+// MemoryInput requires triageAndStore, which needs a DB. What actually broke here
+// was zod dropping the keys before the handler ever saw them, so parsing the
+// declared shape pins the real defect. Revert the tools.ts schema addition and the
+// three "survives" assertions flip to FAIL (verified non-vacuous).
+console.log('\n--- memory_pulse per-item provenance fields (TD-1069) ---')
+{
+  const pulseShape = schemas.get('memory_pulse')
+  assert('memory_pulse schema was captured', !!pulseShape)
+
+  const parsed = z.object(pulseShape!).parse({
+    captures: [{
+      content: 'A capture long enough to clear the 20-char minimum for storage.',
+      confidence: 0.95,
+      sourceReliability: 'direct-user',
+      classification: 'restricted',
+    }],
+  })
+  const cap = (parsed.captures as Record<string, unknown>[])[0]
+
+  assert('confidence survives the schema (was stripped → forced to 0.6)', cap.confidence === 0.95)
+  assert('sourceReliability survives the schema (was stripped → unset)', cap.sourceReliability === 'direct-user')
+  assert('classification survives the schema (was stripped → auto-derived)', cap.classification === 'restricted')
+
+  // Omitting them stays legal — the fields are optional, and the handler falls
+  // back to 0.6 / auto-derived. This pins that the fix is additive.
+  const bare = z.object(pulseShape!).parse({
+    captures: [{ content: 'Another capture that clears the 20-char minimum fine.' }],
+  })
+  const bareCap = (bare.captures as Record<string, unknown>[])[0]
+  assert('the three fields stay OPTIONAL — a bare capture still parses', bareCap.confidence === undefined)
+
+  // The enums are closed: a bogus tier must REJECT loudly, not silently coerce.
+  const bogus = z.object(pulseShape!).safeParse({
+    captures: [{ content: 'A capture that clears the 20-char minimum easily.', classification: 'top-secret' }],
+  })
+  assert('an out-of-enum classification is REJECTED, not silently dropped', !bogus.success)
 }
 
 console.log(`\n${'='.repeat(50)}`)

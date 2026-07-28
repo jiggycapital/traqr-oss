@@ -289,6 +289,19 @@ export function registerTools(server: McpServer) {
           .describe('Override auto-domain'),
         topic: z.string().optional().describe('Override auto-topic'),
         tags: z.array(controlledTagEnum).optional(),
+        // These three were absent until TD-1069. zod STRIPS unknown keys rather than
+        // rejecting, so a caller that sent them got success-shaped output with the
+        // values silently gone — and every pulsed memory pinned at confidence 0.6,
+        // classification auto-derived, sourceReliability unset. memory_store has
+        // accepted all three since forever (see its shape above); pulse is the
+        // documented BATCH path for the same captures, so the divergence meant
+        // "batch it" quietly downgraded provenance and security tier.
+        confidence: z.number().min(0).max(1).optional()
+          .describe('0-1 (default 0.6). Raise to 0.8+ only for facts you are confident about.'),
+        sourceReliability: z.enum(['direct-user', 'deliberate-store', 'granola-single', 'granola-multi', 'inferred', 'auto-derived']).optional()
+          .describe('How trustworthy is the source? direct-user > deliberate-store > granola-single > granola-multi > inferred > auto-derived'),
+        classification: z.enum(['public', 'internal', 'confidential', 'restricted']).optional()
+          .describe('Security classification. Default: auto-derived from content.'),
       })).default([]),
       sourceProject: z.string().optional().describe('Source project slug for all captures in this batch'),
       slot: z.string().optional().describe('Slot name for source tracking'),
@@ -315,11 +328,13 @@ export function registerTools(server: McpServer) {
                 tags: [...(derived.tags as string[] || []), 'pulse', ...(slot ? [`slot:${slot}`] : [])],
                 sourceType: 'session',
                 sourceProject: sourceProject || 'default',
-                confidence: 0.6,
+                confidence: cap.confidence ?? 0.6,
                 domain: derived.domain as string,
                 topic: derived.topic as string,
                 memoryType: derived.memoryType as any,
                 sourceTool: 'mcp-pulse',
+                ...(cap.sourceReliability ? { sourceReliability: cap.sourceReliability } : {}),
+                ...(cap.classification ? { classification: cap.classification as MemoryClassification } : {}),
               }
               return triageAndStore(input).then((r) => ({ index: idx, ...r })).catch((err) => {
                 console.warn(`[memory_pulse] capture ${idx} failed to store (NOT saved):`, err)
