@@ -273,16 +273,28 @@ WHERE (
 )
 AND classification = 'internal';
 
--- Flag memories mentioning specific sensitive topics as 'restricted'
+-- Flag memories mentioning specific sensitive topics as 'restricted'.
+--
+-- The topic list is deliberately GENERIC (TD-1105). This file is published to a
+-- public mirror, and a WHERE clause enumerating what one operator keeps notes
+-- about describes that operator — it is not schema. If your corpus has private
+-- vocabulary that should be classified on sight, add it below BEFORE running
+-- this migration, and keep your edit out of any published copy.
+--
+-- On a fresh install this UPDATE matches zero rows: the table was created a few
+-- statements ago and is empty. It only ever did work on an existing corpus, so
+-- narrowing the list here changes nothing for a new deployment. Ongoing
+-- classification is handled at write time by `detectPii`
+-- (packages/memory/src/lib/pii-detection.ts), which reads private terms from
+-- MEMORY_RESTRICTED_KEYWORDS rather than hardcoding them.
 UPDATE traqr_memories
 SET classification = 'restricted'
 WHERE (
-  content ILIKE '%psychoanalysis%'
-  OR content ILIKE '%addictive personality%'
-  OR content ILIKE '%medication%'
-  OR (content ILIKE '%AWS%' AND content ILIKE '%internal%')
+  content ILIKE '%ssn%'
+  OR content ILIKE '%social security%'
   OR content ILIKE '%salary%'
-  OR content ILIKE '%SSN%'
+  OR content ILIKE '%password%'
+  OR content ILIKE '%private key%'
 )
 AND classification != 'restricted';
 

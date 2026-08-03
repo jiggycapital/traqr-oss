@@ -15,7 +15,7 @@
 --     content stays the '[ENCRYPTED]' placeholder). The latter is a correctness
 --     bug, not just a security one.
 --
--- BLAST RADIUS verified 2026-06-08 vs live (krzajogmytxbudzisydm):
+-- BLAST RADIUS verified 2026-06-08 vs live (<project-ref>):
 --   * 275 confidential + 46 restricted rows; ALL encrypted-at-rest (content =
 --     '[ENCRYPTED]', 11 chars) -> cross_project leaks the PLACEHOLDER, not the
 --     decrypted body. The live leak vector is the PLAINTEXT summary (~110 chars,

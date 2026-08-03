@@ -53,6 +53,15 @@ WHERE is_archived = FALSE
 -- 1D. ARCHIVE ASPIRATIONAL BOOTSTRAP MEMORIES
 -- ============================================================
 
+-- This archived a specific set of never-cited bootstrap memories describing
+-- abandoned strategy directions. The original phrase list named those
+-- directions verbatim, which on a public mirror reads as a roadmap the operator
+-- once had rather than as schema (TD-1105) — and one entry was employer-
+-- adjacent. The phrases are the operator's, not the product's.
+--
+-- Structurally a no-op for anyone else: it requires `source_type = 'bootstrap'`
+-- AND `times_cited = 0`, and a fresh install has no bootstrap rows at all. Fill
+-- the list below only if you are cleaning an existing corpus.
 UPDATE memories SET
   is_archived = TRUE,
   archived_at = NOW(),
@@ -61,13 +70,7 @@ UPDATE memories SET
 WHERE is_archived = FALSE
   AND times_cited = 0
   AND source_type = 'bootstrap'
-  AND (
-    content ILIKE '%knowledge marketplace%'
-    OR content ILIKE '%aws partnership%'
-    OR content ILIKE '%monetiz%'
-    OR content ILIKE '%personality vector%'
-    OR content ILIKE '%Two-Layer Strategy%'
-  );
+  AND FALSE; -- replace with your own `content ILIKE '%…%'` terms to enable
 
 -- ============================================================
 -- 4C. BACKFILL source_project

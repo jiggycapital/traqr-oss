@@ -45,7 +45,7 @@ design, and monorepo configs all ship to OSS, so all are scanned. It targets
 - App names: `NookTraqr`, `PokoTraqr`, `PokeTraqr`, `MilesTraqr`, `DomainTraqr`
 - Linear ticket prefixes as tokens: `NTQ-`, `PKT-`, `PTQ-`, `MTQ-`, `DTQ-`, `JGC-`
 - Slack channel ids: regex `C0[A-Z0-9]{8,}`
-- Supabase project id: `krzajogmytxbudzisydm`
+- Supabase project id: `<project-ref>`
 - Vercel project ids: regex `prj_[A-Za-z0-9]{20,}`
 - Internal strategy headers: `four vectors`, `Toni Check`
 

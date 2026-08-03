@@ -13,11 +13,11 @@
 -- But setup.sql is idempotent CREATE-only — deleting a `CREATE OR REPLACE
 -- FUNCTION` block from it does NOT drop an already-provisioned function from a
 -- live database. So bm25_search / temporal_search / graph_search / memory_bm25_search
--- lingered in prod krzajogmytxbudzisydm as orphans: defined in the DB, defined
+-- lingered in prod <project-ref> as orphans: defined in the DB, defined
 -- nowhere in the code (the exact proxy-vs-substrate gap — the schema said "gone,"
 -- the live DB said "still here"). This migration is that DROP.
 --
--- SAFETY (verified against prod krzajogmytxbudzisydm, 2026-07-02):
+-- SAFETY (verified against prod <project-ref>, 2026-07-02):
 --   * Dead by construction — all four carry `SET search_path = ''` with
 --     unqualified table refs → every call throws 42P01, swallowed to [] by
 --     retrieval.ts (BM25/temporal/graph fusion has been a prod no-op for months;
@@ -33,7 +33,7 @@
 --     options.strategies override) already returned [] on 42P01 and now returns []
 --     on 42883 (undefined function) — same swallowed-to-empty outcome.
 --
--- APPLIED to prod krzajogmytxbudzisydm on 2026-07-02 (Feature2, via Supabase
+-- APPLIED to prod <project-ref> on 2026-07-02 (Feature2, via Supabase
 -- apply_migration `drop_dead_bm25_temporal_graph_functions`). Verified: all four
 -- absent from pg_proc afterward; live memory_search round-trip unaffected. This
 -- file is the durable record + rollback. (The repo runner `_traqr_migrations` has

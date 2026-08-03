@@ -32,20 +32,66 @@ const PII_PATTERNS: Record<string, RegExp> = {
   creditCard: /\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g,
 }
 
-// Sensitive topic keywords that suggest restricted classification
-const RESTRICTED_KEYWORDS = [
-  'psychoanalysis', 'addictive personality', 'medication',
-  'therapy', 'mental health', 'diagnosis',
+/**
+ * Keyword lists are split into a published half and a private half (TD-1105).
+ *
+ * This file ships to a PUBLIC mirror. A hardcoded list of the topics one
+ * operator keeps notes about is a description of that operator: the earlier
+ * version of this array mixed narrow, personal health vocabulary in with the
+ * generic terms, and read as somebody's medical profile rather than a
+ * detector's category list. Naming those terms here to explain the fix would
+ * republish them, so this comment does not.
+ *
+ * The built-ins below are generic categories any deployment wants flagged.
+ * Operator-specific vocabulary goes in `MEMORY_RESTRICTED_KEYWORDS` /
+ * `MEMORY_CONFIDENTIAL_KEYWORDS` (comma-separated) and is merged at runtime,
+ * so private terms keep classifying without ever entering the repository.
+ *
+ * Deleting a private term rather than relocating it would have been the wrong
+ * fix: these keywords are what force a memory to `restricted`, so dropping them
+ * silently DOWNGRADES the classification of exactly the most sensitive
+ * memories. Privacy work that removes a protection is not privacy work.
+ */
+const RESTRICTED_KEYWORDS_BUILTIN = [
+  'medication', 'therapy', 'mental health', 'diagnosis',
   'salary', 'compensation', 'ssn', 'social security',
   'password', 'api key', 'secret key', 'private key',
-]
+] as const
 
-// Confidential topic keywords
-const CONFIDENTIAL_KEYWORDS = [
+const CONFIDENTIAL_KEYWORDS_BUILTIN = [
   'pipeline', 'revenue', 'pricing', 'client list',
-  'inherited opps', 'discovery call', 'consulting fee',
-  'trust tier', 'foxhole',
-]
+  'discovery call', 'consulting fee',
+] as const
+
+function mergeKeywords(envVar: string, builtin: readonly string[]): string[] {
+  const extra = (process.env[envVar] || '')
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean)
+  return [...builtin, ...extra]
+}
+
+// Resolved on first use, not at import. `detectPii` is called from a request
+// handler, so by then dotenv has run; reading env at module scope would race
+// the loader and silently drop every private term.
+let restrictedKeywords: string[] | null = null
+let confidentialKeywords: string[] | null = null
+
+function getRestrictedKeywords(): string[] {
+  restrictedKeywords ??= mergeKeywords('MEMORY_RESTRICTED_KEYWORDS', RESTRICTED_KEYWORDS_BUILTIN)
+  return restrictedKeywords
+}
+
+function getConfidentialKeywords(): string[] {
+  confidentialKeywords ??= mergeKeywords('MEMORY_CONFIDENTIAL_KEYWORDS', CONFIDENTIAL_KEYWORDS_BUILTIN)
+  return confidentialKeywords
+}
+
+/** Test seam — drops the memoized lists so a test can vary the env. */
+export function __resetKeywordCache(): void {
+  restrictedKeywords = null
+  confidentialKeywords = null
+}
 
 /**
  * Detect PII in memory content.
@@ -66,8 +112,8 @@ export function detectPii(content: string): PiiDetectionResult {
 
   // Check restricted keywords
   const contentLower = content.toLowerCase()
-  const hasRestricted = RESTRICTED_KEYWORDS.some(kw => contentLower.includes(kw))
-  const hasConfidential = CONFIDENTIAL_KEYWORDS.some(kw => contentLower.includes(kw))
+  const hasRestricted = getRestrictedKeywords().some(kw => contentLower.includes(kw))
+  const hasConfidential = getConfidentialKeywords().some(kw => contentLower.includes(kw))
 
   // Determine classification
   if (hasRestricted) {

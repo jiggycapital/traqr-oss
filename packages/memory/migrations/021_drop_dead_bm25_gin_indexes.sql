@@ -7,7 +7,7 @@
 -- ---------------------------------------------------------------------------
 -- `bm25_search`/`temporal_search`/`graph_search` carry `SET search_path = ''`
 -- with UNQUALIFIED table refs → every live call throws 42P01 (swallowed to [])
--- on traqr-db (krzajogmytxbudzisydm), so BM25 fusion has been a production no-op
+-- on traqr-db (<project-ref>), so BM25 fusion has been a production no-op
 -- for months (TD-587's "shipped" hybrid never actually ran). Migration 019
 -- (drop_unused_entity_hnsw) explicitly deferred these 3 GIN indexes to "a
 -- follow-up cave… is the BM25 hybrid path exercised / does it seq-scan" — this
@@ -21,7 +21,7 @@
 --   * idx_traqr_memories_bm25        (gin search_vector)         ← memory_bm25_search,
 --                                       which has no TS caller (orphan, 0 lifetime scans)
 --
--- Lifetime scans at drop time (pg_stat_user_indexes, krzajogmytxbudzisydm
+-- Lifetime scans at drop time (pg_stat_user_indexes, <project-ref>
 -- 2026-06-26): bm25=0, search_en=7, search_simple=6 — i.e. effectively zero
 -- against hundreds of memory_searches/day; the handful are investigation EXPLAINs.
 -- Combined ~21.8 MB (6.6 + 6.8 + 8.3 MB) of GIN held in RAM + maintained on every
@@ -38,7 +38,7 @@
 -- traqr_memories while the fleet writes. If your migration runner wraps statements
 -- in a transaction, run these via a direct (autocommit) session.
 --
--- APPLIED to prod krzajogmytxbudzisydm on 2026-06-26 (Feature1, via direct
+-- APPLIED to prod <project-ref> on 2026-06-26 (Feature1, via direct
 -- DROP INDEX CONCURRENTLY). This file is the durable record + rollback.
 -- ---------------------------------------------------------------------------
 

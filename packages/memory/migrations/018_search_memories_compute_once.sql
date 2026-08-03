@@ -32,7 +32,7 @@
 -- reuses them. It does NOT touch calculate_current_confidence (its language /
 -- search_path are unchanged — the security tension is sidestepped entirely).
 --
--- MEASURED on live (krzajogmytxbudzisydm, 6/14, probe = a 'portfolio' memory's
+-- MEASURED on live (<project-ref>, 6/14, probe = a 'portfolio' memory's
 -- embedding, threshold 0.35, 1,566 rows passing):
 --   current shape : 3,100 ms exec, 69,533 shared buffers
 --   compute-once  : 2,390 ms exec, 46,577 shared buffers  (-23% time, -33% buffers)

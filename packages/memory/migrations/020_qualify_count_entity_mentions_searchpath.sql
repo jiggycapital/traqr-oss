@@ -8,7 +8,7 @@
 -- entity "3+ mention" promotion threshold (entity-pipeline.ts:181) silently
 -- always saw 0 — entity promotion/graph enrichment degraded with no error surfaced.
 --
--- Verified live on traqr-db (krzajogmytxbudzisydm) 2026-06-21: pre-fix the live fn
+-- Verified live on traqr-db (<project-ref>) 2026-06-21: pre-fix the live fn
 -- threw 42P01; post-fix it returns real counts (1605 for a probe). Same bug class as
 -- TD-894 (bm25/temporal/graph), NookTraqr 012/021, PokoTraqr #1017 — "harden
 -- search_path without schema-qualifying the body." Caught by audit:sql-search-path

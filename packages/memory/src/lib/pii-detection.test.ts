@@ -14,7 +14,7 @@
  * Run: npx tsx packages/memory/src/lib/pii-detection.test.ts
  */
 
-import { redactForEmbedding } from './pii-detection.js'
+import { redactForEmbedding, detectPii, __resetKeywordCache } from './pii-detection.js'
 import { redactEmbeddingInput } from './embeddings.js'
 
 let passed = 0
@@ -67,6 +67,53 @@ assert('flag=0 passes through raw', redactEmbeddingInput('mail x@y.com') === 'ma
 process.env.MEMORY_REDACT_EMBEDDINGS = 'true'
 assert('flag=true redacts', redactEmbeddingInput('mail x@y.com') === 'mail [EMAIL]')
 delete process.env.MEMORY_REDACT_EMBEDDINGS
+
+console.log('\n--- private classification vocabulary lives in env, not the repo (TD-1105) ---')
+
+// The point of moving private terms into env is that classification must keep
+// working. A test that only checked the terms were GONE would pass on the
+// broken fix — the one where a private topic silently stops being flagged
+// `restricted`, which is less private than where we started.
+//
+// The fixtures below are deliberately SYNTHETIC. This test file ships to the
+// same public mirror as the source, so using the operator's real vocabulary
+// here would republish exactly what the change removes — the leak would just
+// move from an array to a fixture. What is under test is the merge mechanism,
+// and a made-up word exercises it identically.
+delete process.env.MEMORY_RESTRICTED_KEYWORDS
+delete process.env.MEMORY_CONFIDENTIAL_KEYWORDS
+__resetKeywordCache()
+
+assert('generic health terms stay built in',
+  detectPii('notes from therapy this week').suggestedClassification === 'restricted')
+assert('generic secrets stay built in',
+  detectPii('the private key is rotated').suggestedClassification === 'restricted')
+assert('a private term is NOT hardcoded — unset env means unflagged',
+  detectPii('a note about quorlybet').suggestedClassification !== 'restricted')
+
+process.env.MEMORY_RESTRICTED_KEYWORDS = 'quorlybet,vantrex episode'
+process.env.MEMORY_CONFIDENTIAL_KEYWORDS = 'plimsoll deck,zarn tier'
+__resetKeywordCache()
+
+assert('env-supplied restricted term classifies',
+  detectPii('a note about quorlybet').suggestedClassification === 'restricted')
+assert('env-supplied multi-word term classifies',
+  detectPii('re: the vantrex episode').suggestedClassification === 'restricted')
+assert('env-supplied confidential term classifies',
+  detectPii('the plimsoll deck for Q3').suggestedClassification === 'confidential')
+assert('built-ins still fire alongside env terms',
+  detectPii('notes from therapy this week').suggestedClassification === 'restricted')
+assert('unrelated content stays internal',
+  detectPii('the weather was pleasant').suggestedClassification === 'internal')
+
+process.env.MEMORY_RESTRICTED_KEYWORDS = '  Quorlybet , , vantrex episode  '
+__resetKeywordCache()
+assert('env parsing trims, lowercases and drops empties',
+  detectPii('A NOTE ABOUT QUORLYBET').suggestedClassification === 'restricted')
+
+delete process.env.MEMORY_RESTRICTED_KEYWORDS
+delete process.env.MEMORY_CONFIDENTIAL_KEYWORDS
+__resetKeywordCache()
 
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed > 0 ? 1 : 0)

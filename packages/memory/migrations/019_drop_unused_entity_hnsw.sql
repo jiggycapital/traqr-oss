@@ -42,7 +42,7 @@
 -- on memory_entities while the fleet writes. If your migration runner wraps
 -- statements in a transaction, run the DROP via a direct (autocommit) session.
 --
--- APPLIED to prod krzajogmytxbudzisydm on 2026-06-14 (Feature5, via direct
+-- APPLIED to prod <project-ref> on 2026-06-14 (Feature5, via direct
 -- DROP INDEX CONCURRENTLY). This file is the durable record + rollback.
 -- ---------------------------------------------------------------------------
 
