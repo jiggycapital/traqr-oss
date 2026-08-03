@@ -23,6 +23,7 @@ import {
   getDefaultDaemonConfig,
   DEFAULT_GUARDIAN_CONFIG,
 } from './config-schema.js'
+import { parseBool } from './env-bool.js'
 
 // ============================================================
 // Types
@@ -393,12 +394,13 @@ function applyGuardianEnvOverrides(config: GuardianConfig): {
   const result = structuredClone(config);
 
   if (process.env.GUARDIAN_ENABLED !== undefined) {
-    result.enabled = process.env.GUARDIAN_ENABLED === 'true';
+    result.enabled = parseBool(process.env.GUARDIAN_ENABLED, result.enabled);
     overrides.push('guardian.enabled');
   }
 
   if (process.env.GUARDIAN_DRY_RUN !== undefined) {
-    result.dryRun = process.env.GUARDIAN_DRY_RUN === 'true';
+    // Default TRUE: an unreadable dry-run flag must not silently mean "merge for real".
+    result.dryRun = parseBool(process.env.GUARDIAN_DRY_RUN, true);
     overrides.push('guardian.dryRun');
   }
 

@@ -31,6 +31,9 @@ export {
   renderTemplate,
 } from './template-engine.js'
 
+// Env booleans — trim-before-compare parsing with an explicit per-site default
+export { parseBool, findWhitespacePaddedEnvKeys } from './env-bool.js'
+
 // Config resolver — org/project config loading, 5-level hierarchy, project registry
 export type { OrgConfig, ResolvedConfig, ProjectRegistryEntry, VcsDetection } from './config-resolver.js'
 export {
