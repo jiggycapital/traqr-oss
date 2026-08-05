@@ -143,7 +143,12 @@ Show progress: `{{RAQR_PROGRESS_5}}`
 ```bash
 SLOT_NAME=$(basename $(pwd))
 BODY=$(jq -nc --arg s "$SLOT_NAME" '{slot:$s, phase:"shipping", meta:"Pushing + creating PR"}')
+# Bearer required — /api/control-center/ is an internal-auth route. Precedence mirrors the
+# receiving middleware: INTERNAL_API_KEY first, CRON_SECRET only as fallback (they can differ).
+_envkey() { grep -m1 "^$1=" "$(git rev-parse --show-toplevel)/.env.local" 2>/dev/null | cut -d= -f2- | tr -d '"'; }
+: "${INTERNAL_KEY:=$(_envkey INTERNAL_API_KEY)}"; : "${INTERNAL_KEY:=$(_envkey CRON_SECRET)}"
 curl -s --max-time 3 -X POST "{{PROJECT_API_BASE}}/control-center/state" \
+  -H "Authorization: Bearer ${INTERNAL_KEY}" \
   -H "Content-Type: application/json" -d "$BODY" > /dev/null &
 ```
 {{/IF_CONTROL_CENTER}}
@@ -292,7 +297,11 @@ Agent fills in `<NUMBER>` from the {{VCS_PR_NOUN}} number obtained above.
 ```bash
 SLOT_NAME=$(basename $(pwd))
 BODY=$(jq -nc --arg s "$SLOT_NAME" --arg m "PR #<NUMBER> created — ready for merge" '{slot:$s, phase:"ready-to-ship", meta:$m}')
+# Bearer required — see the note at the "shipping" phase call above.
+_envkey() { grep -m1 "^$1=" "$(git rev-parse --show-toplevel)/.env.local" 2>/dev/null | cut -d= -f2- | tr -d '"'; }
+: "${INTERNAL_KEY:=$(_envkey INTERNAL_API_KEY)}"; : "${INTERNAL_KEY:=$(_envkey CRON_SECRET)}"
 curl -s --max-time 3 -X POST "{{PROJECT_API_BASE}}/control-center/state" \
+  -H "Authorization: Bearer ${INTERNAL_KEY}" \
   -H "Content-Type: application/json" -d "$BODY" > /dev/null &
 ```
 {{/IF_CONTROL_CENTER}}
@@ -343,7 +352,11 @@ CC_BODY=$(jq -nc \
     ticketId:null, task:null
   }}')
 
+# Bearer required — see the note at the "shipping" phase call above.
+_envkey() { grep -m1 "^$1=" "$(git rev-parse --show-toplevel)/.env.local" 2>/dev/null | cut -d= -f2- | tr -d '"'; }
+: "${INTERNAL_KEY:=$(_envkey INTERNAL_API_KEY)}"; : "${INTERNAL_KEY:=$(_envkey CRON_SECRET)}"
 curl -s --max-time 5 -X POST "{{PROJECT_API_BASE}}/control-center/state" \
+  -H "Authorization: Bearer ${INTERNAL_KEY}" \
   -H "Content-Type: application/json" -d "$CC_BODY" > /dev/null &
 ```
 

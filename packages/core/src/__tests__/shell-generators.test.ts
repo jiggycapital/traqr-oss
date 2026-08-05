@@ -105,6 +105,19 @@ describe('alias-generator', () => {
         expect(content).toContain('_tp_claude()');
       });
 
+      // TD-1154: /api/control-center/ is Bearer-gated by nooktraqr's middleware. This helper
+      // emitted a bare curl, so every generated project's phase POST 401'd silently — the call
+      // is fire-and-forget, so there was never a failure signal. Assert the header is emitted
+      // AND that the secret precedence matches the middleware (INTERNAL_API_KEY || CRON_SECRET).
+      // Sending CRON_SECRET where the two differ 401s exactly like sending nothing.
+      it('sends a Bearer on the control-center phase POST, INTERNAL_API_KEY first', () => {
+        const call = content.slice(content.indexOf('_tp_claude()'));
+        expect(call).toContain('/control-center/state');
+        expect(call).toMatch(/Authorization: Bearer/);
+        expect(call).toContain('${INTERNAL_API_KEY:-$CRON_SECRET}');
+        expect(call).not.toContain('${CRON_SECRET:-$INTERNAL_API_KEY}');
+      });
+
       it('has slot management functions', () => {
         expect(content).toContain('tp-slots()');
         expect(content).toContain('tp-sync()');

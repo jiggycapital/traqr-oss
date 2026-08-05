@@ -150,7 +150,19 @@ export function generateAliasContent(
   lines.push(`    printf '\\e]0;%s - done\\a' "$label"`);
   lines.push(`    printf '\\e]1;%s - done\\a' "$label"`);
   lines.push(`    osascript -e "display notification \\"\$label: Session ended\\" with title \\"Agent Done\\" sound name \\"Glass\\"" 2>/dev/null &`);
+  // /api/control-center/ is Bearer-gated. Precedence mirrors the receiving middleware exactly —
+  // INTERNAL_API_KEY first, CRON_SECRET only as fallback; where the two differ, CRON_SECRET 401s.
+  // Emitted unauthenticated until TD-1154.
+  lines.push(`    local _secret="\${INTERNAL_API_KEY:-$CRON_SECRET}"`);
+  lines.push(`    if [ -z "$_secret" ] && [ -f "$dir/.env.local" ]; then`);
+  lines.push(`        local _key`);
+  lines.push(`        for _key in INTERNAL_API_KEY CRON_SECRET; do`);
+  lines.push(`            _secret=$(grep "^\${_key}=" "$dir/.env.local" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"')`);
+  lines.push(`            [ -n "$_secret" ] && break`);
+  lines.push(`        done`);
+  lines.push(`    fi`);
   lines.push(`    curl -s --max-time 3 -X POST "\$${P}_API/control-center/state" \\`);
+  lines.push(`        \${_secret:+-H "Authorization: Bearer $_secret"} \\`);
   lines.push(`        -H "Content-Type: application/json" \\`);
   lines.push(`        -d "{\\"slot\\":\\"$slot\\",\\"phase\\":\\"idle\\"}" > /dev/null 2>&1 &`);
   lines.push('}');
