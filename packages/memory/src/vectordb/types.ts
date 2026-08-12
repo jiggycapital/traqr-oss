@@ -1,0 +1,362 @@
+/**
+ * VectorDB Provider Types
+ *
+ * Provider-agnostic types for the memory system.
+ * These types are designed to be portable across different vector databases
+ * (Supabase pgvector, Pinecone, Qdrant, etc.)
+ */
+
+// Memory categories for organizing learnings
+export type MemoryCategory =
+  | 'gotcha'      // Common pitfalls and mistakes to avoid
+  | 'pattern'     // Reusable patterns that work well
+  | 'fix'         // Bug fixes and solutions
+  | 'insight'     // General insights and learnings
+  | 'question'    // Open questions still being explored
+  | 'preference'  // Coding style, design choices, how the developer likes things done
+  | 'convention'  // Project rules, naming patterns, file structure conventions
+
+// Source types for tracking where memories came from
+export type MemorySourceType =
+  | 'pr'              // Created from a PR via /ship --memory
+  | 'manual'          // Manually entered via /memory store
+  | 'extracted'       // Auto-extracted by LLM from codebase
+  | 'bootstrap'       // Imported from _learnings.md files
+  | 'advisor_session' // Created from advisor session learnings
+  | 'plan'            // Extracted from approved plans
+  | 'web_research'    // Acquired via /learn research from web sources
+  | 'session'         // Learnings captured at ship/session time
+  | 'codebase_analysis' // Learnings from deep codebase scanning
+
+// Durability levels for memory lifecycle management
+export type MemoryDurability = 'permanent' | 'temporary' | 'session'
+
+// Security classification levels (Glasswing Red Alert)
+export type MemoryClassification = 'public' | 'internal' | 'confidential' | 'restricted'
+
+// Agent access levels for mode-specific memory access control
+export type MemoryAccessLevel = 'exploration' | 'standard' | 'privileged' | 'admin'
+
+// Classification rank for comparison (higher = more sensitive)
+export const CLASSIFICATION_RANK: Record<MemoryClassification, number> = {
+  public: 1,
+  internal: 2,
+  confidential: 3,
+  restricted: 4,
+}
+
+// Access level to max classification mapping
+export const ACCESS_LEVEL_MAX_CLASSIFICATION: Record<MemoryAccessLevel, MemoryClassification> = {
+  exploration: 'internal',     // /bethesda, default — public + internal only
+  standard: 'confidential',    // /consultant, /lore — + confidential with namespace
+  privileged: 'restricted',    // /call — can see restricted (raw transcripts)
+  admin: 'restricted',         // /cos — full cross-namespace visibility
+}
+
+// TD-883: does a row's classification exceed the ceiling for a caller?
+// Shared, dependency-free predicate for the direct getById path (both
+// providers import from this module already, so no import cycle with the
+// retrieval-layer choke point). Mirrors applyClassificationCeiling's rules:
+//   - no accessLevel + no maxClassification → no ceiling → never exceeds
+//   - maxClassification overrides accessLevel
+//   - missing/undefined classification → treated as 'public' (never exceeds)
+//   - unknown classification string → fail closed (exceeds)
+export function exceedsClassificationCeiling(
+  classification: MemoryClassification | undefined,
+  accessLevel?: MemoryAccessLevel,
+  maxClassification?: MemoryClassification,
+): boolean {
+  const ceiling: MemoryClassification | undefined =
+    maxClassification ??
+    (accessLevel ? ACCESS_LEVEL_MAX_CLASSIFICATION[accessLevel] : undefined)
+  if (!ceiling) return false
+  const rank = CLASSIFICATION_RANK[(classification ?? 'public') as MemoryClassification]
+  if (rank === undefined) return true // unknown classification → fail closed
+  return rank > CLASSIFICATION_RANK[ceiling]
+}
+
+// Retention policies for data lifecycle (Glasswing TD-716)
+export type MemoryRetentionPolicy = 'permanent' | 'client_engagement' | 'session' | 'manual'
+
+// Memory types for type-aware lifecycle (v2)
+export type MemoryType = 'fact' | 'preference' | 'pattern'
+
+// Input for creating a new memory
+export interface MemoryInput {
+  content: string
+  summary?: string
+  category?: MemoryCategory
+  tags?: string[]
+  contextTags?: string[]
+  sourceType: MemorySourceType
+  sourceRef?: string
+  sourceProject?: string
+  confidence?: number  // 0-1, defaults to 1.0
+  relatedTo?: string[]
+  isContradiction?: boolean
+  durability?: MemoryDurability  // defaults to 'permanent'
+  expiresAt?: Date  // optional explicit expiration for temporary memories
+  // Classification fields (v4 schema)
+  domain?: string // who/what: sean, traqr, tooling, universal, app names
+  topic?: string // subject: supabase, git, vercel, architecture, etc.
+  // Cross-project fields
+  isUniversal?: boolean // Mark as universal pattern
+  agentType?: string // Agent creating this memory
+  // v2: Memory lifecycle
+  memoryType?: MemoryType
+  validAt?: Date
+  forgetAfter?: Date
+  sourceTool?: string
+  // Source reliability — how trustworthy is the origin of this memory?
+  // direct-user > deliberate-store > granola-single > granola-multi > inferred > auto-derived
+  sourceReliability?: 'direct-user' | 'deliberate-store' | 'granola-single' | 'granola-multi' | 'inferred' | 'auto-derived'
+  // Pre-computed embedding (skip re-generation in store)
+  precomputedEmbedding?: string
+  // Security classification (Glasswing Red Alert)
+  classification?: MemoryClassification
+  clientNamespace?: string
+  containsPii?: boolean
+  // Retention policy (Glasswing TD-716)
+  retentionPolicy?: MemoryRetentionPolicy
+  retentionExpiresAt?: Date
+}
+
+// Full memory record from the database
+export interface Memory {
+  id: string
+  content: string
+  summary?: string
+  category?: MemoryCategory
+  tags: string[]
+  contextTags: string[]
+  sourceType: MemorySourceType
+  sourceRef?: string
+  sourceProject: string
+  originalConfidence: number
+  lastValidated: Date
+  relatedTo: string[]
+  isContradiction: boolean
+  isArchived: boolean
+  archiveReason?: string
+  archivedAt?: Date
+  durability: MemoryDurability
+  expiresAt?: Date
+  embeddingModel: string
+  embeddingModelVersion: string
+  createdAt: Date
+  updatedAt: Date
+  // Classification fields (v4 schema)
+  domain?: string
+  topic?: string
+  // Cross-project fields
+  isUniversal?: boolean
+  agentType?: string
+  // Citation tracking
+  timesReturned: number
+  timesCited: number
+  lastReturnedAt?: Date
+  lastCitedAt?: Date
+  // v2: Memory lifecycle
+  memoryType?: MemoryType
+  validAt?: Date
+  invalidAt?: Date
+  isLatest?: boolean
+  isForgotten?: boolean
+  forgottenAt?: Date
+  forgetAfter?: Date
+  sourceTool?: string
+  // v3: Security classification (Glasswing Red Alert)
+  classification?: MemoryClassification
+  clientNamespace?: string
+  containsPii?: boolean
+  // v4: Retention policies (Glasswing TD-716)
+  retentionPolicy?: MemoryRetentionPolicy
+  retentionExpiresAt?: Date
+}
+
+// Memory with computed fields from search
+export interface MemorySearchResult extends Memory {
+  currentConfidence: number  // Decay-adjusted confidence
+  similarity: number         // Cosine similarity to query
+  relevanceScore: number     // similarity * currentConfidence * citationBoost
+}
+
+// Search options
+export interface SearchOptions {
+  domainId?: string
+  category?: MemoryCategory
+  tags?: string[]
+  includeArchived?: boolean
+  limit?: number
+  similarityThreshold?: number
+  durability?: MemoryDurability
+  excludeExpired?: boolean
+  // Cross-project options
+  sourceProject?: string
+  includeUniversal?: boolean
+  agentType?: string
+  // v2: Lifecycle filters
+  latestOnly?: boolean
+  memoryType?: MemoryType
+  // v3: Security filters (Glasswing Red Alert)
+  maxClassification?: MemoryClassification
+  clientNamespace?: string
+  accessLevel?: MemoryAccessLevel
+}
+
+// Update options
+export interface MemoryUpdate {
+  content?: string
+  summary?: string
+  category?: MemoryCategory
+  tags?: string[]
+  contextTags?: string[]
+  confidence?: number
+  relatedTo?: string[]
+  isContradiction?: boolean
+  changeReason?: string
+  durability?: MemoryDurability
+  expiresAt?: Date
+}
+
+// Export format (for portability)
+export interface MemoryExport {
+  id: string
+  content: string
+  summary?: string
+  category?: MemoryCategory
+  tags: string[]
+  contextTags: string[]
+  sourceType: MemorySourceType
+  sourceRef?: string
+  sourceProject: string
+  originalConfidence: number
+  lastValidated: string  // ISO date string
+  relatedTo: string[]
+  isContradiction: boolean
+  isArchived: boolean
+  archiveReason?: string
+  durability?: MemoryDurability
+  expiresAt?: string
+  embeddingModel: string
+  embeddingModelVersion: string
+  createdAt: string
+  updatedAt: string
+  domainName?: string
+  userEmail?: string
+  // Citation tracking
+  timesReturned?: number
+  timesCited?: number
+  lastReturnedAt?: string
+  lastCitedAt?: string
+}
+
+// Domain for isolating memories by project
+export interface MemoryDomain {
+  id: string
+  userId: string
+  name: string
+  description?: string
+  isShareable: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+
+// Browse result for faceted navigation
+export interface BrowseResult {
+  id: string
+  domain?: string
+  category?: string
+  content: string
+  summary?: string
+}
+
+// Provider interface - all implementations must conform to this
+export interface VectorDBProvider {
+  // Core operations
+  store(memory: MemoryInput, domainId?: string): Promise<Memory>
+  search(query: string, options?: SearchOptions & { precomputedEmbedding?: string }): Promise<MemorySearchResult[]>
+  // TD-883: optional classification ceiling. When opts carries accessLevel or
+  // maxClassification and the fetched row exceeds that ceiling, return null
+  // (treated as not-found for that tier). No opts → unchanged behavior.
+  getById(id: string, opts?: { accessLevel?: MemoryAccessLevel; maxClassification?: MemoryClassification }): Promise<Memory | null>
+  update(id: string, updates: MemoryUpdate): Promise<Memory>
+  delete(id: string): Promise<void>
+  validate(id: string): Promise<Memory>
+
+  // Archive operations
+  archive(id: string, reason?: string): Promise<Memory>
+  unarchive(id: string): Promise<Memory>
+
+  // Bulk operations
+  exportAll(domainId?: string): Promise<MemoryExport[]>
+  importBulk(memories: MemoryExport[], domainId: string): Promise<number>
+
+  // Domain management
+  createDomain(name: string, description?: string, userId?: string): Promise<MemoryDomain>
+  getDomain(name: string): Promise<MemoryDomain | null>
+  getDefaultDomain(): Promise<MemoryDomain>
+
+  // Health
+  ping(): Promise<boolean>
+
+  // v2: Lifecycle
+  invalidate(id: string): Promise<void>
+  supersede(id: string): Promise<void>
+
+  // Feedback signals (TD-817): the write path for times_returned/times_cited.
+  // These live on the provider because the prior implementation went through
+  // the Supabase client directly — which throws (silently, behind a catch) on
+  // every DATABASE_URL-configured runtime. That mismatch froze the counters
+  // fleet-wide on 2026-05-20.
+  bumpReturned(ids: string[]): Promise<void>
+  citeMemory(id: string): Promise<void>
+
+  // Entity operations
+  findEntityByName(name: string, entityType: string): Promise<any | null>
+  findEntityByNameFuzzy(name: string, entityType: string): Promise<any | null>
+  findEntityByEmbedding(embeddingStr: string, entityType: string, threshold?: number): Promise<any | null>
+  createEntity(entity: { name: string, entityType: string, embedding?: string, userId?: string }): Promise<any>
+  incrementEntityMentions(entityId: string): Promise<void>
+  linkMemoryToEntity(memoryId: string, entityId: string, role?: string): Promise<void>
+  findOrphanedEntities(): Promise<string[]>
+  archiveEntities(ids: string[]): Promise<number>
+
+  // Utility operations (abstracted from direct client calls)
+  browse(options?: { domain?: string, category?: string, limit?: number, accessLevel?: MemoryAccessLevel, maxClassification?: MemoryClassification }): Promise<BrowseResult[]>
+  forget(id: string): Promise<void>
+  createRelationship(sourceId: string, targetId: string, edgeType: string, metadata?: Record<string, unknown>): Promise<string | null>
+  countEntityMentions(name: string, userId: string): Promise<number>
+  schemaVersion(): Promise<number | null>
+}
+
+// Provider configuration
+export interface ProviderConfig {
+  type: 'supabase' | 'postgres'
+  supabaseUrl?: string
+  supabaseKey?: string
+  databaseUrl?: string
+}
+
+// Bootstrap confidence levels
+export const BOOTSTRAP_CONFIDENCE = {
+  WHATS_WORKED: 0.9,
+  WHATS_HASNT_WORKED: 0.8,
+  KEY_GOTCHAS: 0.9,
+  PATTERNS_DISCOVERED: 0.85,
+  OPEN_QUESTIONS: 0.5,
+  MANUAL: 1.0,
+  PR: 0.9,
+} as const
+
+// Decay constants — citation-aware rates (accelerated for uncited/noise)
+export const DECAY_CONFIG = {
+  RATE_UNCITED_RETURNED: 0.7,  // noise: returned but never cited
+  RATE_UNCITED: 0.5,           // default uncited: ~3 months to archive
+  RATE_CITED_LOW: 0.1,         // cited 1-3x: moderate
+  RATE_CITED_HIGH: 0.05,       // cited >3x: proven valuable
+  ARCHIVE_THRESHOLD: 0.3,
+  FLOOR: 0.1,
+  STALE_UNCITED_DAYS: 90,      // auto-archive uncited after this many days
+} as const

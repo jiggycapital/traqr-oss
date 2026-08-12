@@ -1,0 +1,177 @@
+# /inbox - Show Open Tickets
+
+{{#IF_SLACK}}Post all open tickets to #{{SLACK_TRIAGE_CHANNEL}} with action buttons.{{/IF_SLACK}}
+{{#IF_SLACK}}{{/IF_SLACK}}Display open tickets from the issue tracker.
+
+---
+## Metadata
+- **Agent Compatibility**: Both (Claude Code + Daemon)
+- **Related Skills**: `/status`, `/slack`, `/worktrees`
+{{#IF_SLACK}}- **Slack Channel**: #{{SLACK_TRIAGE_CHANNEL}}{{/IF_SLACK}}
+---
+
+## Arguments
+
+- (none) - Show all open tickets
+- `--priority urgent` - Only Urgent priority
+- `--priority high` - Urgent + High priority
+- `--priority medium` - Medium priority only
+- `--priority low` - Low priority only
+- `--state todo` - Only "To Do" state
+- `--state backlog` - Only Backlog state
+- `--state started` - Only In Progress state
+
+## Instructions
+
+{{#IF_LINEAR}}
+### Fetch from Linear
+
+#### Show All Open Tickets
+
+```bash
+curl -s -X POST "{{MEMORY_API_BASE}}/slack/inbox" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+Or use the Linear MCP tool directly:
+
+```
+mcp__linear__list_issues with:
+  teamId: "{{LINEAR_TEAM_ID}}"
+  first: 50
+```
+
+#### Filter by Priority
+
+For urgent/high priority only:
+```bash
+curl -s -X POST "{{MEMORY_API_BASE}}/slack/inbox" \
+  -H "Content-Type: application/json" \
+  -d '{"filter": {"priority": "high"}}'
+```
+
+#### Filter by State
+
+For "To Do" items only:
+```bash
+curl -s -X POST "{{MEMORY_API_BASE}}/slack/inbox" \
+  -H "Content-Type: application/json" \
+  -d '{"filter": {"state": "todo"}}'
+```
+
+#### Combined Filters
+
+```bash
+curl -s -X POST "{{MEMORY_API_BASE}}/slack/inbox" \
+  -H "Content-Type: application/json" \
+  -d '{"filter": {"priority": "high", "state": "todo"}}'
+```
+
+### Priority Mapping (Linear)
+
+| Priority | Display |
+|----------|---------|
+| 1 | URGENT - Individual message with buttons |
+| 2 | HIGH - Individual message with buttons |
+| 3 | MEDIUM - Individual message with buttons |
+| 4 | LOW - Summary list with links |
+| 0 | NO PRIORITY - Summary list with links |
+{{/IF_LINEAR}}
+
+{{#IF_GITHUB_ISSUES}}
+### Fetch from GitHub Issues
+
+#### Show All Open Issues
+
+```bash
+gh issue list --repo {{GH_ORG_REPO}} --state open --json number,title,labels,assignees,createdAt --jq '.[] | "\(.number) | \(.title) | \(.labels | map(.name) | join(",")) | \(.createdAt)"'
+```
+
+#### Filter by Label (Priority)
+
+```bash
+# High priority
+gh issue list --repo {{GH_ORG_REPO}} --state open --label "priority:high" --json number,title
+
+# Bug reports
+gh issue list --repo {{GH_ORG_REPO}} --state open --label "bug" --json number,title
+```
+
+#### Filter by Assignee
+
+```bash
+gh issue list --repo {{GH_ORG_REPO}} --state open --assignee @me --json number,title
+```
+{{/IF_GITHUB_ISSUES}}
+
+## Output
+
+{{#IF_SLACK}}
+### Slack Output (default)
+
+The command posts to #{{SLACK_TRIAGE_CHANNEL}}:
+
+1. **Header message** with total count and priority breakdown
+2. **Individual ticket messages** for high-priority items with action buttons
+3. **Summary list** for low-priority tickets (links only, no buttons)
+
+Each individual ticket message includes:
+- Title and description preview
+- State, Age, and Labels
+- Action buttons: Approve | Deny | Add Context | View
+
+### Rate Limiting
+
+- Max 15 individual ticket messages per inbox call
+- Overflow tickets shown as "...and X more" with link to issue tracker
+- Small delay between messages to avoid Slack rate limits
+{{/IF_SLACK}}
+
+### Terminal Output
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_WELCOME}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /inbox                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Checking your inbox...
+
+{{RAQR_HR_MEDIUM}}
+{{PROJECT_DISPLAY_NAME}} — Open Tickets
+
+Priority   #       Title                          State      Age
+---        ---     ---                            ---        ---
+URGENT     <id>    <title>                        To Do      2d
+HIGH       <id>    <title>                        In Progress 5d
+MEDIUM     <id>    <title>                        Backlog    12d
+...
+
+Total: <n> open tickets
+  Urgent: <n>  High: <n>  Medium: <n>  Low: <n>
+
+{{RAQR_HR}}
+What's next? → /worktrees to find an available slot
+```
+
+## Use Cases
+
+1. **Morning triage**: Run `/inbox` to see what needs attention
+2. **Focus on urgent**: Run `/inbox --priority high` for critical items only
+3. **Backlog review**: Run `/inbox --state backlog` to review deferred items
+{{#IF_SLACK}}4. **Team sync**: Share open tickets in Slack for visibility{{/IF_SLACK}}
+
+{{#IF_DEV_INBOX}}
+## Also Available From Slack
+
+Type `inbox` in #{{SLACK_TRIAGE_CHANNEL}} to trigger the same functionality:
+
+```
+inbox            # All open tickets
+inbox urgent     # Urgent only
+inbox high       # High + Urgent
+```
+{{/IF_DEV_INBOX}}

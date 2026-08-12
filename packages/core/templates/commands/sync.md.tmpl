@@ -1,0 +1,186 @@
+# /sync - Sync All Worktree Slots with Main
+
+Synchronize worktree slots with latest main after a merge.
+
+## Arguments
+- `all` - Sync all slots (default)
+- `current` - Only sync current slot
+- `<slot>` - Sync specific slot
+
+---
+
+## CRITICAL: NEVER WIPE ANY UNCOMMITTED WORK
+
+Session markers are UNRELIABLE for detecting active work. Agents don't always run /startup. A dirty working tree means SOMEONE or SOMETHING put those changes there — never discard them automatically.
+
+Every slot gets a safety check BEFORE any reset:
+- **CLEAN** → No dirty files, no unpushed commits → `git reset --hard origin/main`
+- **MERGED** → Has unpushed commits but `git cherry origin/main HEAD` shows all commits already applied (all `-` prefixed) → content already on main after squash-merge → `git reset --hard origin/main`
+- **DIRTY** → Dirty working tree (any uncommitted changes at all) → **ALWAYS SKIP** — never discard, never stash automatically
+- **HAS_WORK** → Clean working tree, committed-unpushed commits with real diff vs main → SKIP, report commit count
+- **ACTIVE** → Active session marker exists (< 4 hours old), clean tree → SKIP, report session task
+
+**There is NO "ABANDONED" category.** Dirty files are NEVER automatically discarded.
+
+---
+
+## Instructions
+
+### 1. Pull Latest Main
+
+**First-time detection:** If this appears to be the user's first sync (no prior session markers or sync history detected), show this boxed explanation before pulling:
+
+```
+╭─── FIRST TIME? ────────────────────────────────────────────╮
+│                                                             │
+│  /sync keeps all your worktree slots up-to-date with main.  │
+│  Think of it like refreshing all your browser tabs at once.  │
+│                                                             │
+│  It NEVER destroys your work — dirty slots get stashed or   │
+│  skipped.                                                    │
+│                                                             │
+│  (You won't see this message again.)                        │
+╰─────────────────────────────────────────────────────────────╯
+```
+
+```bash
+cd "{{REPO_PATH}}" && git pull origin main && git rev-parse --short HEAD
+```
+
+Capture the commit hash — this is the expected commit for all slots.
+
+Also get recently changed files:
+```bash
+cd "{{REPO_PATH}}" && git diff --name-only HEAD~5..HEAD
+```
+
+### 2. Compound Safety Check Per Slot (THREE-PART, PARALLEL)
+
+For each slot, run a compound check in parallel:
+```bash
+cd "{{WORKTREES_PATH}}/<SLOT>" && \
+  git fetch origin main 2>/dev/null && \
+  echo "=== STATUS ===" && git status --porcelain && \
+  echo "=== UNPUSHED ===" && git log origin/main..HEAD --oneline && \
+  echo "=== DIFF_STAT ===" && git diff origin/main..HEAD --stat && \
+  echo "=== SESSION ===" && cat /tmp/{{SESSION_PREFIX}}-session-metrics-<SLOT>.json 2>/dev/null || echo "NO_SESSION"
+```
+
+### 3. Five-Outcome Categorization + Execute
+
+| STATUS | UNPUSHED | CHERRY | Category | Action |
+|--------|----------|--------|----------|--------|
+| Empty | Empty | N/A | **CLEAN** | `git fetch origin main && git reset --hard origin/main` |
+| Empty | Has commits | All `-` lines | **MERGED** | Reset (content already on main after squash-merge) |
+| Empty | Has commits | Any `+` lines | **HAS_WORK** | SKIP — report commit count |
+| **Has output** | Any | Any | **DIRTY** | **ALWAYS SKIP** — report file count |
+
+**The rule is simple: if `git status --porcelain` has ANY output, SKIP the slot. No exceptions.**
+
+Priority: DIRTY > HAS_WORK > MERGED > CLEAN.
+
+Execute each slot as a **separate Bash call** (not a loop).
+
+### 4. Verify Each Result
+
+Check commit hash matches expected. If different, the sync FAILED for that slot.
+
+### 5. Report
+
+Determine mascot mood:
+- **All synced** → HAPPY mood
+- **Some skipped/stashed** → ALERT mood
+
+Count synced/skipped for fleet summary.
+
+**All clean:**
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_CELEBRATE}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /sync                             Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+All slots current. Fleet's aligned.
+Expected commit: <hash>
+
+┌──────────┬─────────┬──────────────────────────────────┐
+│ Slot     │ Commit  │ Status                           │
+├──────────┼─────────┼──────────────────────────────────┤
+│ feature1 │ <hash>  │ ✅ SYNCED                        │
+│ feature2 │ <hash>  │ ✅ SYNCED                        │
+│ ...      │ ...     │ ...                              │
+└──────────┴─────────┴──────────────────────────────────┘
+
+{{RAQR_HR}}
+What's next? → Jump to a slot and start building
+```
+
+**Some skipped/stashed:**
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_ALERT}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /sync                             Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+<N>/<total> slots synced. Some need attention.
+Expected commit: <hash>
+
+┌──────────┬─────────┬──────────────────────────────────────────┐
+│ Slot     │ Commit  │ Status                                   │
+├──────────┼─────────┼──────────────────────────────────────────┤
+│ feature1 │ <hash>  │ ✅ SYNCED                                │
+│ feature2 │ -       │ 🔒 SKIPPED (3 unpushed commits)          │
+│ bugfix1  │ -       │ ⚠️ SKIPPED (5 uncommitted files)          │
+│ devops1  │ -       │ ⚠️ SKIPPED (1 uncommitted file)           │
+│ analysis │ <hash>  │ ✅ SYNCED (post-merge reset)             │
+└──────────┴─────────┴──────────────────────────────────────────┘
+
+──────────────────────────────────────────────────────────────
+⚠️ Dirty: <slot> has uncommitted files — go to slot and /ship or discard manually
+🔒 Skipped (unpushed): Run /ship in <slot> first, then /sync <slot>
+🔀 Post-merge: Slot had squash-merged commits — safely reset (content already on main)
+
+{{RAQR_HR}}
+```
+
+{{#IF_TIER_1+}}### 6. Clear Sync Flags
+
+```bash
+curl -s -X POST "{{MEMORY_API_BASE}}/orchestrate/sync-complete" \
+  -H "Content-Type: application/json" \
+  -d '{"slots": [<synced slots>], "commitSha": "<hash>"}'
+```
+
+Not critical — self-heals within 30 seconds.
+{{/IF_TIER_1+}}
+
+---
+
+## Slot Paths
+
+```
+Main:      {{REPO_PATH}}
+Worktrees: {{WORKTREES_PATH}}/
+{{SLOT_PATHS}}
+```
+
+## Relay to #control-center
+
+Post after sync completes:
+
+```
+slack_send_message(
+  channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}",
+  message: "[<SlotName>] /sync complete — <N> slots synced to main, <M> skipped (dirty/active)"
+)
+```
+
+Skip if Slack MCP unavailable.
+
+## The Golden Rule
+
+**NEVER discard uncommitted changes. If `git status --porcelain` has output, SKIP the slot. Period. No "abandoned" detection, no "orphaned" heuristics, no stashing. ALWAYS verify.**

@@ -1,0 +1,16 @@
+{
+  "name": "traqr-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI that remembers you. Open-source CLI for Claude Code.",
+  "workspaces": [
+    "packages/core",
+    "packages/cli"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=packages/core && npm run build --workspace=packages/cli",
+    "build:core": "npm run build --workspace=packages/core",
+    "build:cli": "npm run build --workspace=packages/cli"
+  },
+  "license": "MIT"
+}

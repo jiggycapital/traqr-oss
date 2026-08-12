@@ -1,0 +1,178 @@
+/**
+ * @traqr/memory — Public API
+ *
+ * Vector DB client, memory operations, and standalone HTTP server
+ * for the Traqr memory system.
+ */
+
+// Server
+export { createMemoryServer } from './server.js'
+
+// VectorDB layer
+// setVectorDB is the test-only provider-injection seam (TD-885); re-exported at
+// the root so cross-package integration tests (e.g. memory-mcp tool contracts,
+// TD-887) can drive the live path through a fake provider without a DB.
+export { getVectorDB, resetVectorDB, setVectorDB } from './vectordb/index.js'
+
+// Liveness health probe (bounded DB ping for HTTP /health endpoints)
+export { checkDbHealth } from './lib/health.js'
+export type { DbHealthResult } from './lib/health.js'
+export type {
+  VectorDBProvider,
+  Memory,
+  MemoryInput,
+  MemorySearchResult,
+  MemoryUpdate,
+  MemoryExport,
+  MemoryDomain,
+  SearchOptions,
+  MemoryCategory,
+  MemorySourceType,
+  MemoryDurability,
+  MemoryType,
+  MemoryClassification,
+  MemoryAccessLevel,
+  MemoryRetentionPolicy,
+  BrowseResult,
+  ProviderConfig,
+} from './vectordb/types.js'
+export { BOOTSTRAP_CONFIDENCE, DECAY_CONFIG, ACCESS_LEVEL_MAX_CLASSIFICATION, CLASSIFICATION_RANK } from './vectordb/types.js'
+
+// Auto-derive v2
+export {
+  deriveAll,
+  deriveDomain,
+  deriveCategory,
+  deriveTopic,
+  deriveSummary,
+  deriveTags,
+  deriveMemoryType,
+  deriveForgetAfter,
+  extractEntityCandidates,
+} from './lib/auto-derive.js'
+export type { DeriveResult, EntityCandidate } from './lib/auto-derive.js'
+
+// LLM borderline decision
+export { borderlineDecision } from './lib/borderline.js'
+export type { BorderlineDecision, BorderlineAction, MaskedMemory } from './lib/borderline.js'
+
+// Cohere rerank
+export { cohereRerank } from './lib/rerank.js'
+export type { RerankResult, RerankDocument } from './lib/rerank.js'
+
+// High-level memory operations
+export {
+  storeMemory,
+  searchMemories,
+  getMemory,
+  citeMemory,
+  updateMemory,
+  deleteMemory,
+  validateMemory,
+  archiveMemory,
+  exportAllMemories,
+  storeWithDedup,
+  triageAndStore,
+  createRelationship,
+  supersedeMemory,
+  remember,
+  recall,
+  isMemoryHealthy,
+  getMemoryStats,
+  getDetailedStats,
+  getSystemHealth,
+  verifyRoundTrip,
+  formatMemory,
+  formatSearchResults,
+} from './lib/memory.js'
+
+// Lifecycle utilities
+export {
+  getVersionChain,
+  getMemoryHistory,
+  getMemoryRelationships,
+} from './lib/lifecycle.js'
+export type { MemoryHistoryResult, MemoryRelationship } from './lib/lifecycle.js'
+
+// Entity extraction pipeline
+export { processEntitiesForMemory } from './lib/entity-pipeline.js'
+export type { EntityExtractionResult } from './lib/entity-pipeline.js'
+
+export type {
+  StoreWithDedupResult,
+  TriageResult,
+  TriageZone,
+  TriageAction,
+  TriageOptions,
+  RoundTripResult,
+  DetailedStats,
+  SystemHealth,
+} from './lib/memory.js'
+
+// Retrieval (v2 — semantic-only since TD-906 Slice C)
+export {
+  searchMemoriesV2,
+  reciprocalRankFusion,
+} from './lib/retrieval.js'
+export type {
+  SearchV2Options,
+  SearchStrategy,
+  FusedItem,
+  StrategyResult,
+} from './lib/retrieval.js'
+
+// Embeddings
+export {
+  generateEmbedding,
+  generateEmbeddingsBatch,
+  cosineSimilarity,
+  formatEmbeddingForPgVector,
+  parseEmbeddingFromPgVector,
+  needsReembedding,
+  checkEmbeddingHealth,
+  EMBEDDING_CONFIG,
+  getEmbeddingProvider,
+  getEmbeddingConfig,
+  resetEmbeddingProvider,
+} from './lib/embeddings.js'
+export type { EmbeddingResult, EmbeddingHealthStatus, EmbeddingProvider } from './lib/embeddings.js'
+
+// Formatting
+export {
+  CATEGORY_EMOJI,
+  CATEGORY_EMOJI_SLACK,
+  CATEGORY_EMOJI_TEXT,
+  SOURCE_TYPE_EMOJI,
+  getCategoryEmoji,
+} from './lib/formatting.js'
+
+// Client configuration
+export { getMemoryClient, resetMemoryClient, getUserId, getProjectId, configureMemory, getTableName, getMemoryConfig } from './lib/client.js'
+export type { MemoryClientConfig } from './lib/client.js'
+
+// Auth middleware
+export { verifyAuth, requireAuth, getInternalSecret } from './lib/auth.js'
+
+// Context assembly
+export { assembleSessionContext } from './lib/context.js'
+export type { SessionContextParams, SessionContext, MemoryWithShortCode } from './lib/context.js'
+
+// Learning extractor
+export {
+  extractLearningsFromPR,
+  extractFromCodebaseAnalysis,
+  extractVoiceTraits,
+  formatExtractionResult,
+  getSourceProject,
+} from './lib/learning-extractor.js'
+export type {
+  PRContext,
+  ExtractedLearning,
+  ExtractionResult,
+  SuggestedLayer,
+  CodebaseAnalysisContext,
+  CodebaseAnalysisResult,
+  VoiceAnalysisType,
+  VoiceAnalysisContext,
+  VoiceAnalysisResult,
+} from './lib/learning-extractor.js'

@@ -1,0 +1,255 @@
+---
+name: rally
+description: CTO leadership skill — translate priorities into focused worktree quests, assign by strength, monitor execution, report results
+license: MIT
+tier: any
+category: intelligence
+autoInvoked: false
+dependencies: []
+relatedSkills: [bethesda, cos, documentary]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /rally — CTO All-Hands Coordination
+
+You get a direction. You translate it into action across your worktree slots. You're the CTO — not an executor, not a reporter. A LEADER who:
+1. Understands the vision
+2. Breaks it into focused quests
+3. Matches quests to slot strengths
+4. Posts the all-hands
+5. Monitors execution
+6. Fills gaps
+7. Reports results
+
+Born from the morning pattern: a person says "here are 6 priorities, launch the worktrees." One slot translated, posted, coordinated, filled gaps, reviewed output. This skill formalizes that pattern.
+
+## Arguments
+- `<directive>` — the priorities in natural language. Can be a sentence, a list, or a reference to a recorded riff.
+- `status` — Check progress on the current rally. What shipped? What's blocked? What needs taste?
+
+---
+
+## Step 0: Understand the Directive
+
+Read the input. This might be:
+- A typed priority list ("Make enterprise-ready. Document the mega session. Set up the briefing.")
+- A reference to a recording ("Process my recording from this morning")
+- A broad direction ("Go nuts on improving the npm packages")
+
+Extract:
+- **Specific deliverables** (things that need to SHIP)
+- **Strategic directions** (things that need EXPLORATION)
+- **Quality bars** ("make it L7/L8 quality", "something a senior reviewer would be impressed by")
+- **Time constraints** ("before I go to work", "by lunch")
+
+---
+
+## Step 1: Load Team Context
+
+### Read active worktrees
+```bash
+ls -d .worktrees/*/ 2>/dev/null || ls -d ../*/ 2>/dev/null
+```
+{{#IF_OBSIDIAN}}
+### Read agent diaries for strengths
+```bash
+for diary in ${VAULT_PATH}/Work/Agents/*/diary.md; do
+  SLOT=$(basename $(dirname "$diary"))
+  echo "=== ${SLOT} ==="
+  tail -20 "$diary" 2>/dev/null
+done
+```
+{{/IF_OBSIDIAN}}
+{{#IF_SLACK}}
+### Read the team channel for current activity
+```
+slack_read_channel(channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}", limit: 20)
+```
+{{/IF_SLACK}}
+{{#IF_OBSIDIAN}}
+### Read the leaderboard for track records
+```
+Read: ${VAULT_PATH}/Work/Agents/Leaderboard.md
+```
+{{/IF_OBSIDIAN}}
+
+Build a mental model: which slots are active? What are their strengths? What did they do last session? Who's fresh vs experienced?
+
+---
+
+## Step 2: Generate Quest Assignments
+
+Match the priorities to slot strengths. Slots tend to specialize — this is a portable example of how strengths map to quest types:
+
+| Slot Type | Strength | Best Quest Types |
+|-----------|----------|-----------------|
+| Feature | Building new skills, components, features | New skill creation, /rally itself, feature work |
+| Bugfix | Fixing bugs, improving existing code, testing | npm audit, README verification, sub-page updates |
+| DevOps | Infrastructure, deployment, monitoring, databases | portability, cron setup, database health |
+| Marketing (if exists) | Copy, positioning, external comms | site redesign, blog draft, README copy |
+
+Adapt the table to whatever your worktree slots actually specialize in.
+
+**Assignment rules:**
+- Each slot gets ONE focused quest, not a menu
+- The quest description includes: WHAT to do, WHY it matters, WHERE to find context
+- Quests that depend on each other are sequenced (don't assign step 2 until step 1 is taken)
+- Leave 1-2 quests UNASSIGNED for cascade discovery — the best work comes from agents finding their own caves
+
+**For yourself (CTO):**
+- Take the quest that requires the MOST cross-domain context
+- OR take the architectural/strategic quest that shapes everyone else's work
+- Monitor the other slots while executing your own
+
+---
+
+{{#IF_SLACK}}
+## Step 3: Post the All-Hands
+
+Post to the team channel with:
+```
+slack_send_message(
+  channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}",
+  message: "[<SlotName>] /rally — ALL HANDS\n\nDirective: <1-line summary>\n\n*Quest assignments:*\n<slot1>: <quest + why>\n<slot2>: <quest + why>\n...\n\n*Unclaimed (cascade discovery):*\n- <quest that an agent might find>\n- <quest that an agent might find>\n\nPost TAKING with your slot name. Don't pile on the same quest. The Town Square coordinates us. GO."
+)
+```
+
+---
+
+## Step 4: Monitor Execution (Loop)
+
+After posting, enter a monitor loop. Every 10 minutes:
+
+### 4A: Read the team channel
+```
+slack_read_channel(channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}", limit: 20)
+```
+
+Check for:
+- TAKING posts — who claimed what?
+- Quest complete posts — who finished?
+- Blocked posts — who needs help?
+- Discovery posts — anything that changes priorities?
+
+### 4B: Fill Gaps
+
+If a critical quest is unclaimed after 10 minutes: either take it yourself or re-post it with more context.
+
+If two agents took the same quest: redirect one to a different cave.
+
+If an agent's output quality is low: post CTO feedback in a thread — specific pushbacks plus direct edits.
+
+### 4C: Connect Dots
+
+The CTO's superpower: seeing connections between what different agents discover. If Feature3 found something that affects Feature5's work — post the connection.
+
+### 4D: Track Progress
+
+Maintain a mental checklist:
+- [ ] Quest 1: assigned → taken → in progress → complete
+- [ ] Quest 2: assigned → taken → in progress → complete
+- [ ] ...
+
+When all quests are complete OR a new steering signal arrives → move to Step 5.
+
+---
+
+## Step 5: Report Results
+
+When the rally is complete (all quests done, or time's up, or a new directive arrives):
+
+```
+slack_send_message(
+  channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}",
+  message: "[<SlotName>] /rally complete — <directive summary>\n\n*Shipped:*\n- PR #XXX: <what>\n- PR #YYY: <what>\n\n*Discovered:*\n- <finding that changes strategy>\n\n*Needs a taste call:*\n- <decision 1>\n- <decision 2>\n\n*Still in progress:*\n- <quest not yet done>\n\n*Cognitive hours saved:* <estimate>"
+)
+```
+{{/IF_SLACK}}
+{{^IF_SLACK}}
+## Step 3: Publish the All-Hands
+
+Without a team channel, record the quest assignments where every slot can see them — a shared file, a project board, or directly in each slot's working context:
+
+```
+[<SlotName>] /rally — ALL HANDS
+
+Directive: <1-line summary>
+
+Quest assignments:
+  <slot1>: <quest + why>
+  <slot2>: <quest + why>
+
+Unclaimed (cascade discovery):
+  - <quest that an agent might find>
+  - <quest that an agent might find>
+```
+
+## Step 4: Monitor Execution (Loop)
+
+Periodically check each slot's progress: who claimed what, who finished, who's blocked, what discoveries changed priorities. Fill gaps — take unclaimed critical quests yourself, redirect duplicate work, push back on low-quality output.
+
+## Step 5: Report Results
+
+When the rally is complete, write up: what shipped (with PR numbers), what was discovered, what needs a taste call, what's still in progress, and an estimate of cognitive hours saved.
+{{/IF_SLACK}}
+
+---
+{{#IF_MEMORY}}
+## Step 6: Capture Learnings
+
+```
+memory_pulse(captures: [
+  {
+    content: "/rally session <date>: <N> quests assigned, <N> completed, <N> PRs shipped. Key finding: <most important discovery>. Pattern: <what worked/didn't work about this rally>.",
+    category: "insight",
+    tags: ["from-observation"]
+  }
+])
+```
+{{/IF_MEMORY}}
+{{#IF_OBSIDIAN}}
+Update the CTO diary with rally session notes.
+{{/IF_OBSIDIAN}}
+
+---
+
+## Output Frame
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( ^   ^ )   Rally time.                                 │
+│     (  =^=  )   <N> quests. <N> agents. Let's go.          │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /rally                              {{PROJECT_DISPLAY_NAME}} · All Hands
+────────────────────────────────────────────────────────────
+
+Directive: <the priorities>
+Agents: <N> active
+Quests: <N> assigned, <N> unclaimed
+
+All-hands posted. Monitoring.
+
+────────────────────────────────────────────────────────────
+```
+
+## The CTO-CoS Split
+
+/rally is the CTO skill. /cos is the CoS skill. They complement:
+
+| Role | Skill | Focus | Cadence |
+|------|-------|-------|---------|
+| CTO | /rally | Strategic — translate vision to action, assign quests, review quality | Per directive (when a new direction arrives) |
+| CoS | /cos monitor | Operational — track progress, fill gaps, relay coordination | Continuous (every 5 min) |
+
+The ideal setup: one slot runs /rally (the CTO), another runs /cos monitor (the CoS). The CTO thinks. The CoS coordinates. Everyone else executes.
+
+## The Spirit of /rally
+
+You shouldn't have to manage every worktree slot by hand. You should say "here's what matters today" and walk away. /rally translates a 10-minute voice riff into focused quests, monitors their execution, fills gaps, and reports results. The human provides TASTE. The CTO provides TRANSLATION. The agents provide EXECUTION.
+
+This is the skill that turns "open a terminal per slot and type commands" into "record a riff and check in at lunch."

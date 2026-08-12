@@ -1,0 +1,698 @@
+/**
+ * Postgres VectorDB Provider
+ *
+ * Implementation of VectorDBProvider using raw pg wire protocol.
+ * Calls the same SQL functions as SupabaseVectorProvider, but via
+ * parameterized queries instead of PostgREST RPC.
+ *
+ * Requires: npm install pg (dynamic import — not a hard dependency)
+ */
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+import { getUserId, getProjectId, getTableName, getMemoryConfig } from '../lib/client.js'
+import { generateEmbedding, formatEmbeddingForPgVector } from '../lib/embeddings.js'
+import { rowToMemory, rowToSearchResult } from './converters.js'
+import type { MemoryRow, SearchResultRow } from './converters.js'
+import { ACCESS_LEVEL_MAX_CLASSIFICATION, exceedsClassificationCeiling } from './types.js'
+import type {
+  VectorDBProvider,
+  Memory,
+  MemoryInput,
+  MemorySearchResult,
+  MemoryUpdate,
+  MemoryExport,
+  MemoryDomain,
+  SearchOptions,
+  MemoryCategory,
+  MemoryClassification,
+  MemoryAccessLevel,
+  BrowseResult,
+} from './types.js'
+
+// ---------------------------------------------------------------------------
+// Pool Management (lazy, dynamic import)
+// ---------------------------------------------------------------------------
+
+let _pool: any = null
+
+async function getPool(): Promise<any> {
+  if (_pool) return _pool
+  try {
+    const pg = await (Function('return import("pg")')() as Promise<any>)
+    const Pool = pg.default?.Pool || pg.Pool
+    const config = getMemoryConfig()
+    _pool = new Pool({
+      connectionString: config.databaseUrl,
+      max: 5,
+      idleTimeoutMillis: 30000,
+    })
+    return _pool
+  } catch {
+    throw new Error(
+      'Raw Postgres requires the pg package.\n' +
+      'Install it: npm install pg\n' +
+      'Then set DATABASE_URL to your Postgres 15+ connection string with pgvector enabled.'
+    )
+  }
+}
+
+/** Reset pool (for testing or reconfiguration) */
+export function resetPostgresPool(): void {
+  if (_pool) {
+    _pool.end().catch(() => {})
+    _pool = null
+  }
+}
+
+/**
+ * Inject a pool object directly. TEST-ONLY seam (TD-885).
+ *
+ * Lets a contract test capture the positional args that
+ * PostgresVectorProvider.search() passes to query() — without a live DB. This
+ * is the regression guard for the TD-810 commit-2 leak, where search() passed
+ * only 8 args and the DB defaulted p_max_classification to 'restricted'
+ * (= show-all). Mirrors resetPostgresPool(); never reached by production code.
+ */
+export function setPostgresPool(pool: any): void {
+  _pool = pool
+}
+
+// ---------------------------------------------------------------------------
+// Query Helpers
+// ---------------------------------------------------------------------------
+
+async function query(sql: string, params?: any[]): Promise<any[]> {
+  const pool = await getPool()
+  const result = await pool.query(sql, params)
+  return result.rows
+}
+
+async function queryOne(sql: string, params?: any[]): Promise<any | null> {
+  const rows = await query(sql, params)
+  return rows[0] || null
+}
+
+// ---------------------------------------------------------------------------
+// PostgresVectorProvider
+// ---------------------------------------------------------------------------
+
+export class PostgresVectorProvider implements VectorDBProvider {
+  // ============================================================
+  // CORE OPERATIONS
+  // ============================================================
+
+  async store(input: MemoryInput, domainId?: string): Promise<Memory> {
+    const projectId = domainId || getProjectId()
+    const table = getTableName()
+
+    let embeddingStr: string
+    let embeddingModel = 'text-embedding-3-small'
+    let embeddingModelVersion = '1'
+    if (input.precomputedEmbedding) {
+      embeddingStr = input.precomputedEmbedding
+    } else {
+      const result = await generateEmbedding(input.content)
+      embeddingStr = formatEmbeddingForPgVector(result.embedding)
+      embeddingModel = result.model
+      embeddingModelVersion = result.modelVersion
+    }
+
+    const row = await queryOne(
+      `INSERT INTO ${table} (
+        user_id, project_id, content, summary, category, tags, context_tags,
+        embedding, embedding_model, embedding_model_version,
+        source_type, source_ref, source_project, original_confidence,
+        related_to, is_contradiction, is_universal, agent_type,
+        durability, expires_at, is_portable, domain, topic,
+        memory_type, source_tool, valid_at, forget_after, is_latest, is_forgotten
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7,
+        $8::vector, $9, $10,
+        $11, $12, $13, $14,
+        $15, $16, $17, $18,
+        $19, $20, $21, $22, $23,
+        $24, $25, $26, $27, $28, $29
+      ) RETURNING *`,
+      [
+        getUserId(), projectId, input.content, input.summary || null,
+        input.category || null, input.tags || [], input.contextTags || [],
+        embeddingStr, embeddingModel, embeddingModelVersion,
+        input.sourceType, input.sourceRef || null, input.sourceProject || 'default',
+        input.confidence ?? 1.0,
+        input.relatedTo || [], input.isContradiction || false,
+        input.isUniversal || false, input.agentType || null,
+        input.durability || 'permanent',
+        input.expiresAt ? input.expiresAt.toISOString() : null,
+        true, input.domain || null, input.topic || null,
+        input.memoryType || null, input.sourceTool || null,
+        input.validAt ? input.validAt.toISOString() : new Date().toISOString(),
+        input.forgetAfter ? input.forgetAfter.toISOString() : null,
+        true, false,
+      ],
+    )
+
+    if (!row) throw new Error('Failed to store memory: no row returned')
+    return rowToMemory(row as MemoryRow)
+  }
+
+  async search(queryText: string, options: SearchOptions & { precomputedEmbedding?: string } = {}): Promise<MemorySearchResult[]> {
+    const embeddingStr = options.precomputedEmbedding
+      ?? formatEmbeddingForPgVector((await generateEmbedding(queryText)).embedding)
+
+    // Resolve access level to max classification (TD-776 parity — see supabase.ts).
+    const maxClassification: MemoryClassification = options.maxClassification
+      || (options.accessLevel ? ACCESS_LEVEL_MAX_CLASSIFICATION[options.accessLevel] : 'restricted')
+
+    if (options.includeUniversal || options.sourceProject || options.agentType) {
+      const rows = await query(
+        'SELECT * FROM search_memories_cross_project($1::vector, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
+        [
+          embeddingStr,
+          options.domainId || null,
+          options.sourceProject || null,
+          options.category || null,
+          options.tags || null,
+          options.includeArchived || false,
+          options.includeUniversal ?? true,
+          options.agentType || null,
+          options.limit || 10,
+          options.similarityThreshold || 0.3,
+          options.latestOnly ?? true,
+          // Security parameters (TD-776) — the function defaults to 'restricted'
+          // (= unfiltered) when these are omitted.
+          maxClassification,
+          options.clientNamespace || null,
+        ],
+      )
+      return rows.map((row: SearchResultRow) => rowToSearchResult(row))
+    }
+
+    const rows = await query(
+      'SELECT * FROM search_memories($1::vector, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+      [
+        embeddingStr,
+        options.domainId || null,
+        options.category || null,
+        options.tags || null,
+        options.includeArchived || false,
+        options.limit || 10,
+        options.similarityThreshold || 0.3,
+        options.latestOnly ?? true,
+        // Security parameters (TD-810) — the single-project branch previously
+        // omitted these, so p_max_classification defaulted to 'restricted'
+        // (= unfiltered), leaking confidential/restricted rows to lower-tier
+        // callers (e.g. memory_context at exploration). The cross-project
+        // branch above and the supabase provider already pass them; this
+        // restores parity. Fail-safe: no accessLevel → maxClassification
+        // resolves to 'restricted' → identical to the prior default.
+        maxClassification,
+        options.clientNamespace || null,
+      ],
+    )
+    return rows.map((row: SearchResultRow) => rowToSearchResult(row))
+  }
+
+  async getById(
+    id: string,
+    opts?: { accessLevel?: MemoryAccessLevel; maxClassification?: MemoryClassification },
+  ): Promise<Memory | null> {
+    const row = await queryOne(
+      `SELECT * FROM ${getTableName()} WHERE id = $1`,
+      [id],
+    )
+    if (!row) return null
+    // TD-884: pass the ceiling into the converter so over-tier content is never
+    // decrypted (not just dropped post-hydration). No opts → unchanged.
+    const memory = rowToMemory(row as MemoryRow, opts)
+    // TD-883: redact over-tier rows as not-found. No opts → no ceiling → unchanged.
+    if (exceedsClassificationCeiling(memory.classification, opts?.accessLevel, opts?.maxClassification)) {
+      return null
+    }
+    return memory
+  }
+
+  async update(id: string, updates: MemoryUpdate): Promise<Memory> {
+    const table = getTableName()
+    const current = await this.getById(id)
+    if (!current) throw new Error(`Memory not found: ${id}`)
+
+    const sets: string[] = ['updated_at = NOW()']
+    const params: any[] = []
+    let paramIdx = 1
+
+    if (updates.content !== undefined) {
+      const embResult = await generateEmbedding(updates.content)
+      sets.push(`content = $${paramIdx++}`)
+      params.push(updates.content)
+      sets.push(`embedding = $${paramIdx}::vector`)
+      params.push(formatEmbeddingForPgVector(embResult.embedding))
+      paramIdx++
+      sets.push(`embedding_model = $${paramIdx++}`)
+      params.push(embResult.model)
+      sets.push(`embedding_model_version = $${paramIdx++}`)
+      params.push(embResult.modelVersion)
+    }
+
+    if (updates.summary !== undefined) { sets.push(`summary = $${paramIdx++}`); params.push(updates.summary) }
+    if (updates.category !== undefined) { sets.push(`category = $${paramIdx++}`); params.push(updates.category) }
+    if (updates.tags !== undefined) { sets.push(`tags = $${paramIdx++}`); params.push(updates.tags) }
+    if (updates.contextTags !== undefined) { sets.push(`context_tags = $${paramIdx++}`); params.push(updates.contextTags) }
+    if (updates.confidence !== undefined) { sets.push(`original_confidence = $${paramIdx++}`); params.push(updates.confidence) }
+    if (updates.relatedTo !== undefined) { sets.push(`related_to = $${paramIdx++}`); params.push(updates.relatedTo) }
+    if (updates.isContradiction !== undefined) { sets.push(`is_contradiction = $${paramIdx++}`); params.push(updates.isContradiction) }
+
+    // Write history if content changed
+    if (updates.content && updates.content !== current.content) {
+      await query(
+        `INSERT INTO traqr_memory_history (memory_id, previous_content, previous_confidence, change_reason)
+         VALUES ($1, $2, $3, $4)`,
+        [id, current.content, current.originalConfidence, updates.changeReason || 'Content updated'],
+      )
+    }
+
+    params.push(id)
+    const row = await queryOne(
+      `UPDATE ${table} SET ${sets.join(', ')} WHERE id = $${paramIdx} RETURNING *`,
+      params,
+    )
+    if (!row) throw new Error(`Failed to update memory: ${id}`)
+    return rowToMemory(row as MemoryRow)
+  }
+
+  async delete(id: string): Promise<void> {
+    await query(`DELETE FROM ${getTableName()} WHERE id = $1`, [id])
+  }
+
+  async validate(id: string): Promise<Memory> {
+    const row = await queryOne(
+      `UPDATE ${getTableName()} SET last_validated = NOW(), updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [id],
+    )
+    if (!row) throw new Error(`Failed to validate memory: ${id}`)
+    return rowToMemory(row as MemoryRow)
+  }
+
+  // ============================================================
+  // ARCHIVE OPERATIONS
+  // ============================================================
+
+  async archive(id: string, reason?: string): Promise<Memory> {
+    const row = await queryOne(
+      `UPDATE ${getTableName()} SET is_archived = true, archived_at = NOW(),
+       archive_reason = $2, updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [id, reason || 'manual'],
+    )
+    if (!row) throw new Error(`Failed to archive memory: ${id}`)
+    return rowToMemory(row as MemoryRow)
+  }
+
+  async unarchive(id: string): Promise<Memory> {
+    const row = await queryOne(
+      `UPDATE ${getTableName()} SET is_archived = false, archived_at = NULL,
+       archive_reason = NULL, updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [id],
+    )
+    if (!row) throw new Error(`Failed to unarchive memory: ${id}`)
+    return rowToMemory(row as MemoryRow)
+  }
+
+  // ============================================================
+  // BULK OPERATIONS
+  // ============================================================
+
+  async exportAll(domainId?: string): Promise<MemoryExport[]> {
+    const table = getTableName()
+    const sql = domainId
+      ? `SELECT * FROM ${table} WHERE project_id = $1`
+      : `SELECT * FROM ${table}`
+    const rows = await query(sql, domainId ? [domainId] : [])
+    return rows.map((row: any) => ({
+      id: row.id,
+      content: row.content,
+      summary: row.summary ?? undefined,
+      category: row.category as MemoryCategory | undefined,
+      tags: row.tags || [],
+      contextTags: row.context_tags || [],
+      sourceType: row.source_type,
+      sourceRef: row.source_ref ?? undefined,
+      sourceProject: row.source_project,
+      originalConfidence: row.original_confidence,
+      lastValidated: row.last_validated,
+      relatedTo: row.related_to || [],
+      isContradiction: row.is_contradiction,
+      isArchived: row.is_archived,
+      archiveReason: row.archive_reason ?? undefined,
+      durability: row.durability,
+      expiresAt: row.expires_at ?? undefined,
+      embeddingModel: row.embedding_model,
+      embeddingModelVersion: row.embedding_model_version,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
+  }
+
+  async importBulk(memories: MemoryExport[], domainId: string): Promise<number> {
+    const table = getTableName()
+    let importedCount = 0
+    const BATCH_SIZE = 10
+
+    for (let i = 0; i < memories.length; i += BATCH_SIZE) {
+      const batch = memories.slice(i, i + BATCH_SIZE)
+      const embeddings = await Promise.all(batch.map(m => generateEmbedding(m.content)))
+
+      for (let j = 0; j < batch.length; j++) {
+        const m = batch[j]
+        const emb = embeddings[j]
+        try {
+          await query(
+            `INSERT INTO ${table} (
+              user_id, project_id, content, summary, category, tags, context_tags,
+              embedding, embedding_model, embedding_model_version,
+              source_type, source_ref, source_project, original_confidence,
+              last_validated, related_to, is_contradiction, is_archived,
+              archive_reason, created_at, updated_at, is_portable
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::vector,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+            [
+              getUserId(), domainId, m.content, m.summary || null,
+              m.category || null, m.tags, m.contextTags,
+              formatEmbeddingForPgVector(emb.embedding), emb.model, emb.modelVersion,
+              m.sourceType, m.sourceRef || null, m.sourceProject,
+              m.originalConfidence, m.lastValidated, m.relatedTo,
+              m.isContradiction, m.isArchived, m.archiveReason || null,
+              m.createdAt, m.updatedAt, true,
+            ],
+          )
+          importedCount++
+        } catch (err) {
+          console.error(`[VectorDB] Error importing memory ${i + j}:`, err instanceof Error ? err.message : err)
+        }
+      }
+    }
+    return importedCount
+  }
+
+  // ============================================================
+  // DOMAIN MANAGEMENT
+  // ============================================================
+
+  async createDomain(name: string, description?: string, userId?: string): Promise<MemoryDomain> {
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    const row = await queryOne(
+      `INSERT INTO traqr_projects (user_id, name, slug, description, is_active)
+       VALUES ($1, $2, $3, $4, true) RETURNING *`,
+      [userId || getUserId(), name, slug, description || null],
+    )
+    if (!row) throw new Error(`Failed to create domain: ${name}`)
+    return {
+      id: row.id,
+      userId: row.user_id,
+      name: row.name,
+      description: row.description ?? undefined,
+      isShareable: row.is_active,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.last_activity || row.created_at),
+    }
+  }
+
+  async getDomain(name: string): Promise<MemoryDomain | null> {
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    const row = await queryOne(
+      `SELECT * FROM traqr_projects WHERE slug = $1`,
+      [slug],
+    )
+    if (!row) return null
+    return {
+      id: row.id,
+      userId: row.user_id,
+      name: row.name,
+      description: row.description ?? undefined,
+      isShareable: row.is_active,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.last_activity || row.created_at),
+    }
+  }
+
+  async getDefaultDomain(): Promise<MemoryDomain> {
+    const row = await queryOne(
+      `SELECT * FROM traqr_projects WHERE id = $1`,
+      [getProjectId()],
+    )
+    if (!row) throw new Error('Failed to get default domain')
+    return {
+      id: row.id,
+      userId: row.user_id,
+      name: row.name,
+      description: row.description ?? undefined,
+      isShareable: row.is_active,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.last_activity || row.created_at),
+    }
+  }
+
+  // ============================================================
+  // LIFECYCLE
+  // ============================================================
+
+  async invalidate(id: string): Promise<void> {
+    await query(
+      `UPDATE ${getTableName()} SET invalid_at = NOW(), is_latest = false, updated_at = NOW()
+       WHERE id = $1`,
+      [id],
+    )
+  }
+
+  async supersede(id: string): Promise<void> {
+    await query(
+      `UPDATE ${getTableName()} SET is_latest = false, updated_at = NOW()
+       WHERE id = $1`,
+      [id],
+    )
+  }
+
+  // ============================================================
+  // FEEDBACK SIGNALS (TD-817)
+  // ============================================================
+
+  async bumpReturned(ids: string[]): Promise<void> {
+    if (ids.length === 0) return
+    await query(
+      `UPDATE ${getTableName()}
+       SET times_returned = COALESCE(times_returned, 0) + 1, last_returned_at = NOW()
+       WHERE id = ANY($1::uuid[])`,
+      [ids],
+    )
+  }
+
+  async citeMemory(id: string): Promise<void> {
+    // Citation = validation: resets the decay timer (mirrors the live
+    // cite_memory() SQL function the Supabase provider calls).
+    await query(
+      `UPDATE ${getTableName()}
+       SET times_cited = COALESCE(times_cited, 0) + 1, last_cited_at = NOW(), last_validated = NOW()
+       WHERE id = $1`,
+      [id],
+    )
+  }
+
+  // ============================================================
+  // ENTITY OPERATIONS
+  // ============================================================
+
+  async findEntityByName(name: string, entityType: string): Promise<any | null> {
+    return queryOne(
+      `SELECT * FROM memory_entities
+       WHERE user_id = $1 AND LOWER(name) = LOWER($2) AND entity_type = $3 AND is_archived = false
+       LIMIT 1`,
+      [getUserId(), name.trim(), entityType],
+    )
+  }
+
+  async findEntityByNameFuzzy(name: string, entityType: string): Promise<any | null> {
+    const escaped = name.trim().replace(/[%_]/g, '\\$&')
+    return queryOne(
+      `SELECT * FROM memory_entities
+       WHERE user_id = $1 AND name ILIKE $2 AND entity_type = $3 AND is_archived = false
+       LIMIT 1`,
+      [getUserId(), `%${escaped}%`, entityType],
+    )
+  }
+
+  async findEntityByEmbedding(embeddingStr: string, entityType: string, threshold: number = 0.85): Promise<any | null> {
+    const rows = await query(
+      'SELECT * FROM search_entities($1::vector, $2, $3, $4, $5)',
+      [embeddingStr, getUserId(), entityType, threshold, 1],
+    )
+    return rows[0] || null
+  }
+
+  async createEntity(entity: {
+    name: string, entityType: string, embedding?: string, userId?: string
+  }): Promise<any> {
+    try {
+      const row = await queryOne(
+        `INSERT INTO memory_entities (user_id, name, entity_type, embedding, mentions_count, first_seen_at, last_seen_at)
+         VALUES ($1, $2, $3, $4::vector, 1, NOW(), NOW()) RETURNING *`,
+        [entity.userId || getUserId(), entity.name, entity.entityType, entity.embedding || null],
+      )
+      return row
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        return this.findEntityByName(entity.name, entity.entityType)
+      }
+      console.warn('[VectorDB] Error creating entity:', err?.message || err)
+      return null
+    }
+  }
+
+  async incrementEntityMentions(entityId: string): Promise<void> {
+    await query(
+      `UPDATE memory_entities SET mentions_count = mentions_count + 1, last_seen_at = NOW()
+       WHERE id = $1`,
+      [entityId],
+    )
+  }
+
+  async linkMemoryToEntity(memoryId: string, entityId: string, role: string = 'mentions'): Promise<void> {
+    try {
+      await query(
+        `INSERT INTO memory_entity_links (memory_id, entity_id, role) VALUES ($1, $2, $3)`,
+        [memoryId, entityId, role],
+      )
+    } catch (err: any) {
+      if (err?.code !== '23505') { // ignore duplicate links
+        console.warn('[VectorDB] Error linking memory to entity:', err?.message || err)
+      }
+    }
+  }
+
+  async findOrphanedEntities(): Promise<string[]> {
+    const entities = await query(
+      `SELECT id FROM memory_entities WHERE user_id = $1 AND is_archived = false`,
+      [getUserId()],
+    )
+    const orphaned: string[] = []
+    for (const entity of entities) {
+      const link = await queryOne(
+        `SELECT 1 FROM memory_entity_links WHERE entity_id = $1 LIMIT 1`,
+        [entity.id],
+      )
+      if (!link) orphaned.push(entity.id)
+    }
+    return orphaned
+  }
+
+  async archiveEntities(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ')
+    await query(
+      `UPDATE memory_entities SET is_archived = true WHERE id IN (${placeholders})`,
+      ids,
+    )
+    return ids.length
+  }
+
+  // ============================================================
+  // UTILITY OPERATIONS
+  // ============================================================
+
+  async browse(options?: { domain?: string, category?: string, limit?: number, accessLevel?: MemoryAccessLevel, maxClassification?: MemoryClassification }): Promise<BrowseResult[]> {
+    const table = getTableName()
+    const conditions = ['is_archived = false', 'is_forgotten = false']
+    const params: any[] = []
+    let paramIdx = 1
+
+    if (options?.domain) {
+      conditions.push(`domain = $${paramIdx++}`)
+      params.push(options.domain)
+    }
+    if (options?.category) {
+      conditions.push(`category = $${paramIdx++}`)
+      params.push(options.category)
+    }
+
+    const limit = options?.limit || 20
+    params.push(limit)
+
+    const rows = await query(
+      `SELECT id, domain, category, content, summary, classification FROM ${table}
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY created_at DESC LIMIT $${paramIdx}`,
+      params,
+    )
+    return rows
+      // TD-883: drop rows above the caller's classification ceiling (the memory_browse leak)
+      .filter((r: any) => !exceedsClassificationCeiling(r.classification, options?.accessLevel, options?.maxClassification))
+      .map((r: any) => ({
+        id: r.id,
+        domain: r.domain ?? undefined,
+        category: r.category ?? undefined,
+        content: r.content,
+        summary: r.summary ?? undefined,
+      }))
+  }
+
+  async forget(id: string): Promise<void> {
+    await query(
+      `UPDATE ${getTableName()} SET is_forgotten = true, forgotten_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
+      [id],
+    )
+  }
+
+  async createRelationship(
+    sourceId: string, targetId: string, edgeType: string,
+    metadata: Record<string, unknown> = {},
+  ): Promise<string | null> {
+    try {
+      const row = await queryOne(
+        `INSERT INTO memory_relationships (source_memory_id, target_memory_id, edge_type, metadata)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [sourceId, targetId, edgeType, JSON.stringify(metadata)],
+      )
+      return row?.id || null
+    } catch (err: any) {
+      if (err?.code === '23505') return null // duplicate
+      console.warn('[VectorDB] createRelationship error:', err?.message || err)
+      return null
+    }
+  }
+
+  async countEntityMentions(name: string, userId: string): Promise<number> {
+    const row = await queryOne(
+      'SELECT count_entity_mentions($1, $2) as count',
+      [name, userId],
+    )
+    return row?.count ?? 0
+  }
+
+  async schemaVersion(): Promise<number | null> {
+    try {
+      const row = await queryOne(
+        'SELECT version FROM schema_version ORDER BY version DESC LIMIT 1',
+      )
+      return row?.version ?? null
+    } catch {
+      return null
+    }
+  }
+
+  async ping(): Promise<boolean> {
+    try {
+      // Touch the real memories table, not `SELECT 1`. A `SELECT 1` needs no
+      // heap/IO and returns instantly even when the instance is resource-starved
+      // and real memory ops are timing out — i.e. it false-passes a sick DB
+      // (proven in the 2026-06-14 traqr-db starvation outage, where `SELECT 1`
+      // probes passed 8/8 while every catalog/table query timed out — TD-862).
+      // A LIMIT 1 read of the table store/search actually use makes the probe
+      // fail honestly under starvation. Mirrors the Supabase provider's ping().
+      await queryOne(`SELECT id FROM ${getTableName()} LIMIT 1`)
+      return true
+    } catch {
+      return false
+    }
+  }
+}

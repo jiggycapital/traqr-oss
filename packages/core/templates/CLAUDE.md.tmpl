@@ -1,0 +1,222 @@
+<!-- traqr:start:project-overview -->
+{{#IF_MONOREPO}}# CLAUDE.md - Traqr Monorepo Intelligence
+{{/IF_MONOREPO}}{{^IF_MONOREPO}}# CLAUDE.md - {{PROJECT_DISPLAY_NAME}} Project Intelligence
+{{/IF_MONOREPO}}
+## Project Overview
+{{PROJECT_DESCRIPTION}}
+<!-- traqr:end:project-overview -->
+
+{{#IF_MONOREPO}}
+<!-- traqr:start:monorepo-routing -->
+## Monorepo: App Routing (READ FIRST)
+
+This is a multi-app monorepo. Before starting ANY task, determine the target app.
+
+{{MONOREPO_APP_TABLE}}
+
+### Routing Rules
+1. **Ticket prefix determines the app**: the letters before the dash in a ticket ID map to an app directory under `apps/` (see the table above)
+2. **Scope investigation to the correct apps/ directory** — don't read one app's code for another app's ticket
+3. **Auth differs by app** — never apply one app's auth patterns to another
+4. **Read the app's CLAUDE.md** (`apps/<name>/CLAUDE.md`) for app-specific conventions
+5. **Use the correct Linear team** when querying tickets: `list_issues(team: "<PREFIX>", ...)`
+<!-- traqr:end:monorepo-routing -->
+
+{{/IF_MONOREPO}}
+---
+
+<!-- traqr:start:getting-started -->
+## Getting Started (New to This Project?)
+
+If this is your first time working on this project:
+
+1. **Set up your worktree slots:**
+   ```bash
+   npx traqr render
+   source scripts/{{PREFIX}}-aliases.sh
+   ```
+{{#IF_MEMORY_FULL}}2. **Connect to the shared memory DB:**
+   - Run `npx traqr-memory-mcp --install` (asks for DB credentials)
+   - Or use `claude mcp add traqr-memory --scope user` for cross-project memory
+   - Verify: run `memory_audit` in a new session — should show memory count and health
+{{/IF_MEMORY_FULL}}3. **Jump into a slot and start coding:**
+   ```bash
+   z1 && claude    # Slot 1, open Claude Code
+   ```
+4. **Read the Common Gotchas section** at the bottom of this file
+{{#IF_MEMORY_FULL}}5. **Your first task:** `memory_search("your task")` → implement → `/ship`
+{{/IF_MEMORY_FULL}}{{^IF_MEMORY_FULL}}5. **Your first task:** Pick up a ticket → implement → `/ship`
+{{/IF_MEMORY_FULL}}<!-- traqr:end:getting-started -->
+
+---
+
+{{#IF_MEMORY_FULL}}
+<!-- traqr:start:memory-loop -->
+## Memory System
+
+The vector DB is the portable asset that compounds across sessions. Every session should search before working and capture before finishing.
+
+### Setup Check
+
+Verify your MCP connection: run `memory_audit` in any session. If it returns stats, you're connected. If not: run `npx traqr-memory-mcp --install` or use `claude mcp add traqr-memory --scope user` with your Supabase + OpenAI credentials.
+
+### Session Rhythm
+
+| When | What | How |
+|------|------|-----|
+| **Session start** | Load context for your task | `memory_search("your task topic")` or `memory_context(taskDescription: "...")` |
+| **During work** | Search before investigating unfamiliar code | `memory_search("topic gotchas patterns")` |
+| **When you learn something** | Capture it immediately | `memory_store(content: "what you learned — be specific")` |
+| **Before /ship** | Batch-capture session learnings | `memory_pulse(captures: [...], sourceProject: "{{PROJECT_NAME}}")` |
+
+### Rules
+
+1. **Search before working** — 30 seconds of `memory_search` can save 30 minutes of re-discovery
+2. **Capture root causes, decisions, and gotchas** — not generic observations
+3. **Be specific** — include file paths, function names, and WHY, not just WHAT
+4. **Reference learnings explicitly** — "Based on prior memory about X, doing Y"
+5. **Don't capture what's obvious from reading the code** — only non-obvious insights
+
+{{#IF_TIER_2+}}### Getting Plans from Tickets
+
+Slot agents: fetch ticket via `list_issues(team: "{{TICKET_PREFIX}}")`, IMMEDIATELY fetch comments (`list_comments`), parse `## Full Implementation Details` comment.
+{{/IF_TIER_2+}}
+<!-- traqr:end:memory-loop -->
+
+{{/IF_MEMORY_FULL}}
+<!-- traqr:start:dev-workflow -->
+## Development Workflow
+
+This project uses a **multi-slot worktree system**. NEVER push directly to main.
+
+### Quick Start
+
+```bash
+z1 && c1          # Jump to slot, open Claude
+/ship "Title"     # Ship when ready
+/sync             # Sync after merge
+```
+
+### Slot Configuration
+
+{{SLOT_TABLE}}
+
+### Key Commands
+
+| Command | What it does |
+|---------|--------------|
+| `/ship "Title"` | Commit, build, push, create PR, capture learnings |
+| `/sync` | Sync all slots with main after merge |
+| `/resync` | Pre-flight rebase with impact analysis |
+| `/nextphase "Project"` | Pick up next phase of work from Linear |
+| `/status` | Project status report |
+{{#IF_MEMORY_FULL}}| `memory_search("query")` | Search the shared memory DB for context |
+| `memory_store(content: "...")` | Capture a learning to the memory DB |
+{{/IF_MEMORY_FULL}}{{#IF_ISSUES}}| `list_issues(team: "{{TICKET_PREFIX}}")` | Fetch tickets from Linear |
+{{/IF_ISSUES}}
+
+### Golden Rules
+
+1. **Always work in slots** — never directly on main
+2. **Use `/ship` to deploy** — creates PR automatically
+3. **Run `/sync` after merging** — keeps all slots current
+4. **Never push to main** — pre-push hook blocks it. Emergency: `{{SHIP_ENV_VAR}}=true git push`
+{{#IF_MEMORY_FULL}}5. **Search memory before working** — `memory_search` on your task topic is the first step of every session
+{{/IF_MEMORY_FULL}}
+<!-- traqr:end:dev-workflow -->
+
+---
+
+{{#IF_ISSUES}}
+<!-- traqr:start:two-workflows -->
+## Workflow
+
+```
+Linear ticket (agent-ready) → Slot claims → Implement → /ship → PR → Guardian auto-merges → /sync
+```
+
+All work flows through Linear tickets. Use `save_issue` to create tickets, `agent-ready` label to queue for slot dispatch.
+<!-- traqr:end:two-workflows -->
+
+{{/IF_ISSUES}}
+<!-- traqr:start:code-conventions -->
+## Code Conventions
+
+### File Structure
+- API routes: `src/app/api/[endpoint]/route.ts`
+- Components: `src/components/[category]/[ComponentName].tsx`
+- Utilities: `src/lib/[name].ts`
+
+### Commit Format
+```
+<type>: <subject>
+<body>
+Co-authored-by: {{CO_AUTHOR}} <noreply@anthropic.com>
+```
+
+Types: `feat:` | `fix:` | `docs:` | `refactor:` | `chore:`
+Rules: imperative mood, lowercase first letter, max 72 char subject
+<!-- traqr:end:code-conventions -->
+
+---
+
+<!-- traqr:start:slot-locations -->
+## Slot Locations
+
+```
+Main repo:  {{REPO_PATH}} (main branch - don't work here)
+Worktrees:  {{WORKTREES_PATH}}/
+{{SLOT_PATHS}}
+```
+
+### Port Assignments
+
+{{PORT_TABLE}}
+<!-- traqr:end:slot-locations -->
+
+<!-- traqr:start:ticket-investigation -->
+{{#IF_MONOREPO}}## Ticket Investigation
+
+When the user gives specific ticket identifiers (e.g., `ABC-123`):
+1. **Extract the prefix** — the letters before the dash determine the app and Linear team
+2. **Fetch tickets FIRST** — get all referenced tickets before touching code
+3. **Use `list_issues` with the correct team** — e.g., `list_issues(team: "<PREFIX>", filter: {identifier: {eq: "<PREFIX>-123"}})`
+4. **Read before you run** — understand the ticket content before spawning Explore agents or grepping code
+5. **Don't parallelize fetch + investigation** — tickets inform what code to look at
+6. **Scope code search to the right app** — route each ticket to its matching `apps/<name>/` directory by prefix
+{{/IF_MONOREPO}}{{^IF_MONOREPO}}## Ticket Investigation
+
+When the user gives specific ticket identifiers (e.g., {{TICKET_PREFIX}}-123):
+1. **Fetch tickets FIRST** — get all referenced tickets before touching code
+2. **Use `list_issues` with identifier filter** — `get_issue` needs UUID, not identifier.
+   Call `list_issues(team: "{{TICKET_PREFIX}}", filter: {identifier: {eq: "{{TICKET_PREFIX}}-123"}})` to get the full issue with UUID
+3. **Read before you run** — understand the ticket content before spawning Explore agents or grepping code
+4. **Don't parallelize fetch + investigation** — tickets inform what code to look at
+{{/IF_MONOREPO}}
+<!-- traqr:end:ticket-investigation -->
+
+<!-- traqr:start:common-gotchas -->
+## Common Gotchas
+
+1. **Never update a merged PR**: When shipping, ALWAYS verify any existing PR is `OPEN` before editing. If the branch has a merged/closed PR, create a NEW PR. Slot branches persist across PR cycles — a merged PR does NOT mean new commits belong on that PR.
+2. **Vercel Cron Limits**: Check deployment tier before adding crons
+3. **PostHog**: Use `distinct_id` NOT `person_id` in HogQL
+{{#IF_SLACK}}4. **Slack**: Channel name without `#` prefix
+{{/IF_SLACK}}5. **Linear API**: Auth header is just the key, no "Bearer"
+{{#IF_MONOREPO}}6. **Linear `get_issue`**: Takes UUID, not identifier. Use `list_issues` with identifier filter to resolve ticket IDs ({{MONOREPO_TICKET_PREFIXES}}) to UUID
+{{/IF_MONOREPO}}{{^IF_MONOREPO}}6. **Linear `get_issue`**: Takes UUID, not identifier. Use `list_issues` with identifier filter to resolve {{TICKET_PREFIX}}-XXX to UUID
+{{/IF_MONOREPO}}
+<!-- traqr:end:common-gotchas -->
+
+<!-- traqr:start:reference-docs -->
+## Reference Docs (read on demand)
+
+- `docs/claude/features.md` — Dev Inbox, Vibe Chat, Visual Verification, Agent Mesh
+- `docs/claude/devops.md` — DevOps workflow, testing commands, environment variables
+- `docs/claude/reference.md` — Worktree lifecycle, Slack channels, ports, quick reference
+<!-- traqr:end:reference-docs -->
+
+---
+<!-- traqr:start:footer -->
+*Generated by TraqrOS — Automation Score: {{AUTOMATION_SCORE}}/100*
+<!-- traqr:end:footer -->

@@ -1,0 +1,54 @@
+{
+  "name": "@traqr/cli",
+  "version": "0.1.13",
+  "description": "CLI for Claude Code — persistent memory, worktree slots, autonomous CI/CD, skill templates.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "traqr": "./dist/bin/traqr.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@traqr/core": "*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jiggycapital/traqr-oss.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://traqr.dev",
+  "bugs": "https://github.com/jiggycapital/traqr-oss/issues",
+  "keywords": [
+    "claude-code",
+    "ai",
+    "developer-tools",
+    "cli",
+    "memory",
+    "mcp",
+    "automation",
+    "monorepo",
+    "worktree",
+    "traqr",
+    "guardian",
+    "npx"
+  ],
+  "author": "Traqr Enterprises LLC <sean@traqr.dev>",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "Apache-2.0"
+}

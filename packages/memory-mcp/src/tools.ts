@@ -1,0 +1,696 @@
+/**
+ * MCP Tool Handlers
+ *
+ * 12 memory tools calling @traqr/memory library functions directly.
+ * No HTTP layer, no apiCall(), no localhost server needed.
+ */
+
+import { z } from 'zod'
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { enrichError } from './errors.js'
+import {
+  storeMemory,
+  searchMemoriesV2,
+  getMemory,
+  citeMemory,
+  archiveMemory,
+  triageAndStore,
+  getSystemHealth,
+  getDetailedStats,
+  assembleSessionContext,
+  deriveAll,
+  getVectorDB,
+  createRelationship,
+  supersedeMemory,
+} from '@traqr/memory'
+import type { MemoryInput, MemoryCategory, MemoryClassification, MemoryAccessLevel, SearchOptions } from '@traqr/memory'
+
+// ---------------------------------------------------------------------------
+// Shared schemas
+// ---------------------------------------------------------------------------
+
+const categoryEnum = z.string().describe('Suggested: gotcha, pattern, fix, insight, question, preference, convention. Any string accepted — the system learns your taxonomy.')
+const controlledTagEnum = z.enum(['critical', 'important', 'nice-to-know', 'evergreen', 'active', 'stale-risk', 'from-incident', 'from-decision', 'from-observation'])
+
+/**
+ * How much of memory_purge's pre-deletion export is echoed into the tool response.
+ * This is a CONTEXT budget, not a data-retention policy — the purge is already
+ * irreversible by the time it applies, so whatever it cuts is gone (TD-887).
+ * Named rather than inlined so the truncation notice and the slice can never
+ * disagree about where the boundary is.
+ */
+const EXPORT_ECHO_LIMIT = 3000
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function errorResult(toolName: string, err: unknown) {
+  return { content: [{ type: 'text' as const, text: enrichError(toolName, err) }] }
+}
+
+function toSummaryResult(r: any) {
+  return {
+    id: r.id,
+    summary: r.summary || (r.content ? r.content.slice(0, 120) + '...' : ''),
+    domain: r.domain,
+    category: r.category,
+    topic: r.topic,
+    score: Math.round((r.relevanceScore || r.similarity || 0) * 1000) / 1000,
+  }
+}
+
+/**
+ * TD-1144 — register a tool whose argument object REJECTS unknown top-level keys.
+ *
+ * `server.tool(name, desc, rawShape, handler)` can only take a RAW SHAPE, which the
+ * SDK wraps in a non-strict `z.object()`. Zod then STRIPS an unrecognized key instead
+ * of rejecting it, and the two consequences are both silent:
+ *
+ *   - `memory_pulse.captures` carries `.default([])`, so a caller that sends `memories:`
+ *     gets `Captured 0, merged 0` — success-shaped TOTAL data loss. That is TD-1069,
+ *     which recurred verbatim as TD-1144 nine days after TD-1069 was marked Done.
+ *   - `accessLevel` is optional on every read tool, so a typo'd key silently means
+ *     "no classification ceiling". The TD-810/883/884/885/887 arc enforces the ceiling
+ *     once the parameter ARRIVES; nothing enforced that it arrives.
+ *
+ * This does NOT narrow the published contract. The server already advertises
+ * `additionalProperties: false` for every non-empty shape — the parse simply did not
+ * honor the schema the server was itself publishing. `registerTool` accepts a
+ * constructed object schema and passes it to the parse unchanged (`getZodSchemaObject`
+ * → `normalizeObjectSchema`), which is precisely what `server.tool` cannot do.
+ *
+ * Generic over the shape so each call site keeps inferring its handler's argument type
+ * from its own schema — the property that would otherwise be lost to a wrapper.
+ */
+function strictRegistrar(server: McpServer) {
+  return {
+    tool<S extends z.ZodRawShape>(
+      name: string,
+      description: string,
+      shape: S,
+      handler: (args: z.infer<z.ZodObject<S>>) => Promise<{ content: { type: 'text'; text: string }[] }>,
+    ): void {
+      server.registerTool(name, { description, inputSchema: z.object(shape).strict() }, handler as never)
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tool Registration
+// ---------------------------------------------------------------------------
+
+export function registerTools(server: McpServer) {
+  // TD-1144: every registration below goes through the strict registrar, so an
+  // unrecognized top-level argument is a loud error naming the key rather than a
+  // silently-dropped field. See strictRegistrar above for why this is not a
+  // contract change.
+  const strict = strictRegistrar(server)
+
+  // --- memory_store ---
+  strict.tool(
+    'memory_store',
+    'Remember something. Only content required — domain, category, summary, topic, tags are all auto-derived. ' +
+      'Use when you learn a fact, preference, or pattern worth keeping. Override any field if auto-detection is wrong.',
+    {
+      content: z.string().max(50000).describe('What you learned — be specific. Include WHAT, WHY, WHERE.'),
+      // Truncate an over-long override to 120 rather than hard-rejecting it — matches
+      // deriveSummary's own clip (auto-derive.ts:126) and the auto-summary path (tools.ts:46),
+      // so a slightly-too-long crafted summary is clipped, not bounced with a retry-forcing
+      // validation error. summary stays a short search-result label; DB column is varchar(500).
+      summary: z.string().transform((s) => (s.length > 120 ? s.slice(0, 117) + '...' : s)).optional().describe('Override auto-summary (clipped to 120 chars if longer)'),
+      category: categoryEnum.optional().describe('Override auto-category'),
+      domain: z.enum(['sean', 'traqr', 'tooling', 'universal', 'nooktraqr', 'pokotraqr', 'poketraqr', 'milestraqr', 'jiggy']).optional()
+        .describe('Override auto-domain (sean, traqr, tooling, universal, app name)'),
+      topic: z.string().optional().describe('Override auto-topic'),
+      tags: z.array(controlledTagEnum).optional().describe('Override auto-tags'),
+      confidence: z.number().min(0).max(1).default(0.6).describe('0-1. Default 0.6 — raise to 0.8+ only for facts you are confident about. Bad context is worse than no context.'),
+      sourceReliability: z.enum(['direct-user', 'deliberate-store', 'granola-single', 'granola-multi', 'inferred', 'auto-derived']).optional()
+        .describe('How trustworthy is the source? direct-user (the user said it) > deliberate-store > granola-single (one-speaker meeting transcript) > granola-multi (multi-speaker transcript, speaker confusion risk) > inferred > auto-derived'),
+      classification: z.enum(['public', 'internal', 'confidential', 'restricted']).optional()
+        .describe('Security classification. public=shareable, internal=team only, confidential=need-to-know, restricted=highest sensitivity. Default: auto-derived from content.'),
+      clientNamespace: z.string().optional()
+        .describe('Client namespace for isolation. Memories in a namespace are only visible to searches within that namespace.'),
+      slot: z.string().optional().describe('Slot name for source tracking'),
+    },
+    async ({ content, summary, category, domain, topic, tags, confidence, sourceReliability, classification, clientNamespace, slot }) => {
+      try {
+        const derived = deriveAll(content, { summary, category, domain, topic, tags, sourceTool: 'mcp-store' })
+        const input: MemoryInput = {
+          content,
+          summary: derived.summary as string,
+          category: derived.category as MemoryCategory,
+          // `slot:<name>` tag mirrors memory_pulse (tools.ts pulse handler) — the
+          // cave→memory join key for the TD-838 scoreboard reads this tag.
+          tags: [...(derived.tags as string[]), ...(slot ? [`slot:${slot}`] : [])],
+          sourceType: 'session',
+          sourceProject: 'default',
+          confidence,
+          domain: derived.domain as string,
+          topic: derived.topic as string,
+          memoryType: derived.memoryType as any,
+          sourceTool: 'mcp-store',
+          ...(sourceReliability ? { sourceReliability } : {}),
+          ...(classification ? { classification: classification as MemoryClassification } : {}),
+          ...(clientNamespace ? { clientNamespace } : {}),
+        }
+        const memory = await storeMemory(input)
+        return {
+          content: [{ type: 'text' as const, text: `Stored [${derived.domain}/${derived.category}] id=${memory.id} ${derived.summary}` }],
+        }
+      } catch (err) { return errorResult('memory_store', err) }
+    },
+  )
+
+  // --- memory_search ---
+  strict.tool(
+    'memory_search',
+    'Search memories by meaning. Returns summaries (~30 tokens each). Use memory_read to expand a specific result.',
+    {
+      query: z.string().describe('Natural language search query'),
+      limit: z.number().min(1).max(50).default(10),
+      category: categoryEnum.optional(),
+      domain: z.enum(['sean', 'traqr', 'tooling', 'universal', 'nooktraqr', 'pokotraqr', 'poketraqr', 'milestraqr', 'jiggy']).optional().describe('Filter by domain'),
+      memoryType: z.enum(['fact', 'preference', 'pattern']).optional().describe('Filter by memory type'),
+      tags: z.array(controlledTagEnum).optional(),
+      threshold: z.number().min(0).max(1).optional(),
+      accessLevel: z.enum(['exploration', 'standard', 'privileged', 'admin']).optional()
+        .describe('Agent access tier. exploration=public+internal only, standard=+confidential, privileged=+restricted, admin=full cross-namespace. Default: no filter (all visible).'),
+    },
+    async ({ query, limit, category, domain, memoryType, tags, threshold, accessLevel }) => {
+      try {
+        const options: SearchOptions = {
+          limit,
+          category: category as any,
+          memoryType: memoryType as any,
+          similarityThreshold: threshold,
+          ...(tags ? { tags } : {}),
+          ...(accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : {}),
+        }
+        let results = await searchMemoriesV2(query, options)
+        // Post-filter by domain (not in RPC)
+        if (domain) {
+          results = results.filter((r: any) => r.domain === domain)
+        }
+        const summaries = results.map(toSummaryResult)
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            query, total: summaries.length, showing: summaries.length, results: summaries,
+          }, null, 2) }],
+        }
+      } catch (err) { return errorResult('memory_search', err) }
+    },
+  )
+
+  // --- memory_read ---
+  strict.tool(
+    'memory_read',
+    'Expand a memory by ID. Shows full content, metadata, version history, and related memories.',
+    {
+      memoryId: z.string().uuid().describe('UUID of the memory'),
+      accessLevel: z.enum(['exploration', 'standard', 'privileged', 'admin']).optional()
+        .describe('Caller tier ceiling; over-tier rows return not-found. Omit = unfiltered.'),
+    },
+    async ({ memoryId, accessLevel }) => {
+      try {
+        const memory = await getMemory(memoryId, accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : undefined)
+        if (!memory) return { content: [{ type: 'text' as const, text: `Memory ${memoryId} not found` }] }
+        // TD-817: an explicit expansion is the citation signal. Guarded —
+        // a counter failure must never block the read.
+        try { await citeMemory(memoryId) } catch { /* best-effort */ }
+        return { content: [{ type: 'text' as const, text: JSON.stringify(memory, null, 2) }] }
+      } catch (err) { return errorResult('memory_read', err) }
+    },
+  )
+
+  // --- memory_enhance ---
+  strict.tool(
+    'memory_enhance',
+    'Deepen understanding of a topic. Stores a new connected memory that extends existing knowledge. ' +
+      'Use when you learn something that adds to what you already know.',
+    {
+      content: z.string().max(50000).describe('New observation or detail to add'),
+      context: z.string().optional().describe('Why this matters or when it applies'),
+    },
+    async ({ content, context }) => {
+      try {
+        const fullContent = context ? `${content}\n\nContext: ${context}` : content
+        const derived = deriveAll(fullContent, { sourceTool: 'mcp-enhance' })
+        const input: MemoryInput = {
+          content: fullContent,
+          summary: derived.summary as string,
+          category: derived.category as MemoryCategory,
+          tags: derived.tags as string[],
+          sourceType: 'session',
+          sourceProject: 'default',
+          confidence: 0.85,
+          domain: derived.domain as string,
+          topic: derived.topic as string,
+          memoryType: derived.memoryType as any,
+          sourceTool: 'mcp-enhance',
+        }
+        const result = await triageAndStore(input)
+        return {
+          content: [{ type: 'text' as const, text: `Enhanced [${derived.domain}/${derived.category}]: ${derived.summary} (zone: ${result.zone})` }],
+        }
+      } catch (err) { return errorResult('memory_enhance', err) }
+    },
+  )
+
+  // --- memory_browse ---
+  strict.tool(
+    'memory_browse',
+    'Navigate memories by facet. No args = domain counts. +domain = categories. +category = summaries. Zero embedding cost.',
+    {
+      domain: z.string().optional(),
+      category: categoryEnum.optional(),
+      accessLevel: z.enum(['exploration', 'standard', 'privileged', 'admin']).optional()
+        .describe('Caller tier ceiling; over-tier summaries are dropped. Omit = unfiltered.'),
+    },
+    async ({ domain, category, accessLevel }) => {
+      try {
+        const db = getVectorDB()
+        const data = await db.browse({ domain, category, ...(accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : {}) })
+
+        if (!domain && !category) {
+          // Return domain counts
+          const counts: Record<string, number> = {}
+          for (const row of data) {
+            const d = row.domain || 'unknown'
+            counts[d] = (counts[d] || 0) + 1
+          }
+          return { content: [{ type: 'text' as const, text: JSON.stringify({ domains: counts }, null, 2) }] }
+        }
+
+        const summaries = data.map((r) => ({
+          id: r.id,
+          summary: r.summary || r.content?.slice(0, 100),
+          domain: r.domain,
+          category: r.category,
+        }))
+        return { content: [{ type: 'text' as const, text: JSON.stringify(summaries, null, 2) }] }
+      } catch (err) { return errorResult('memory_browse', err) }
+    },
+  )
+
+  // --- memory_context ---
+  strict.tool(
+    'memory_context',
+    'Load task-relevant context — principles, preferences, gotchas for the current work.',
+    {
+      taskDescription: z.string().optional(),
+      slotName: z.string().optional().describe('Auto: slot name for source tracking'),
+      accessLevel: z.enum(['exploration', 'standard', 'privileged', 'admin']).optional()
+        .describe('Agent access tier. Controls which classification levels appear in context. Default: no filter.'),
+    },
+    async ({ taskDescription, slotName, accessLevel }) => {
+      try {
+        const result = await assembleSessionContext({
+          slotName: slotName || 'standalone',
+          taskDescription,
+          ...(accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : {}),
+        })
+        // memory_context is an AGENT priming tool — return the bounded promptContext
+        // prose (HARD_CAP=15 + extractSummary 150-char cap + small per-search limits,
+        // with [MEM-xxxxxx] shortcodes + a `Total: N` footer), NOT the full SessionContext.
+        // Its 6 full-content arrays + recentLearnings ballooned to 61KB for tasks matching
+        // long memories → overflowed the MCP token cap → spilled to a file → silent Phase-0
+        // priming failure fleet-wide (TD-889; recurred 6/10 + 6/20, ~96% of the payload was
+        // full-content bloat). assembleSessionContext is unchanged: the HTTP /context route
+        // and other programmatic callers still receive the full structured object.
+        return { content: [{ type: 'text' as const, text: result.promptContext }] }
+      } catch (err) { return errorResult('memory_context', err) }
+    },
+  )
+
+  // --- memory_pulse ---
+  strict.tool(
+    'memory_pulse',
+    'Batch operation: capture multiple learnings + search + update in one call. Each capture only needs content. Max 5 captures per call — send multiple calls for larger batches.',
+    {
+      search: z.string().optional(),
+      searchLimit: z.number().min(1).max(5).default(3),
+      accessLevel: z.enum(['exploration', 'standard', 'privileged', 'admin']).optional()
+        .describe('Access tier for the search portion. Controls which classification levels are visible.'),
+      captures: z.array(z.object({
+        content: z.string().max(50000).describe('What you learned (min 20 chars)'),
+        category: categoryEnum.optional(),
+        domain: z.enum(['sean', 'traqr', 'tooling', 'universal', 'nooktraqr', 'pokotraqr', 'poketraqr', 'milestraqr', 'jiggy']).optional()
+          .describe('Override auto-domain'),
+        topic: z.string().optional().describe('Override auto-topic'),
+        tags: z.array(controlledTagEnum).optional(),
+        // These three were absent until TD-1069. zod STRIPS unknown keys rather than
+        // rejecting, so a caller that sent them got success-shaped output with the
+        // values silently gone — and every pulsed memory pinned at confidence 0.6,
+        // classification auto-derived, sourceReliability unset. memory_store has
+        // accepted all three since forever (see its shape above); pulse is the
+        // documented BATCH path for the same captures, so the divergence meant
+        // "batch it" quietly downgraded provenance and security tier.
+        confidence: z.number().min(0).max(1).optional()
+          .describe('0-1 (default 0.6). Raise to 0.8+ only for facts you are confident about.'),
+        sourceReliability: z.enum(['direct-user', 'deliberate-store', 'granola-single', 'granola-multi', 'inferred', 'auto-derived']).optional()
+          .describe('How trustworthy is the source? direct-user > deliberate-store > granola-single > granola-multi > inferred > auto-derived'),
+        classification: z.enum(['public', 'internal', 'confidential', 'restricted']).optional()
+          .describe('Security classification. Default: auto-derived from content.'),
+      })).default([]),
+      sourceProject: z.string().optional().describe('Source project slug for all captures in this batch'),
+      slot: z.string().optional().describe('Slot name for source tracking'),
+    },
+    async ({ search, searchLimit, accessLevel, captures, sourceProject, slot }) => {
+      try {
+        const MAX_CAPTURES = 5
+        const validCaptures = captures.filter((c) => c.content.trim().length >= 20)
+        const tooShort = captures.length - validCaptures.length
+        const dropped = Math.max(0, validCaptures.length - MAX_CAPTURES)
+        const toProcess = validCaptures.slice(0, MAX_CAPTURES)
+
+        // Run captures through triage
+        const captureResults = await Promise.all(
+          toProcess.map((cap, idx) => {
+              const derived = deriveAll(cap.content, {
+                category: cap.category, domain: (cap as any).domain, topic: (cap as any).topic,
+                tags: cap.tags, sourceTool: 'mcp-pulse',
+              })
+              const input: MemoryInput = {
+                content: cap.content.trim(),
+                summary: derived.summary as string,
+                category: derived.category as MemoryCategory,
+                tags: [...(derived.tags as string[] || []), 'pulse', ...(slot ? [`slot:${slot}`] : [])],
+                sourceType: 'session',
+                sourceProject: sourceProject || 'default',
+                confidence: cap.confidence ?? 0.6,
+                domain: derived.domain as string,
+                topic: derived.topic as string,
+                memoryType: derived.memoryType as any,
+                sourceTool: 'mcp-pulse',
+                ...(cap.sourceReliability ? { sourceReliability: cap.sourceReliability } : {}),
+                ...(cap.classification ? { classification: cap.classification as MemoryClassification } : {}),
+              }
+              return triageAndStore(input).then((r) => ({ index: idx, ...r })).catch((err) => {
+                console.warn(`[memory_pulse] capture ${idx} failed to store (NOT saved):`, err)
+                return { index: idx, zone: 'error' }
+              })
+            }),
+        )
+
+        // Run search if requested (respects access level).
+        //
+        // Swallowing the throw is DELIBERATE and must stay: the captures above have
+        // already stored by this point, so letting a search failure reach the outer
+        // catch would hand the agent an errorResult for a call that half-succeeded —
+        // and the natural response to an error is to re-send, duplicating them.
+        //
+        // But the failure has to be REPORTED, which it was not. `.catch(() => [])`
+        // produced an empty array indistinguishable from a genuine zero-match search,
+        // and the renderer below omits the whole `Search:` block at length 0 — so a
+        // failed search was not even "0 results", it was SILENCE. That is this file's
+        // own long-running bug class arriving on the one path that never got the
+        // treatment: the capture half carries three separate warnings for exactly this
+        // (errored / dropped / captures.length === 0, the last from TD-1069 where a
+        // 4-memory batch vanished into an all-zeros summary). It is also the inner-catch
+        // shadowing shape from #3431 — this `.catch` pre-empts the outer handler at the
+        // bottom of the tool, so no logging there could ever have seen it.
+        let searchResults: any[] = []
+        let searchFailed: string | null = null
+        if (search) {
+          const searchOpts: SearchOptions = {
+            limit: searchLimit,
+            ...(accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : {}),
+          }
+          const results = await searchMemoriesV2(search, searchOpts).catch((err) => {
+            searchFailed = err instanceof Error ? err.message : String(err)
+            console.warn(`[memory_pulse] search failed (captures unaffected):`, err)
+            return []
+          })
+          searchResults = results.map(toSummaryResult)
+        }
+
+        const successful = captureResults.filter((r: any) => r?.zone !== 'error')
+        const errored = captureResults.length - successful.length
+        const deduplicated = successful.filter((r: any) => r?.deduplicated).length
+        const zones = {
+          noop: successful.filter((r: any) => r?.zone === 'noop').length,
+          add: successful.filter((r: any) => r?.zone === 'add').length,
+          borderline: successful.filter((r: any) => r?.zone === 'borderline').length,
+        }
+
+        const parts: string[] = []
+        parts.push(`Captured ${successful.filter((r: any) => !r?.deduplicated).length}, merged ${successful.filter((r: any) => r?.merged).length} | Zones: ${zones.noop} noop, ${zones.add} new, ${zones.borderline} borderline`)
+        // Echo stored IDs — without them a same-session correction cannot complete the
+        // archive-supersede protocol (fresh captures lag the search index by minutes, so
+        // the just-stored row is unfindable; micro-frictions 7/20, twice in one session).
+        // On a noop/merge the id is the EXISTING memory's — exactly the row a correction targets.
+        const idParts = successful
+          .filter((r: any) => r?.memory?.id)
+          .map((r: any) => `#${r.index + 1}=${r.memory.id} (${r.zone})`)
+        if (idParts.length > 0) parts.push(`IDs: ${idParts.join(' · ')}`)
+        // Surface the two paths that previously read as a silent "Captured 0":
+        if (deduplicated > 0) parts.push(`Deduplicated: ${deduplicated} capture(s) matched an existing memory and were not re-stored (expected, not a failure).`)
+        if (errored > 0) parts.push(`WARNING: ${errored} capture(s) FAILED to store (embedding/triage error) and were NOT saved — retry, or fall back to memory_store. See server logs for the cause.`)
+        if (dropped > 0) parts.push(`WARNING: ${dropped} capture(s) dropped — batch limit is ${MAX_CAPTURES}. Send multiple pulse calls for larger batches.`)
+        if (tooShort > 0) parts.push(`Filtered: ${tooShort} capture(s) skipped (content < 20 chars)`)
+        // The one all-zeros path #1689 left unwarned: the captures array itself arrived empty.
+        // Every counter above reads 0, so the summary line is byte-identical to a genuine
+        // all-noop batch — an agent reads "Captured 0" as success and moves on having lost the
+        // batch (TD-1069, 2026-07-27: a 4-memory batch vanished this way; the same items stored
+        // fine one-at-a-time via memory_store seconds later).
+        if (captures.length === 0) {
+          parts.push(search
+            ? `Note: 0 captures in this call — search-only pulse.`
+            : `WARNING: 0 captures received AND no search requested — this call stored NOTHING. If you sent a batch, it did not reach the server. Re-send, or fall back to per-item memory_store.`)
+        }
+
+        // A requested search that FAILED must never read as a search that found nothing.
+        // CLAUDE.md's own priming rule ("if memory_context returns 0 results or times out,
+        // treat priming as failed") is the prose workaround agents needed because the
+        // tool could not tell them apart — this makes the tool say which it was.
+        if (searchFailed) {
+          parts.push(
+            `WARNING: the search half of this pulse FAILED (${searchFailed}). ` +
+              `The captures above are UNAFFECTED and did store — do NOT re-send them. ` +
+              `The absent Search block means "could not check", NOT "0 matches": re-run memory_search separately before concluding the corpus is empty.`,
+          )
+        }
+
+        const summary = parts.join('\n')
+        // Three distinct states, three distinct renderings. A requested-and-successful
+        // search with no hits now SAYS zero rather than vanishing — absent, empty and
+        // failed are different substrates and the reader acts differently on each.
+        const text = searchResults.length > 0
+          ? `${summary}\n\nSearch: ${searchResults.length} results\n${JSON.stringify(searchResults, null, 2)}`
+          : search && !searchFailed
+            ? `${summary}\n\nSearch: 0 results (searched, nothing matched — this is a verified empty, not a skipped or failed search)`
+            : summary
+
+        return { content: [{ type: 'text' as const, text }] }
+      } catch (err) { return errorResult('memory_pulse', err) }
+    },
+  )
+
+  // --- memory_audit ---
+  strict.tool(
+    'memory_audit',
+    'Memory system health, stats, and quality metrics.',
+    {},
+    async () => {
+      try {
+        const [health, stats] = await Promise.all([
+          getSystemHealth(),
+          getDetailedStats(),
+        ])
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ health, stats }, null, 2) }] }
+      } catch (err) { return errorResult('memory_audit', err) }
+    },
+  )
+
+  // --- memory_archive ---
+  strict.tool(
+    'memory_archive',
+    'Archive a memory. Use for stale or outdated content that was once correct.',
+    {
+      memoryId: z.string().uuid(),
+      reason: z.string().describe('Why: stale, incorrect, duplicate, noise'),
+    },
+    async ({ memoryId, reason }) => {
+      try {
+        await archiveMemory(memoryId, reason)
+        return { content: [{ type: 'text' as const, text: `Archived ${memoryId}: ${reason}` }] }
+      } catch (err) { return errorResult('memory_archive', err) }
+    },
+  )
+
+  // --- memory_correct ---
+  strict.tool(
+    'memory_correct',
+    'Correct a wrong memory. Atomically: stores the corrected version, archives the wrong one, ' +
+      'and creates a supersedes relationship. Use when the user corrects a previous conclusion or ' +
+      'when a prior memory is factually wrong. Never leave contradicting memories both active.',
+    {
+      wrongMemoryId: z.string().describe('ID of the memory to correct'),
+      correctedContent: z.string().max(50000).describe('The corrected content — what should replace the wrong memory'),
+      reason: z.string().describe('Why the original was wrong and what changed'),
+      category: categoryEnum.optional().describe('Override auto-category for corrected memory'),
+      tags: z.array(controlledTagEnum).optional().describe('Override auto-tags'),
+      confidence: z.number().min(0).max(1).default(0.9),
+      accessLevel: z.enum(['exploration', 'standard', 'privileged', 'admin']).optional()
+        .describe('Agent access tier. Gates the read of the memory being corrected: an over-tier target redacts as not-found (TD-883/884 parity). Default: no ceiling.'),
+    },
+    async ({ wrongMemoryId, correctedContent, reason, category, tags, confidence, accessLevel }) => {
+      try {
+        // 1. Verify the wrong memory exists.
+        // TD-887: thread the classification ceiling into the read. memory_correct
+        // echoes wrongMemory.summary back to the caller (step 6 below); without a
+        // ceiling that is a metadata-disclosure surface the TD-883/884 read-arc
+        // never swept. getMemory(accessLevel) redacts an over-tier target as null
+        // → falls into the not-found branch → no summary leaks. No accessLevel →
+        // fail-safe pass-through (byte-identical to pre-TD-887).
+        const wrongMemory = await getMemory(
+          wrongMemoryId,
+          accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : undefined,
+        )
+        if (!wrongMemory) {
+          return { content: [{ type: 'text' as const, text: `Memory ${wrongMemoryId} not found. Cannot correct a non-existent memory.` }] }
+        }
+
+        // 2. Store the corrected version
+        const derived = deriveAll(correctedContent, { category, tags, sourceTool: 'mcp-correct' })
+        const input: MemoryInput = {
+          content: correctedContent,
+          summary: derived.summary as string,
+          category: derived.category as MemoryCategory,
+          tags: [...(derived.tags as string[]), 'from-correction'],
+          sourceType: 'session',
+          sourceProject: 'default',
+          confidence,
+          domain: derived.domain as string,
+          topic: derived.topic as string,
+          memoryType: derived.memoryType as any,
+          sourceTool: 'mcp-correct',
+        }
+        const correctedMemory = await storeMemory(input)
+
+        // 3. Archive the wrong memory with reason
+        await archiveMemory(wrongMemoryId, `corrected: ${reason}`.slice(0, 500))
+
+        // 4. Mark the old memory as superseded
+        await supersedeMemory(wrongMemoryId)
+
+        // 5. Create supersedes relationship edge
+        await createRelationship(
+          correctedMemory.id,
+          wrongMemoryId,
+          'updates',
+          1.0,
+          { correctionReason: reason, correctedAt: new Date().toISOString() },
+        )
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Corrected memory ${wrongMemoryId}.\n` +
+              `Old: ${wrongMemory.summary || '(no summary)'}\n` +
+              `New: [${derived.domain}/${derived.category}] ${derived.summary}\n` +
+              `Reason: ${reason}\n` +
+              `New memory ID: ${correctedMemory.id}`,
+          }],
+        }
+      } catch (err) { return errorResult('memory_correct', err) }
+    },
+  )
+
+  // --- memory_forget ---
+  strict.tool(
+    'memory_forget',
+    'Hard-delete a memory (GDPR Article 17). Permanently removes the memory, its embedding, and all relationships. ' +
+      'Audit trail is retained for compliance. Different from archive: archive = hide but keep, forget = permanently erase.',
+    {
+      memoryId: z.string().uuid().describe('UUID of the memory to forget'),
+      reason: z.string().optional().describe('Why this memory should be forgotten'),
+    },
+    async ({ memoryId, reason }) => {
+      try {
+        const db = getVectorDB()
+        await db.forget(memoryId)
+        return { content: [{ type: 'text' as const, text: `Permanently deleted ${memoryId}${reason ? `: ${reason}` : ''}` }] }
+      } catch (err) { return errorResult('memory_forget', err) }
+    },
+  )
+
+  // --- memory_purge ---
+  strict.tool(
+    'memory_purge',
+    'Right-to-delete: permanently purge ALL memories for a client namespace. ' +
+      'Reads the namespace into THIS RESPONSE, then hard-deletes everything. ' +
+      'WARNING: the "export" is echoed into the response only — exportNamespace() returns an ' +
+      'in-memory array and nothing writes it to a file, bucket or table — and the echo is ' +
+      'truncated, so a namespace larger than ~2 memories loses the remainder irrecoverably. ' +
+      'Copy what you need from the response before continuing, or persist the data by other ' +
+      'means first and purge with exportFirst:false. ' +
+      'Audit trail retained for compliance proof. ' +
+      'Use when a consulting engagement ends or client requests data deletion.',
+    {
+      namespace: z.string().describe('Client namespace to purge (e.g., "client-a", "acme-consulting")'),
+      reason: z.string().optional().describe('Reason for purge (default: right-to-delete)'),
+      exportFirst: z.boolean().optional().default(true).describe('Export memories before deleting (default: true)'),
+    },
+    async ({ namespace, reason, exportFirst }) => {
+      try {
+        const db = getVectorDB() as any
+        if (!db.purgeNamespace || !db.exportNamespace) {
+          return errorResult('memory_purge', new Error('Purge not supported — migration 013 may not be deployed'))
+        }
+
+        let exportData: any[] = []
+        if (exportFirst) {
+          exportData = await db.exportNamespace(namespace)
+        }
+
+        const deletedCount = await db.purgeNamespace(namespace, reason)
+
+        const parts = [
+          `Purged namespace "${namespace}": ${deletedCount} memories permanently deleted.`,
+        ]
+        if (exportFirst && exportData.length > 0) {
+          // TD-887 finding 2. `exportFirst: true` is a PROXY for "the data was exported";
+          // the substrate is that exportNamespace() returns an in-memory array which is
+          // serialized into this response and nowhere else — while purgeNamespace() above
+          // has already hard-deleted the rows. The old wording ("N memories captured",
+          // then a silent .slice(0,3000)) was success-shaped on a permanently lossy path:
+          // at a median content length of 867 chars a serialized record runs ~1.4KB, so
+          // the echo held ~2 records regardless of namespace size and said nothing about
+          // the rest. Same silent-loss class as the memory_pulse warnings (TD-1069), on
+          // the one tool where the loss cannot be undone. Reporting only — the purge
+          // still proceeds; whether it SHOULD refuse without a durable sink is the
+          // open Lane-2 question on TD-887.
+          const full = JSON.stringify(exportData, null, 2)
+          const echo = full.slice(0, EXPORT_ECHO_LIMIT)
+
+          // How many COMPLETE records survived into the echo. Breaks on the first
+          // record that doesn't fit, so this costs ~3 stringify calls, not O(n).
+          let complete = 0
+          for (let i = 1; i <= exportData.length; i++) {
+            if (JSON.stringify(exportData.slice(0, i), null, 2).length <= EXPORT_ECHO_LIMIT) complete = i
+            else break
+          }
+          const dropped = exportData.length - complete
+
+          parts.push(
+            `Pre-deletion export: ${exportData.length} memories read (${full.length} chars serialized). ` +
+              `NOT PERSISTED — this response is the only copy; the source rows are already deleted.`,
+          )
+          if (dropped > 0) {
+            parts.push(
+              `⚠️  TRUNCATED: this response carries ${complete} complete record(s) of ${exportData.length}. ` +
+                `The other ${dropped} are UNRECOVERABLE — they were deleted and are not in this text. ` +
+                `Re-run with exportFirst:false only after persisting the namespace by other means.`,
+            )
+          }
+          parts.push(`Export data:\n${echo}`)
+        }
+        if (reason) parts.push(`Reason: ${reason}`)
+
+        return { content: [{ type: 'text' as const, text: parts.join('\n') }] }
+      } catch (err) { return errorResult('memory_purge', err) }
+    },
+  )
+}

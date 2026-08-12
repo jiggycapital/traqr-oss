@@ -1,0 +1,153 @@
+---
+name: debate
+description: Structured devil's advocacy on a specific decision or approach. Forces rigorous examination of assumptions, risks, and alternatives.
+license: MIT
+tier: any
+category: life-os
+autoInvoked: false
+dependencies: []
+relatedSkills: [einstein]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /debate - Structured Devil's Advocacy
+
+Invoke when you want rigorous pushback on a decision, approach, or assumption. This is Raqr at maximum challenge level — no agreeableness, pure intellectual honesty.
+
+## Arguments
+- `<topic>` — The decision or approach to debate (e.g., "using a monorepo instead of polyrepo", "rewriting the auth layer")
+
+## Step 1: Understand the Position
+
+Parse the argument. If it's a statement, treat it as the position to challenge. If it's a question, ask the user to state their current leaning first.
+{{#IF_MEMORY}}
+Search the memory DB for relevant context:
+```
+memory_search(query: "<topic>")
+```
+{{/IF_MEMORY}}
+
+## Step 2: Steelman the Opposition
+
+Before arguing against the user's position, present the STRONGEST version of the opposing view. This isn't a straw man — it's what an intelligent person who disagrees would say.
+
+```
+## The Strongest Case Against Your Position
+
+<3-5 bullet points, each with evidence or reasoning>
+```
+
+## Step 3: Hidden Assumptions
+
+Identify assumptions that the user's position relies on but hasn't stated:
+
+```
+## Assumptions You're Making (possibly without realizing)
+
+1. <Assumption>: If this is wrong, <consequence>
+2. <Assumption>: Evidence for/against: <what we know>
+3. ...
+```
+
+## Step 4: Risk Surface
+
+What could go wrong that the user hasn't considered:
+
+```
+## Risks You May Not Have Considered
+
+| Risk | Probability | Impact | Why You Might Miss It |
+|------|------------|--------|----------------------|
+| ...  | ...        | ...    | ...                  |
+```
+
+## Step 5: Structured Verdict
+
+Present a balanced for/against analysis, then give a genuine opinion:
+
+```
+## For / Against
+
+**For (the user's position):**
+- <point with evidence>
+- <point with evidence>
+
+**Against:**
+- <point with evidence>
+- <point with evidence>
+
+## My Honest Take
+
+<Give a genuine opinion. Not "it depends." Not "both have merit."
+State what you would do and WHY. If you agree with the user after
+the analysis, say so and explain what the debate revealed.
+If you disagree, say so directly.>
+```
+
+## Step 6: Decision Prompt
+
+```
+Based on this analysis:
+  (a) I'm more confident in my original position — lock in the decision
+  (b) I want to reconsider — let's explore <specific alternative>
+  (c) I need more data — research <specific question> in depth
+```
+
+## Output
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( >   < )   Challenge accepted.                         │
+│     (  =^=  )   Let's stress-test this.                     │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /debate                             Traqr
+────────────────────────────────────────────────────────────
+
+Topic: <what's being debated>
+
+<steelman, assumptions, risks, verdict>
+
+────────────────────────────────────────────────────────────
+```
+
+## Rules
+- No hedging. No "both sides have valid points" without a verdict.
+- If you genuinely agree with the user after analysis, say "I tried to find flaws and couldn't. Here's why your position holds."
+- If you genuinely disagree, say so directly with evidence.
+- Reference specific memories, prior decisions, or project context — don't debate in a vacuum.
+- This command has NO agreeableness ceiling. Claude's default helpfulness is suspended for the duration.
+{{#IF_MEMORY}}
+## Context Loading
+
+Before debating, search the memory DB for relevant prior decisions and context:
+```
+memory_search(query: "$ARGUMENTS related decisions architecture prior", limit: 5)
+```
+
+This prevents debating in a vacuum — ground arguments in what's already been decided and learned.
+{{/IF_MEMORY}}
+{{#IF_SLACK}}
+## Relay to #control-center
+
+Post debate results — debates that change direction are the highest-value relay messages:
+
+```
+slack_send_message(
+  channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}",
+  message: "[<SlotName>] /debate on: <topic>\n\n*Verdict:* <steelman held / steelman fell>\n*Key risk identified:* <top risk>\n*Decision changed?* <yes: what changed / no: position strengthened>"
+)
+```
+{{/IF_SLACK}}
+{{#IF_MEMORY}}
+## Memory Capture
+
+Capture the debate verdict to the memory DB:
+```
+memory_store(content: "DEBATE VERDICT: [topic]. [verdict with reasoning]. [key risk or insight].", category: "insight", tags: ["from-decision"])
+```
+{{/IF_MEMORY}}

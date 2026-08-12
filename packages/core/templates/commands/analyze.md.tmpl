@@ -1,0 +1,123 @@
+# /analyze - Deep Codebase Analysis
+
+Scan the codebase to extract design preferences, coding conventions, and architectural patterns.{{#IF_MEMORY}} Stores findings in vector DB.{{/IF_MEMORY}}
+
+## Usage
+
+```bash
+/analyze                    # Full analysis (all dimensions)
+/analyze design-system      # Single dimension
+/analyze component-patterns # Single dimension
+```
+
+## Dimensions
+
+`component-patterns`, `design-system`, `state-management`, `error-handling`, `api-patterns`, `naming-conventions`, `typescript-patterns`, `animation-patterns`, `layout-patterns`, `performance-patterns`
+
+## Instructions
+
+### 1. Determine Scope
+
+Full analysis or single dimension based on argument.
+
+### 2. Collect Samples
+
+For each dimension, read 3-6 representative files (first 150 lines each). Use appropriate glob patterns for the dimension.
+
+### 3. Extract Patterns
+
+For each dimension, extract:
+- **Preferences**: Subjective style choices
+- **Conventions**: Rules consistently followed
+- **Patterns**: Recurring architectural approaches
+- **Anti-patterns**: Things deliberately avoided
+
+### 4. Display Results
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_THINKING}}
+{{RAQR_FRAME_END}}
+
+🦝 Raqr · /analyze                          Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Deep analysis in progress...
+
+{{RAQR_HR_MEDIUM}}
+CODEBASE ANALYSIS
+============================
+Design System (N findings)
+  [preference] <finding>
+  [convention] <finding>
+
+Component Patterns (N findings)
+  [pattern] <finding>
+============================
+Total: N findings across M dimensions
+
+{{RAQR_HR}}
+What's next? → /capture to store specific findings, or /voice for writing style analysis
+```
+
+{{#IF_MEMORY}}### 5. Store Findings
+
+For each finding:
+```bash
+curl -s -X POST "{{MEMORY_API_BASE}}/memory/store" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "<finding>",
+    "category": "pattern",
+    "tags": ["codebase-analysis", "<dimension>"],
+    "sourceType": "codebase_analysis",
+    "sourceProject": "{{TRAQR_PROJECT_SLUG}}",
+    "confidence": 0.7
+  }'
+```
+
+Deduplicate: search before storing, skip if similarity > 0.85.
+{{/IF_MEMORY}}
+
+### Error Handling
+
+If any step fails, show the error with Raqr:
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_ALERT}}
+{{RAQR_FRAME_END}}
+
+Raqr · /analyze                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+Something went wrong during analysis.
+
+<translate the raw error to plain English using the table below>
+
+{{RAQR_HR}}
+```
+
+| Raw Error | Plain English | Fix |
+|-----------|--------------|-----|
+| `ECONNREFUSED` on memory API | Can't reach the memory server | Check if the platform is running, or skip memory storage |
+| `429 Too Many Requests` | Rate limited by the API | Wait a moment and retry |
+| No files found for dimension | No matching source files in this project | Skip this dimension — not all projects use every pattern |
+| `ENOENT` on file read | File was deleted or moved since scan started | Re-run the analysis |
+
+If no patterns are found at all:
+
+```
+{{RAQR_FRAME_START}}
+{{RAQR_ART_SAD}}
+{{RAQR_FRAME_END}}
+
+Raqr · /analyze                            Traqr · {{PROJECT_NAME}}
+{{RAQR_HR}}
+
+No patterns found. The project might be too small or too new.
+
+Try: /analyze component-patterns (narrower scope often finds more)
+
+{{RAQR_HR}}
+```

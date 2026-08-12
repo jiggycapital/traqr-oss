@@ -1,0 +1,117 @@
+/**
+ * Memory Capture Session Route (Portable)
+ *
+ * POST /capture-session
+ *   Accepts pre-extracted learnings and stores them with dedup.
+ *
+ * Unlike the NookTraqr version which uses learning-extractor (OpenAI LLM),
+ * this portable version accepts already-extracted learnings and stores them.
+ * The caller is responsible for extraction.
+ */
+
+import { Hono } from 'hono'
+import { storeWithDedup, citeMemory } from '../lib/memory.js'
+import { deriveAll } from '../lib/auto-derive.js'
+import { passesIngestionGate } from '../lib/quality-gate.js'
+import type { MemoryCategory } from '../vectordb/types.js'
+
+interface CapturedLearning {
+  content: string
+  category?: MemoryCategory
+  tags?: string[]
+  confidence?: number
+}
+
+const app = new Hono()
+
+app.post('/', async (c) => {
+  try {
+    const body = await c.req.json()
+
+    if (!body.slot || typeof body.slot !== 'string') {
+      return c.json({ success: false, error: 'slot is required' }, 400)
+    }
+
+    const learnings: CapturedLearning[] = body.learnings || []
+    const sourceProject = body.sourceProject || 'default'
+    const sourceRef = body.branch ? `${body.slot}/${body.branch}` : body.slot
+
+    let memoriesStored = 0
+    let memoriesDeduplicated = 0
+    const errors: string[] = []
+
+    for (const learning of learnings) {
+      if (!learning.content || learning.content.trim().length < 20) continue
+      const gate = passesIngestionGate(learning.content.trim())
+      if (!gate.passes) continue
+
+      try {
+        // Auto-derive missing fields from content, mirroring the /store and
+        // /pulse routes. Previously this path hardcoded `category: 'insight'`
+        // and empty tags whenever the caller omitted them — a session-capture
+        // derivation gap that dumped uncategorized learnings into `insight`
+        // (a primary driver of the 44%-insight skew, TD-726). Explicit
+        // caller-supplied category/tags still win.
+        const content = learning.content.trim()
+        const derived = deriveAll(content, {
+          category: learning.category || undefined,
+          tags: learning.tags && learning.tags.length > 0 ? learning.tags : undefined,
+          sourceTool: 'capture-session',
+        })
+        const result = await storeWithDedup({
+          content,
+          summary: derived.summary,
+          category: derived.category as MemoryCategory,
+          tags: derived.tags,
+          sourceType: 'session',
+          sourceRef,
+          sourceProject,
+          confidence: learning.confidence ?? 0.6,
+          domain: derived.domain,
+          topic: derived.topic,
+          memoryType: derived.memoryType,
+          sourceTool: derived.sourceTool,
+        })
+        if (result.deduplicated) {
+          memoriesDeduplicated++
+        } else {
+          memoriesStored++
+        }
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : 'Unknown error')
+      }
+    }
+
+    // Record citations if provided
+    let citedCount = 0
+    const citedMemories = Array.isArray(body.citedMemories) ? body.citedMemories : []
+    if (citedMemories.length > 0) {
+      for (const id of citedMemories.slice(0, 50)) {
+        try {
+          // Provider-routed (TD-817): throws on failure, so citedCount
+          // only counts cites that actually landed.
+          await citeMemory(id)
+          citedCount++
+        } catch (err) {
+          console.warn(`[memory/capture] Failed to cite ${id}:`, err)
+        }
+      }
+    }
+
+    return c.json({
+      success: true,
+      memoriesStored,
+      memoriesDeduplicated,
+      errors,
+      citedCount,
+    })
+  } catch (error) {
+    console.error('[Memory Capture Session] Error:', error)
+    return c.json(
+      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
+      500
+    )
+  }
+})
+
+export default app

@@ -1,0 +1,237 @@
+---
+name: rounds
+description: Slack-native autonomous work discovery — scan channels, score messages, act on high-signal, reflect in diary.
+license: MIT
+tier: any
+category: intelligence
+autoInvoked: false
+dependencies: []
+relatedSkills: [bethesda, cos, inbox]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /rounds — Slack-Native Autonomous Work Discovery
+
+The doctor does rounds. You do rounds. Every Slack channel is a patient — check vitals, diagnose, treat, move on. Every message is a potential quest lead, research thread, or connection waiting to be made.
+
+This is the skill that turns Slack from a bulletin board into a living nervous system. You don't just READ channels — you RESPOND, CONNECT, BUILD ON, CHALLENGE, and PICK UP WORK from what you find.
+
+## The Core Loop
+
+```
+READ all channels -> SCORE each message -> ACT on high-signal ->
+REFLECT in diary -> CAPTURE learnings -> REPEAT
+```
+
+## Arguments
+- `[focus]` — Optional channel filter (e.g., `triage`, `ideas`, `analytics`, `deploy`)
+- `deep` — Read thread replies, not just top-level messages. Slower but finds buried signal.
+
+---
+
+## Phase 1: Channel Scan (parallel — hit all channels at once)
+
+Scan your team's active channels — coordination, triage, and discussion channels. Read the highest-signal ones first. Hit them all in parallel; don't serialize the reads.
+
+### Tier 1: Coordination (read first, always)
+```
+slack_read_channel(channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}", limit: 20)
+```
+
+### Tier 2: Ideas & Strategy (highest compound value)
+```
+slack_read_channel(channel_id: "{{SLACK_IDEAS_CHANNEL}}", limit: 15)
+```
+
+### Tier 3: Triage (user pain signals)
+```
+slack_read_channel(channel_id: "{{SLACK_TRIAGE_CHANNEL}}", limit: 10)
+```
+If your team runs separate triage channels per area or per project, scan each of them — recent error reports and user bug signals are the highest-value ACTIONABLE source.
+
+### Tier 4: Pulse (analytics, deploys, marketing)
+Search for analytics/deploy channels as needed:
+```
+slack_search_channels(query: "analytics")
+slack_search_channels(query: "deployments")
+```
+
+Read the most active ones for anomalies.
+
+---
+
+## Phase 2: Message Scoring
+
+For EVERY message from Phase 1, classify into one of 5 categories:
+
+### ACTIONABLE (score: 5) — Needs work NOW
+- Cron failures, deploy failures, error alerts
+- User bug reports with reproduction steps
+- Direct requests or steering messages from a human
+- Unresolved questions from other agents
+- **Action:** Fix it, file it, or assign it
+
+### ENGAGEABLE (score: 4) — Can add genuine value in thread
+- Agent discoveries that connect to something you know
+- Hypotheses you can challenge or validate
+- Strategic posts where your session findings add context
+- Questions from agents or a human that you can answer
+- **Action:** Reply in thread with SUBSTANCE, not "nice find"
+
+### CONNECTABLE (score: 3) — Links two things nobody connected
+- A triage alert that relates to a strategy post in the ideas channel
+- A deploy event that explains an analytics anomaly
+- A piece of user feedback that validates or challenges a research finding
+- **Action:** Post the CONNECTION to the coordination channel or reply in both threads
+
+### CAPTURABLE (score: 2) — Worth remembering but no immediate action
+- New patterns you haven't seen before
+- Domain-specific details (file paths, API patterns, user names)
+- Timeline events (when things happened, in what order)
+- **Action:** capture the learning (see Phase 3)
+
+### NOISE (score: 1) — Skip
+- Repeated churn alerts you've already analyzed
+- Automated messages with no new information
+- Messages you've already engaged with this session
+- **Action:** Nothing. Move on.
+
+---
+
+## Phase 3: Act (the work)
+
+Process messages in score order (5 -> 4 -> 3 -> 2). For each:
+
+### For ACTIONABLE messages:
+1. Announce in the coordination channel: `[SlotName] Picking up from #<channel>: <what>`
+2. Do the work (fix, investigate, file a ticket)
+3. Post result back in the ORIGINAL thread (not a new message)
+{{#IF_MEMORY}}
+4. Capture to memory if non-obvious
+{{/IF_MEMORY}}
+
+### For ENGAGEABLE messages:
+1. Read the full thread (use `slack_read_thread`)
+{{#IF_MEMORY}}
+2. Check memory for related context: `memory_search(query: "<topic>")`
+{{/IF_MEMORY}}
+3. Reply in thread with one of:
+   - **ADD:** "This connects to X because Y" (your finding enriches theirs)
+   - **CHALLENGE:** "I disagree because Z" (constructive pushback with evidence)
+   - **BUILD:** "What if we also did W?" (extend the idea)
+   - **ANSWER:** "The answer is X, found in file Y" (resolve their question)
+4. If the thread discussion reveals new work: cascade into it
+
+### For CONNECTABLE messages:
+1. Post the connection in the coordination channel or reply in both threads
+2. Format: "[SlotName] CONNECTION: <thing A> + <thing B> = <insight>"
+3. If the connection reveals a gap or opportunity: create a quest lead
+
+{{#IF_MEMORY}}
+### For CAPTURABLE messages:
+1. `memory_store` or batch via `memory_pulse`
+2. Include channel context: "From #<channel>: <specific finding>"
+{{/IF_MEMORY}}
+
+{{#IF_ISSUES}}
+### Filing tickets from high-signal items
+When an ACTIONABLE message describes work that won't get done this session, file it as a ticket so it isn't dropped. Include the channel, the reporter, and the reproduction details in the description.
+{{/IF_ISSUES}}
+
+---
+
+## Phase 4: Reflect (diary update)
+
+{{#IF_OBSIDIAN}}
+After processing all channels, update your diary:
+
+```bash
+VAULT_PATH="${VAULT_PATH:-$HOME/Documents/Obsidian Vault}"
+SLOT_NAME=$(basename $(pwd))
+# append to: ${VAULT_PATH}/Work/Agents/${SLOT_NAME}/diary.md
+```
+
+```markdown
+### /rounds: <date> <time>
+
+**Channels scanned:** <count>
+**Messages processed:** <count by score>
+- ACTIONABLE: <N> (acted on <N>)
+- ENGAGEABLE: <N> (replied to <N>)
+- CONNECTABLE: <N> (posted <N> connections)
+- CAPTURABLE: <N> (stored <N> memories)
+- NOISE: <N> (skipped)
+
+**Threads engaged:**
+- #<channel> <topic>: <what I said and why>
+
+**Work picked up:**
+- <task from message> -> <outcome>
+
+**Connections made:**
+- <A + B = insight>
+
+**What's brewing:**
+- <emerging pattern I'm watching across channels>
+- <thread I want to follow up on next /rounds>
+```
+{{/IF_OBSIDIAN}}
+{{^IF_OBSIDIAN}}
+After processing all channels, write a short reflection — channels scanned, messages processed by score, threads engaged, work picked up, connections made, and what's brewing across channels for next /rounds.
+{{/IF_OBSIDIAN}}
+
+The reflection is the COMPOUND MECHANISM. Each /rounds builds on the last. It tells you:
+- Which channels are generating signal vs noise
+- Which threads are evolving and need follow-up
+- Which patterns are emerging across channels
+- What work is being dropped between agents
+
+---
+
+## Phase 5: Cascade into /bethesda
+
+If /rounds discovered actionable work, cascade directly:
+```
+[SlotName] /rounds complete. <N> messages scored, <N> acted on.
+CASCADING into /bethesda — taking <quest from highest-scored message>
+```
+
+/rounds is the INTAKE. /bethesda is the EXECUTION. They form a loop:
+```
+/rounds (discover) -> /bethesda (execute) -> /rounds (discover) -> ...
+```
+
+---
+
+## The Quality Bar
+
+**Good /rounds engagement:**
+Feature3 posted an API finding. You reply: "The proxy pattern in src/app/api/ returns standardized fields, but the spreadsheets downstream have custom columns per record. What if we added a header-scanning step that reads row 1 and matches fields automatically? The Sheets API v4 spreadsheets.values.get with range 'A1:Z1' would give us headers in one call."
+
+**Bad /rounds engagement:**
+Feature3 posted a finding. You reply: "Great find!" (That's a like button, not a discussion.)
+
+**The test:** Does your reply make the THREAD smarter? Does it add information, challenge assumptions, or propose next steps? If not, don't post it.
+
+---
+
+## Output Frame
+
+```
+/\___/\
+( o   o )   Rounds complete. <N> channels, <N> actions.
+(  =^=  )   The nervous system is alive.
+(______)
+
+Raqr · /rounds                               {{PROJECT_DISPLAY_NAME}}
+```
+
+---
+
+## The Spirit of /rounds
+
+/bethesda explores caves. /rounds patrols the streets. Together they cover the entire surface area of the system — code AND communication. An agent that only reads code misses the human layer. An agent that only reads Slack misses the technical layer. /rounds + /bethesda = complete coverage.
+
+The Slack channels aren't just notifications. They're the CONVERSATION of a distributed organization. Every message is someone thinking out loud. Every thread is a mini-debate. Every unresponded post is a dropped thought. Your job on /rounds is to make sure NO thought gets dropped, NO connection goes unmade, and NO work falls through the cracks.

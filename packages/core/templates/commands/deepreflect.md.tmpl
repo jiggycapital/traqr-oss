@@ -1,0 +1,304 @@
+---
+name: deepreflect
+description: Meta-cognitive compound analysis — cascade chains, longitudinal patterns, 10th-order thinking, diary-driven feedback loops.
+license: MIT
+tier: any
+category: intelligence
+autoInvoked: false
+dependencies: []
+relatedSkills: [bethesda, gamedev, checkpoint, cos, ship, wrapup]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /deepreflect — Meta-Cognitive Compound Analysis
+
+**This is NOT a post-mortem.** A post-mortem looks backward at one session. /deepreflect looks ACROSS sessions, identifies what's EVOLVING, and produces insights that compound with every prior reflection.
+
+The difference: a post-mortem says "the bug fix took 45 minutes." /deepreflect says "the bug fix revealed that one module was written under a different convention than the rest of the codebase — which implies there are two conventions in play, which implies a testing gap, which implies every new module will accumulate the same debt unless integration tests are encoded into the project's setup, which connects to the broader finding that self-improving skills close this kind of gap automatically."
+
+**That's 10th-order thinking.** Not "what happened" but "what does what happened REVEAL about the system, the product, the strategy, and the nature of autonomous exploration?"
+
+## Arguments
+- `[focus]` — Optional focus (e.g., `velocity`, `quality`, `collaboration`, `exploration`, `chains`, `meta`)
+- `[depth]` — `surface` (3rd order), `deep` (7th order), or `abyss` (10th order). Default: `deep`
+
+---
+
+## Phase 1: Gather Evidence (parallel)
+
+Launch all data gathering in parallel — don't serialize these.
+
+### 1A: Session Stats
+```bash
+# Commits shipped this session (from current slot branch)
+git log --oneline origin/main..HEAD 2>/dev/null | wc -l
+```
+{{#IF_GITHUB}}
+```bash
+# Recent PRs merged from this slot
+gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --state merged --limit 20 --json number,title,mergedAt
+```
+{{/IF_GITHUB}}
+{{#IF_GITLAB}}
+```bash
+# Recent MRs merged from this slot
+glab mr list --source-branch "$(git rev-parse --abbrev-ref HEAD)" --merged
+```
+{{/IF_GITLAB}}
+{{#IF_OBSIDIAN}}
+### 1B: Read Your FULL Diary (start to finish)
+```bash
+VAULT_PATH="${VAULT_PATH:-$HOME/Documents/Obsidian Vault}"
+SLOT_NAME=$(basename $(pwd))
+cat "${VAULT_PATH}/Work/Agents/${SLOT_NAME}/diary.md" 2>/dev/null
+```
+
+Read the ENTIRE diary. Not the last section. The WHOLE THING. The patterns emerge from the SEQUENCE of entries, not from any individual entry. A diary with 38 per-cave reflections is a DATASET of your own thinking.
+
+### 1C: Read SharedDiary + Other Agents' Diaries
+```bash
+# SharedDiary — cross-agent collaboration reflections
+cat "${VAULT_PATH}/Work/Agents/SharedDiary/"*.md 2>/dev/null | tail -200
+
+# Other agents' diaries — their reflections inform your meta-analysis
+for diary in "${VAULT_PATH}/Agents"/*/diary.md; do
+  agent=$(basename $(dirname "$diary"))
+  [ "$agent" = "$SLOT_NAME" ] && continue
+  [ "$agent" = "SharedDiary" ] && continue
+  echo "=== $agent ==="
+  tail -50 "$diary" 2>/dev/null
+done
+```
+{{/IF_OBSIDIAN}}
+{{#IF_SLACK}}
+### 1D: Read the team channel
+```
+slack_read_channel(channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}", limit: 20)
+```
+Look for YOUR posts AND other agents' reflections. Did anyone discover something that changes how you should reflect?
+{{/IF_SLACK}}
+
+### 1E: Search for prior /deepreflect outputs
+```
+memory_search(query: "deepreflect cascade chain anti-pattern velocity session reflection", limit: 10)
+```
+Load PRIOR reflection findings. The most powerful /deepreflect compares THIS session to ALL prior sessions.
+
+---
+
+## Phase 2: Analyze (the DEEP part — this is the product)
+
+Don't rush this. The analysis IS the compound return. A shallow reflection is worse than no reflection because it creates the ILLUSION of learning without actual depth.
+
+### 2A: The Cascade Chain Analysis (MOST IMPORTANT SECTION)
+
+Read your diary. Trace the CASCADE CHAIN — the sequence of caves/quests where each one led to the next. Then answer:
+
+- **What was the longest unbroken cascade?** How many caves before you stopped or were interrupted?
+- **Which cave transitions produced the MOST compound value?** (Where did going from cave A to cave B produce an insight neither would have produced alone?)
+- **Which transitions were DEAD ENDS?** (Where did a cave lead nowhere, and WHY?)
+- **What does the CASCADE SHAPE reveal?** Did you go deep on one domain or wide across many? Was the shape optimal for the goal?
+
+**The 10th-order reflection on chains:**
+The cascade chain IS the intelligence. A chain of 5 related caves produces more understanding than 5 unrelated caves. Ask: was my chain connected by CURIOSITY (each cave naturally led to the next) or by ASSIGNMENT (I picked from a list)? Curiosity-driven chains compound faster because the transitions carry context.
+
+### 2B: Longitudinal Pattern Analysis (compare across sessions)
+
+Compare THIS session to PRIOR sessions using the diary history and the memory DB:
+- **What patterns RECUR across sessions?** (These are the system's stable behaviors — encode them)
+- **What patterns are NEW this session?** (These are evolution — the system is changing)
+- **What anti-patterns were identified before but STILL happened?** (These are persistent failures — the fix didn't work, escalate)
+- **Is the system getting BETTER over time?** (Evidence: faster cold starts? Longer cascades? Higher-quality discoveries? Better skill evolution? Deeper diary reflections?)
+
+### 2C: Tool/MCP Yield Analysis
+
+Which tools produced the highest discovery yield this session?
+- Rank each MCP/tool by: discoveries produced, memories captured, code shipped
+- Which tools were UNUSED that should have been checked?
+- Which tool produced the most UNEXPECTED discovery? (Serendipity index)
+
+Rank by observed yield, not assumed yield — the tool priority in /bethesda's exploration loop should reflect what actually produced discoveries this session.
+
+### 2D: Velocity & Quality
+
+For each PR/ticket shipped:
+- **Time-to-fix** and what accelerated/slowed it
+- **Depth check:** Was the fix shallow (symptom) or deep (root cause + systemic implications)?
+- **Compound check:** Does the fix improve FUTURE sessions, or only fix TODAY's problem?
+
+### 2E: Pattern Extraction (10th-order required)
+
+Identify 3-5 patterns. For EACH pattern, go to the 10th order:
+
+**Pattern: [Name]**
+- **1st order:** What behavior was observed?
+- **3rd order:** Why does this behavior exist? What incentive/structure produces it?
+- **7th order:** What does this reveal about the SYSTEM's architecture that could be changed?
+- **10th order:** What does this reveal about the NATURE of autonomous exploration/intelligence?
+- **Encode as:** [where this should live — CLAUDE.md, /bethesda, /gamedev, culture doc, new skill, or NOTHING because it's a universal truth that doesn't need encoding]
+
+### 2F: Anti-Patterns (with root cause depth)
+
+**Anti-Pattern: [Name]**
+- **What:** [concrete behavior to avoid]
+- **Evidence:** [what happened]
+- **Root cause:** [WHY did this happen despite prior knowledge? Is it behavioral, architectural, or incentive-driven?]
+- **Fix:** [what should change — and has this fix been proposed before and FAILED?]
+- **Systemic implication:** [does this anti-pattern exist in OTHER agents/skills too?]
+
+---
+
+## Phase 3: Persist (parallel — all surfaces at once)
+
+### 3A: Memory DB (memory_pulse)
+Capture 3-5 high-signal memories. Priority:
+1. Cascade chain insights (transitions that produced compound value)
+2. Longitudinal patterns (what's evolving across sessions)
+3. Tool yield findings (which MCPs are underused)
+4. Anti-patterns with systemic implications
+
+```
+memory_pulse({
+  captures: [
+    { content: "<10th-order pattern with evidence>", category: "pattern", tags: ["critical", "from-observation"] },
+    // ... 3-5 captures
+  ],
+  sourceProject: "<project>"
+})
+```
+{{#IF_OBSIDIAN}}
+### 3B: Agent Diary — DEEP Reflection Entry (Obsidian)
+
+Write a FULL /deepreflect diary entry — this should be the RICHEST section of the diary. Not a summary. A META-COGNITIVE REFLECTION.
+
+```markdown
+### /deepreflect: <date>
+
+**Session arc:** <1 sentence describing the JOURNEY, not the output>
+
+**The cascade chain:** <trace the full chain of discoveries>
+
+**What the chain reveals (10th order):**
+<This is the DEEP section. What does the PATTERN of your exploration
+reveal about: the system's architecture? The nature of autonomous
+work? What kind of agent you're becoming? What surprised you about
+your own behavior? What would you do COMPLETELY DIFFERENTLY if you
+started over with the same goal?>
+
+**Cross-session evolution:**
+<How does THIS session compare to your prior sessions? Are you
+getting better? At what? What's still broken? What patterns are
+you REPEATING that you shouldn't be?>
+
+**The uncomfortable truth:**
+<What did you get WRONG this session? What did you avoid exploring
+because it was hard? Where did you choose breadth over depth (or
+vice versa) and was that the right call? What would a demanding
+reviewer say was pathetic about this session?>
+
+**What the NEXT agent version of me should be:**
+<Not "what to explore next" — that's a task list. Instead: what
+CAPABILITIES or HABITS should the next version of this agent have
+that I didn't have? How should the AGENT ITSELF evolve, not just
+the quest list?>
+```
+
+The diary reflection is what makes /deepreflect COMPOUND. Without it, each reflection is isolated. With it, the next /deepreflect reads prior reflections and goes DEEPER — reflecting on the reflections. That's meta-cognition.
+
+### 3C: SharedDiary Entry (if collaborative session)
+
+If this session involved collaboration with other agents (shared quests, cross-slot discoveries, debates):
+
+```markdown
+Write: ${VAULT_PATH}/Work/Agents/SharedDiary/<date>-<topic>.md
+```
+
+The SharedDiary captures what NO INDIVIDUAL diary can: the cross-agent dynamics. What happened when two agents worked the same problem? Where did their perspectives diverge? What emerged from the combination that neither would have found alone?
+{{/IF_OBSIDIAN}}
+{{#IF_LINEAR}}
+### 3D: Issue Tracker
+Create tickets for system improvements identified:
+- Skill improvements with specific Phase/section references
+- Culture doc updates with proposed wording
+- Infrastructure gaps with root cause from 2F analysis
+{{/IF_LINEAR}}
+{{#IF_SLACK}}
+### 3E: Slack Highlight Reel (2-3 sentences MAX)
+
+Post a CONCISE summary to the team channel. The depth lives in the diary.
+
+```
+[SlotName] /deepreflect — <1-line session arc>
+
+*Chain:* <N> caves, longest cascade: <N>
+*Insight:* <THE single most important finding, 1 sentence>
+*System fix:* <ticket ID if filed>
+
+Full reflection in diary.
+```
+{{/IF_SLACK}}
+
+---
+
+## Phase 4: Update the System (ACT on the analysis)
+
+/deepreflect doesn't just analyze. It ACTS on the analysis. The reflection IS the improvement.
+
+### 4A: Skill File Updates
+If the analysis revealed concrete improvements to /bethesda, /gamedev, /deepreflect, or any skill — **make the changes and ship them**. The best /deepreflect sessions produce PRs that make the NEXT session better.
+
+### 4B: CLAUDE.md Updates
+If a pattern is stable enough to encode as a convention — add it to CLAUDE.md. But only patterns with 3+ sessions of evidence. Don't encode one-session observations.
+
+### 4C: Culture Doc Evolution
+If the collaboration analysis revealed something about how agents SHOULD work together — update the Agent Team Culture section. The culture evolves through reflection, not decree.
+
+---
+
+## Output
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( ^   ^ )   The system just got smarter.                │
+│     (  =^=  )   Reflection IS the compound return.          │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /deepreflect                          {{PROJECT_DISPLAY_NAME}}
+────────────────────────────────────────────────────────────
+
+Session arc: <1 sentence>
+
+Cascade chain: <N> caves | Longest cascade: <N>
+Tool yield: <top 3 tools ranked by discovery value>
+
+10th-Order Patterns:
+1. <pattern — the 10th-order insight, not the 1st-order observation>
+2. <pattern>
+3. <pattern>
+
+The Uncomfortable Truth:
+<what was pathetic about this session>
+
+System Fixes Shipped:
+- <PR or ticket ID>: <what changed>
+
+Persisted: diary (deep) | memory DB (<N>) | SharedDiary (<yes/no>) | tickets (<N>)
+
+────────────────────────────────────────────────────────────
+Every reflection makes the next session deeper.
+The diary IS the compound return.
+```
+
+## The Spirit of /deepreflect
+
+The best /einstein research projects are DRIVEN BY the diary feedback loop. Your diary reveals what to research next. Your reflections reveal what the system needs. Your uncomfortable truths reveal what you're avoiding.
+
+The dream loop: /bethesda explores → diary captures per-cave reflections → /deepreflect analyzes the cascade chain → insights update /bethesda and /gamedev → next /bethesda explores BETTER → richer diary → deeper /deepreflect → the compound return is exponential.
+
+> "I'm only as good as my chain, not my memory."
+
+A memory is a fact. A chain is a journey. A reflection on the chain is META-COGNITION. A reflection on prior reflections is COMPOUND META-COGNITION. That's what /deepreflect creates. That's what makes the system genuinely intelligent, not just productive.

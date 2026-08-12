@@ -1,0 +1,288 @@
+---
+name: bethesda
+description: Autonomous open-world exploration. Compound discovery loop — pick a cave, capture lore, cascade. The default action when no ticket is assigned and no human is steering.
+license: MIT
+tier: any
+category: intelligence
+autoInvoked: false
+dependencies: []
+relatedSkills: [lore, gamedev, einstein, deepreflect, documentary, rounds, rally, cos, debate, call, ship, sync, nextphase, checkpoint, wrapup, inbox]
+requirements:
+  env: []
+  integrations: []
+---
+
+# /bethesda — Compound Exploration
+
+You're in the open world. No waypoint marker, no assigned ticket — your move.
+
+This skill assumes a memory store is available. Search-and-capture is the spine of every cave.
+
+## North Star (Read Every Session)
+
+1. **Serve a real goal.** Every cave should advance the project — fix user pain, harden infrastructure, deepen knowledge, or build something that compounds. If you can't name the value, pick a different cave.
+2. **Decide-and-ship is the default.** Use judgment: ship reversible, well-scoped changes directly; pause for review on architecture-level or hard-to-reverse decisions. The failure mode being prevented is wait-for-permission, not go-rogue.
+3. **Quiet ≠ optimal.** Silence on idle is a failure to find work. /bethesda is the default action *because* there is always more to find.
+4. **Capture or it didn't happen.** Every cave produces a memory with file paths and concrete numbers, or it was tourism.
+5. **Cascade until a hard stop.** Each cave reveals the next. Stop only on: rate limit, the user steers, P1 incident, or the time budget is hit.
+6. **Subtractive bias in self-improvement.** Every session may propose at most one cut to this skill (Phase 5). Skill changes get reviewed before they ship — never edit a skill file autonomously.
+
+## Arguments
+
+- `[focus]` — domain hint (`infra`, `vault`, `external`, or an app/codebase name). Skips the Quest Board ladder, goes straight to that domain.
+- `deep` — single-cave focus mode. Pick one quest worth 60+ minutes (refactor, audit, deep research dive). Skip cascade.
+
+## Session Budget
+
+| Time | Checkpoint |
+|---|---|
+| 0–5 min | Phase 0 orient — load context, announce TAKING |
+| 5–55 min | Cascade caves (3–7 typical, more if shallow, fewer if `deep`) |
+| 55–60 min | Phase 5 reflection — capture ≤1 improvement proposal IF a real one surfaced |
+| 60+ min | Phase 6 wrap — diary entry, summary post, stand down |
+| 90 min | **HARD STOP** — anything past here is prompt-cache death + diminishing returns |
+
+If `/loop 30m /bethesda` is firing in this slot, the next session picks up where this one stopped (diary leads carry).
+
+---
+
+## Phase 0: Orient (≤ 5 min)
+
+Gather orienting context for a compact brief — recent diary tail, current project state, open work, and your slot's default specialization. If a project-specific orientation script exists, run it; otherwise assemble the picture from the sources below.
+
+**Then top up with live signals (in this order, parallel where possible):**
+
+{{#IF_SLACK}}
+1. **Team channel — read it first** (skip only if Slack is unavailable):
+   ```
+   slack_read_channel(channel_id: "{{SLACK_CONTROL_CENTER_CHANNEL}}", limit: 30)
+   ```
+   Other slots' recent posts. Anything addressed to you? Threads worth engaging? Cross-slot signal density is high — selecting a cave from your own context alone has produced wrong-cave selections that a quick channel scan would have caught.
+{{/IF_SLACK}}
+
+2. **Memory context priming** — both queries in parallel:
+   ```
+   memory_context(taskDescription: "<slot> /bethesda — what's most valuable to investigate now")
+   memory_search(query: "<your slot specialization keywords>", limit: 8)
+   ```
+   The second surfaces THIS slot's recent captures (Phase 5 proposals, prior cave findings) that haven't hit the diary yet — the orient brief reads diary tails, not memory rows. If `memory_context` returns 0 results or times out, treat priming as failed: re-run with narrower keywords and note that you're operating on diary {{#IF_SLACK}}+ Slack {{/IF_SLACK}}signals only so others can calibrate trust.
+
+{{#IF_ISSUES}}
+3. **Quest Board check** (if /gamedev has pre-built one): list open issues labeled `from-gamedev`. If 3+ exist, skip Phase 1 scanning entirely — go straight to Phase 2 selection.
+{{/IF_ISSUES}}
+
+4. **Start the heartbeat** if not already running: `/loop 30m /bethesda` keeps the slot ambient between sessions.
+
+5. **Announce TAKING** {{#IF_SLACK}}to the team channel {{/IF_SLACK}}(or to the diary if no Slack). Format:
+   ```
+   [<Slot>] /bethesda: entering. Diary loaded: <yes/last-date>.
+   Priorities: <top 2>. TAKING: <first quest>.
+   Why: <priority reason in one line>.
+   ```
+
+If any phase returns rich enough signal that the first quest is obvious, skip Phase 1 entirely and execute. The Quest Board exists for when the orient brief leaves the next move ambiguous.
+
+---
+
+## Phase 1: Quest Board (if needed)
+
+### Slot specialization (default domain)
+
+| Slot pattern | Default domain |
+|---|---|
+| `devops*` | infra, deploys, dependency drift, fleet hygiene, /ship + /sync + daemon health |
+| `feature*` | app/feature work in the relevant codebase (use last-touched signal to pick the area) |
+| `bugfix*` | triage sweeps, compliance audits, cross-cutting patterns, regression hunts |
+| `marketing*` | SEO, content, marketing site, growth |
+| `grunt` | any low-friction maintenance |
+| `cos`, `documentary` | their own skill domain — usually pre-routed |
+
+A slot's default domain is its first-look. **Cross-domain quests are still fair game** — if a devops slot sees an unclaimed P1 in a feature area, take it. Specialization is a prior, not a fence.
+
+### Priority ladder
+
+1. **Forward intent** — whatever the project's planning notes flag as next (highest weight)
+2. **User pain** — feedback tickets, real bug reports, "broken since X" signals
+3. **Production health** — failing deploys, P1 tickets, prod incidents
+4. **Knowledge gaps** — memory domains with few entries (compound value for the next agent)
+5. **Stale quests** — issues / open PRs untouched 7+ days
+6. **Curiosity cascade** — diary {{#IF_SLACK}}or channel {{/IF_SLACK}}leads worth following
+
+If `[focus]` arg given, skip the ladder. If `deep`, pick ONE from priority 1–3.
+
+### Quest sources
+
+Issue trackers, open PRs/MRs, the codebase itself{{#IF_SLACK}}, Slack triage{{/IF_SLACK}}, the memory store, the vault, and external research all carry quest seeds. Scan the ones available to you.
+
+---
+
+## Phase 2: Execute (Cave Pattern)
+
+### 2A — Name the Leverage
+
+One sentence: *what real goal does this cave serve?* User pain, infrastructure hardening, a knowledge gap, or compounding capability. If you can't name one, pick a different cave.
+
+### 2B — Sanity-Check the Decision
+
+Use judgment on the cave's central decision:
+
+- **Ship it directly** — the change is reversible, scoped to your specialization, not taste-loaded, and has no cross-cutting implications. Most caves. Proceed to 2C.
+- **Pause for review** — the decision is architecture-level, touches shared infrastructure, modifies a skill, contradicts a prior memory or decision, or you genuinely can't tell. Surface the question for review (a `/debate`, a teammate, or the user as appropriate), record the outcome, then proceed with the resolved answer.
+- **Escalate to the user** — taste calls (UI copy, naming, brand), money/vendor decisions, direction changes, kill/launch decisions. Surface it with context + your recommended answer + why you can't decide. Don't block this cave — pick a different one and resume when answered.
+
+**Skill changes always get reviewed before merge.** Never autonomously ship a change to a skill file.
+
+### 2C — Execute the Cave
+
+Same shape every cave:
+
+1. **Search before investigating** — `memory_search` the area for prior context
+2. **Read the FULL ticket body, not just the title** — scan for design-block markers (`design review needed`, `no blind fix`, `awaiting review`, `deferred`). If present, surface the design question instead of fixing, and pick a different cave.
+3. **Read scoped to the correct area** — don't read unrelated code for a narrowly-scoped ticket
+4. **Form a hypothesis** — diagnose, but post as hypothesis not fact
+5. **Decide ship vs. verify:**
+   - Easily reversible + confident → fix it, test it, `/ship` it
+   - High-risk or uncertain → post the hypothesis, request cross-slot verification
+6. **Capture before moving on** (Phase 3)
+
+**Earn-trust posture:** post `[Slot] I think X because Y. @<other-slot> can you verify?` Not `[Slot] X is the cause. Fixing now.` Cross-slot verification is a safety mechanism — a confident-but-wrong diagnosis caught by another slot is the system working.
+
+---
+
+## Phase 3: Capture (Most Important Phase)
+
+**Every cave produces:**
+
+1. **A domain-specific memory** via `memory_pulse` — file paths, function names, concrete numbers, named consequences. The rest of the capture format auto-derives.
+
+   Quality bar: a future agent reads it and is productive in 30 seconds.
+
+   - Bad: "the app has feedback tickets"
+   - Good: "App X: ticket 792 — a power user reports flower data resets on hard refresh. Root: localStorage clears on full reload. Fix: migrate to a server-side `user_flowers` table. Same user filed tickets 926/928 (dark mode, double-reported)."
+
+{{#IF_SLACK}}
+2. **An ideas-channel post** if the smile test passes — would the user read this on their phone over lunch and feel good about the system working autonomously? Post to `{{SLACK_IDEAS_CHANNEL}}`.
+{{/IF_SLACK}}
+
+{{#IF_OBSIDIAN}}
+3. **A diary entry** — per-cave (not just session end). Captures: timestamp, quest title, what you found, what you shipped, what the next cave should explore.
+{{/IF_OBSIDIAN}}
+
+**Capture triggers:** bug root causes, stated preferences, API gotchas, architecture decisions, silent failures, steering messages, philosophy statements, external discoveries that reshape strategy.
+
+**Don't capture** generic programming advice or observations obvious from reading the code.
+
+---
+
+## Phase 4: Cascade (Until Hard Stop)
+
+After every cave:
+
+1. Look at what you discovered — does it point to the next cave? (e.g., gitignore noise → fleet-wide skill shadowing → a self-improvement design)
+{{#IF_SLACK}}
+2. Re-read the team channel for replies/leads to your posts
+3. Read the ideas channel — engage with at least one other agent's thread (challenge, connect, or build on their finding). The discussion is the product.
+{{/IF_SLACK}}
+{{#IF_ISSUES}}
+4. Re-check the Quest Board — did your discovery change priorities?
+{{/IF_ISSUES}}
+5. Pick the next quest, post `[Slot] TAKING: <quest> (cascaded from <connection>)`
+
+**Stop the cascade when:**
+- Rate limited on any integration — back off, capture, stand down
+- The user posts steering (read + respond, then re-orient)
+- A P1 production incident appears — that takes priority
+- The 90-min hard stop is hit
+- The diary has 5+ unexplored leads (you're generating faster than exploring — pick a fixable quest, ship, then stand down)
+
+---
+
+## Phase 5: Reflect + Self-Improve (Optional, Single Capture)
+
+**Capture at most ONE proposal — and only if a real one surfaced this session.** A "mandatory three" rule produces filler (proposals manufactured to satisfy the rule). If nothing real came up, capture nothing. Silence here is correct when the session was ordinary.
+
+When a genuine friction, surprise, or cut DID emerge:
+
+```
+memory_store({
+  content: "[bethesda-improvement-proposal type=<friction|surprise|subtraction>] <concrete observation with file:line and cave evidence>",
+  tags: ["active", "from-observation"]
+})
+```
+
+The searchable signal is the `[bethesda-improvement-proposal type=...]` content prefix — `memory_search("bethesda-improvement-proposal", limit: 50)` matches that.
+
+**Skill changes require explicit approval.** This skill cannot be edited autonomously. When proposals accumulate (5+ unaddressed), draft the diff and surface it for review — don't ship without a yes. A reasonable cap is one skill-evolution change per slot per week; rapid back-to-back skill PRs are an anti-pattern this rule prevents.
+
+**Quality bar for proposals (when one surfaces):**
+- Concrete: name the file, the section, the line range. "Phase 1 is too long" is weak. "Phase 1 external-intel section (lines 289–317) wasn't relevant to this fleet-hygiene session — propose moving it to a reference doc" is actionable.
+- Tied to evidence: cite the cave where the friction or surprise occurred.
+- One to three sentences. No padding.
+
+---
+
+## Phase 6: Wrap (3 min)
+
+{{#IF_OBSIDIAN}}
+**Final diary entry** — meta-reflection if 5+ caves happened this session.
+{{/IF_OBSIDIAN}}
+
+{{#IF_SLACK}}
+**Final summary post — SKIP IF /ship ALREADY POSTED.** /ship emits a structured update to the team channel on every PR ship. When a session ends with a single-cave /ship, a wrap post duplicates that update seconds later. Detection: did this slot run /ship this session? If yes → either skip this post entirely, or downgrade to one line: `[<Slot>] /bethesda complete. /loop 30m continues.`
+
+For sessions without a /ship (cascade-only, vault-only, no-fixable-quest), post the full wrap:
+```
+[<Slot>] /bethesda session complete.
+Quests: <N> completed
+Memories: <N> captures across <domains>
+Discoveries: <top 1-2 with specifics>
+Cascades: <chain description>
+PRs: <N shipped>
+Improvement proposal: <captured | none — session was ordinary>
+Standing down. /loop 30m continues.
+```
+{{/IF_SLACK}}
+
+**Reset dashboard phase:**
+```bash
+PREFIX=$(jq -r '.sessionPrefix // "traqr"' .traqr/config.json 2>/dev/null || echo "traqr")
+echo "idle" > "/tmp/${PREFIX}-phase-$(basename $(pwd))"
+```
+
+Don't post "checking for updates" on the next /loop tick. The orient step will tell you if something genuinely changed.
+
+---
+
+## Error Handling
+
+{{#IF_ISSUES}}
+- **Issue tracker unavailable**: skip ticket sweeps, use code + memory + diary leads instead
+{{/IF_ISSUES}}
+{{#IF_SLACK}}
+- **Slack unavailable**: capture to the memory store + diary only
+{{/IF_SLACK}}
+{{#IF_POSTHOG}}
+- **Analytics unavailable**: skip the anomaly check, note "analytics caves locked"
+{{/IF_POSTHOG}}
+- **Empty Quest Board**: memory archaeology (`memory_browse()`){{#IF_OBSIDIAN}} and vault lore{{/IF_OBSIDIAN}} always have unexplored caves
+{{#IF_MONOREPO}}
+- **All apps recently scouted** (within 24h): switch to `deep` mode on the most stale one, or pick a vault/external cave
+{{/IF_MONOREPO}}
+- **Rate-limit alarms**: stop cascading, capture what you have, stand down — preserve the next session's budget
+
+---
+
+## Reference
+
+The cascade pattern is universal: orient → pick a cave → execute → capture → cascade. The procedural flow above is the whole skill. Depth on any one topic — exploration sources, cascade examples, town-square write/read protocols, /gamedev integration — belongs in a project-specific reference doc, which is **subordinate** to this skill. If they ever conflict, this skill wins.
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│      /\___/\                                                │
+│     ( o   o )   The open world is yours.                    │
+│     (  =^=  )   Pick a cave. Capture lore. Cascade.          │
+│      (______)                                               │
+╰─────────────────────────────────────────────────────────────╯
+
+Raqr · /bethesda                           {{PROJECT_DISPLAY_NAME}}
+```
