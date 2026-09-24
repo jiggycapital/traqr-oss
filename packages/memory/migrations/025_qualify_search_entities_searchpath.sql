@@ -41,7 +41,10 @@
 -- (`INSERT INTO slack_event_dedup` unqualified). On traqr-db it has no packages/ caller
 -- (PokoTraqr calls its own project's copy), so this is hygiene, not a live outage — but it
 -- is the identical defect and 020's precedent is to converge rather than leave a known
--- landmine armed.
+-- landmine armed. Its four trailing parameters carry DEFAULT NULL because the live function
+-- does: without them CREATE OR REPLACE fails with "cannot remove parameter defaults from
+-- existing function" and the whole file rolls back (rehearsed 2026-09-24; search_entities
+-- was then applied on its own, so on traqr-db this file is already in effect).
 
 CREATE OR REPLACE FUNCTION public.search_entities(
   p_user_id UUID,
@@ -85,10 +88,10 @@ $$;
 CREATE OR REPLACE FUNCTION public.check_and_record_event(
   p_event_id TEXT,
   p_event_type TEXT,
-  p_message_ts TEXT,
-  p_action_ts TEXT,
-  p_user_id TEXT,
-  p_team_id TEXT
+  p_message_ts TEXT DEFAULT NULL,
+  p_action_ts TEXT DEFAULT NULL,
+  p_user_id TEXT DEFAULT NULL,
+  p_team_id TEXT DEFAULT NULL
 )
 RETURNS BOOLEAN
 LANGUAGE plpgsql
