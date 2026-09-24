@@ -23,7 +23,7 @@
 process.env.EMBEDDING_PROVIDER = 'none'
 
 import { z } from 'zod'
-import { registerTools } from './tools.js'
+import { registerTools, formatPulseHeadline, formatPulseIds } from './tools.js'
 import { setVectorDB, resetVectorDB } from '@traqr/memory'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
@@ -300,6 +300,235 @@ if (purge) {
 
   assert('exportFirst:false echoes no export block', !noExport.includes('Export data:'))
   assert('…and still confirms the deletion', noExport.includes('permanently deleted'))
+}
+
+// --- memory_correct / memory_enhance domain inheritance (TD-1221) ---
+//
+// deriveDomain is an ordered first-match-wins cascade whose rule #1 is /\bsean\b/,
+// so ANY content naming Sean domains as `sean` before `jiggy` is ever tested.
+// Correction prose almost always names who said what — which is why corrections
+// flipped domain. Measured in-corpus: mcp-correct was a perfect bijection (all 52
+// rows tripping rule #1 landed in `sean`; all 25 not tripping it landed elsewhere),
+// while mcp-store tripped the same rule 1,217 times and landed 82% elsewhere —
+// because its callers can pass `domain`. The missing PARAMETER was the whole defect.
+//
+// Hermetic: a fake provider returns a jiggy-domained target from getById and captures
+// what store() receives. Every other db method the handler touches (archive/supersede/
+// relationship) is a no-op via the Proxy fallback, so no DB is needed.
+console.log('\n--- memory_correct/enhance domain inheritance (TD-1221) ---')
+
+{
+  // Content that trips deriveDomain rule #1 — this is the whole point: it MUST NOT
+  // win over the inherited domain.
+  const seanFlavoured = 'Correcting this: Sean said the IESC read was wrong, and I would prefer the mid-cycle multiple.'
+
+  // Read through a cast: `stored` is only ever assigned inside the fake's async
+  // store(), which TS cannot see, so it narrows the variable to `never` at the
+  // assertion sites. The cast is about control-flow visibility, not type safety.
+  let stored: Record<string, unknown> | undefined
+  const got = () => stored as Record<string, unknown> | undefined
+  const target = { id: 'w1', summary: 'old IESC read', domain: 'jiggy', topic: 'iesc', tags: [] }
+  const inheritProvider = new Proxy({} as Record<string, unknown>, {
+    get(_t, prop: string) {
+      if (prop === 'getById') return async () => target
+      if (prop === 'store') return async (input: Record<string, unknown>) => { stored = input; return { ...input, id: 'new1' } }
+      // archiveMemory / supersedeMemory / createRelationship and anything else the
+      // handler reaches for — succeed silently; none of them affect the assertion.
+      return async () => ({})
+    },
+  }) as unknown as Parameters<typeof setVectorDB>[0]
+
+  if (correct) {
+    // Case 1: no override → inherit the superseded memory's domain/topic, NOT the
+    // domain the corrected prose derives to. This is the regression guard: revert the
+    // fix and `sean` wins here.
+    setVectorDB(inheritProvider); stored = undefined
+    const r1 = await correct({ wrongMemoryId: 'w1', correctedContent: seanFlavoured, reason: 'was wrong', confidence: 0.9 })
+    resetVectorDB()
+    assert('correct: inherits domain from the superseded memory (not re-derived to sean)', got()?.domain === 'jiggy')
+    assert('correct: inherits topic from the superseded memory', got()?.topic === 'iesc')
+    assert('correct: echoes the domain it actually stored (acceptance #3)', r1.content[0].text.includes('Domain: jiggy'))
+    assert('correct: echo names the provenance of that domain', r1.content[0].text.includes('inherited from the corrected memory'))
+
+    // Case 2: explicit override beats BOTH the inherited and the derived value.
+    setVectorDB(inheritProvider); stored = undefined
+    const r2 = await correct({ wrongMemoryId: 'w1', correctedContent: seanFlavoured, reason: 'r', confidence: 0.9, domain: 'traqr', topic: 'pinned-topic' })
+    resetVectorDB()
+    assert('correct: explicit domain override wins over the inherited value', got()?.domain === 'traqr')
+    assert('correct: explicit topic override wins over the inherited value', got()?.topic === 'pinned-topic')
+    assert('correct: echo reports the override as explicit', r2.content[0].text.includes('explicit override'))
+
+    // Case 3: superseded memory carries no domain → fall through to derivation,
+    // i.e. byte-identical to the pre-fix behaviour. Guards against over-correcting.
+    setVectorDB(new Proxy({} as Record<string, unknown>, {
+      get(_t, prop: string) {
+        if (prop === 'getById') return async () => ({ id: 'w2', summary: 'no domain', tags: [] })
+        if (prop === 'store') return async (input: Record<string, unknown>) => { stored = input; return { ...input, id: 'new2' } }
+        return async () => ({})
+      },
+    }) as unknown as Parameters<typeof setVectorDB>[0])
+    stored = undefined
+    await correct({ wrongMemoryId: 'w2', correctedContent: seanFlavoured, reason: 'r', confidence: 0.9 })
+    resetVectorDB()
+    assert('correct: no inheritable domain → still derives (pre-fix behaviour preserved)', got()?.domain === 'sean')
+  }
+
+  // Schema seam — the defect WAS the absent parameter, so pin its presence directly.
+  const correctShape = schemas.get('memory_correct')
+  assert('memory_correct exposes a domain override', correctShape?.domain !== undefined)
+  assert('memory_correct exposes a topic override', correctShape?.topic !== undefined)
+
+  const enhanceShape = schemas.get('memory_enhance')
+  assert('memory_enhance exposes a domain override (had none at all)', enhanceShape?.domain !== undefined)
+  assert('memory_enhance exposes a topic override', enhanceShape?.topic !== undefined)
+  assert('memory_enhance exposes a category override', enhanceShape?.category !== undefined)
+  assert('memory_enhance exposes a tags override', enhanceShape?.tags !== undefined)
+}
+
+// --- memory_pulse headline reports the WRITE OUTCOME, not the triage band (TD-1334 a) ---
+// The old headline was arithmetically correct and misread five times, always in the same
+// direction: readers concluded FEWER rows were written than actually were. The canonical
+// instance is three fresh inserts rendering as `Captured 3, merged 1 | Zones: 0 noop,
+// 0 new, 3 borderline` — where `merged 1` means "stored AND retired an older row" and
+// `0 new` is the band `add`, not the row count.
+//
+// Hermetic by construction: formatPulseHeadline is pure over TriageResult shapes.
+console.log('\n--- memory_pulse headline vocabulary (TD-1334 half a) ---')
+{
+  // The exact live shape from 2026-09-02, the fifth instance.
+  const threeBorderlineOneSuperseding = formatPulseHeadline([
+    { zone: 'borderline', deduplicated: false, merged: false },
+    { zone: 'borderline', deduplicated: false, merged: true },
+    { zone: 'borderline', deduplicated: false, merged: false },
+  ])
+  assert(
+    'three borderline inserts report THREE rows stored, not zero',
+    threeBorderlineOneSuperseding.includes('Stored 3 new row(s)'),
+  )
+  assert(
+    'a superseding capture says the text WAS stored (the word "merged" said the opposite)',
+    threeBorderlineOneSuperseding.includes('ALSO retired an older memory') &&
+      threeBorderlineOneSuperseding.includes('WAS stored, not absorbed'),
+  )
+  assert(
+    'the band histogram is labelled as classification, not as rows written',
+    threeBorderlineOneSuperseding.includes('CLASSIFIED, not whether it stored'),
+  )
+  // The regression that matters: re-introducing the band as the headline count.
+  //
+  // ⚠️ This assertion was itself vacuous on its first draft — it tested
+  // `split('\n')[1]`, and the old headline is a SINGLE line, so the mutation run
+  // scored it green against `undefined ?? ''`. Caught by mutating the source rather
+  // than by reading the test. Scan the WHOLE string, and let "N new row(s)" through
+  // while rejecting the band form "N new,".
+  assert(
+    'never renders a band count under the word "new" (the misread that cost 5 instances)',
+    !/\d+ new(?! row)/.test(threeBorderlineOneSuperseding),
+  )
+
+  // A genuine dedup — the ONE outcome where the caller's text was not written.
+  const twoDeduped = formatPulseHeadline([
+    { zone: 'noop', deduplicated: true, merged: false },
+    { zone: 'noop', deduplicated: true, merged: false },
+  ])
+  assert('an all-dedup batch reports 0 stored', twoDeduped.includes('Stored 0 new row(s)'))
+  assert('an all-dedup batch names the not-stored count', twoDeduped.includes('2 NOT stored'))
+  assert(
+    'a batch with nothing superseded does not claim a supersede',
+    !twoDeduped.includes('ALSO retired'),
+  )
+
+  // A plain add batch: no noise about outcomes that did not occur.
+  const twoPlainAdds = formatPulseHeadline([
+    { zone: 'add', deduplicated: false, merged: false },
+    { zone: 'add', deduplicated: false, merged: false },
+  ])
+  assert('a clean add batch reports both rows', twoPlainAdds.includes('Stored 2 new row(s)'))
+  assert('a clean add batch mentions no dedup', !twoPlainAdds.includes('NOT stored'))
+}
+
+console.log('\n--- memory_pulse IDs line names the row a supersede retired (TD-1334) ---')
+{
+  // The 2026-09-23 shape: a follow-up superseded the fuller record and the line named only the new row.
+  const line = formatPulseIds([
+    { index: 0, zone: 'borderline', merged: true, existingId: 'f41e8b56-old', memory: { id: '862f6c0c-new' } },
+    { index: 1, zone: 'add', merged: false, memory: { id: 'aaaa-plain' } },
+    { index: 2, zone: 'borderline', merged: false, existingId: 'bbbb-neighbour', memory: { id: 'cccc-related' } },
+  ])
+  assert('a supersede names the retired row', !!line && line.includes('#1=862f6c0c-new (borderline) retired f41e8b56-old'))
+  assert('a plain add names no retired row', !!line && line.includes('#2=aaaa-plain (add)') && !line.includes('aaaa-plain (add) retired'))
+  assert(
+    'a related insert (existingId set, nothing retired) does not claim a retirement',
+    !!line && !line.includes('bbbb-neighbour'),
+  )
+  assert('no stored ids renders no line', formatPulseIds([{ index: 0, zone: 'noop' }]) === null)
+}
+
+console.log('\n--- memory_browse counts the CORPUS, not browse()\'s page ---')
+
+// The defect: the no-facet branch tallied the rows browse() returned. browse() is
+// capped at 20 by contract, so the "domain counts" were a histogram of the 20
+// NEWEST memories — jiggy read 6 against 5,868 real ones, and any domain absent
+// from that window (sean: 2,060; tooling: 816) reported as not existing at all.
+//
+// The fake pins the two apart on purpose: browse() hands back a 20-row page whose
+// mix does NOT match the corpus, and browseDomainCounts() returns the true totals.
+// Any implementation that counts the page cannot pass.
+const TRUE_COUNTS = { jiggy: 5868, traqr: 4643, sean: 2060, tooling: 816 }
+const pageRows = [
+  ...Array.from({ length: 14 }, (_, i) => ({ id: `j${i}`, domain: 'jiggy', content: 'c' })),
+  ...Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, domain: 'traqr', content: 'c' })),
+] // 20 rows, and neither sean nor tooling appears in it
+
+const browseCalls: string[] = []
+let countsOpts: unknown = 'UNSET'
+const browseProvider = {
+  async browse(opts?: { domain?: string }) {
+    browseCalls.push(opts?.domain ?? '(no facet)')
+    return pageRows
+  },
+  async browseDomainCounts(opts?: unknown) {
+    countsOpts = opts
+    return TRUE_COUNTS
+  },
+} as unknown as Parameters<typeof setVectorDB>[0]
+
+const browseTool = handlers.get('memory_browse')
+assert('memory_browse tool is registered', typeof browseTool === 'function')
+
+if (browseTool) {
+  // Case 1: no facet → the corpus aggregate, never the page tally.
+  setVectorDB(browseProvider)
+  browseCalls.length = 0
+  countsOpts = 'UNSET'
+  const res = await browseTool({})
+  resetVectorDB()
+  const domains = JSON.parse(res.content[0].text).domains as Record<string, number>
+
+  assert('jiggy reports the corpus total (5868), not the page count (14)', domains.jiggy === 5868)
+  assert('a domain absent from the newest page still appears (sean)', domains.sean === 2060)
+  assert('...and tooling too — absence from a page is not absence from the corpus', domains.tooling === 816)
+  assert('no-facet browse does NOT read a page at all (the regression)', browseCalls.length === 0)
+  assert('counts sum to the corpus, not to browse()\'s 20-row cap',
+    Object.values(domains).reduce((a, b) => a + b, 0) === 13387)
+
+  // Case 2: the classification ceiling must reach the aggregate. Filtering rows
+  // after a GROUP BY is impossible, so a dropped ceiling here would silently count
+  // over-tier memories into a number an exploration-tier caller can read.
+  setVectorDB(browseProvider)
+  countsOpts = 'UNSET'
+  await browseTool({ accessLevel: 'exploration' })
+  resetVectorDB()
+  assert('accessLevel forwarded to browseDomainCounts (ceiling reaches the aggregate)',
+    (countsOpts as { accessLevel?: string } | undefined)?.accessLevel === 'exploration')
+
+  // Case 3: the faceted path is unchanged — it still reads rows.
+  setVectorDB(browseProvider)
+  browseCalls.length = 0
+  const faceted = await browseTool({ domain: 'jiggy' })
+  resetVectorDB()
+  assert('a faceted browse still pages rows', browseCalls.length === 1 && browseCalls[0] === 'jiggy')
+  assert('a faceted browse returns summaries, not counts', Array.isArray(JSON.parse(faceted.content[0].text)))
 }
 
 console.log(`\n${'='.repeat(50)}`)

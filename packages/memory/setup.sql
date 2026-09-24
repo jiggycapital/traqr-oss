@@ -22,8 +22,13 @@
 -- 1. EXTENSIONS
 -- ============================================================================
 
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- Extensions live in `extensions`, never in the PostgREST-exposed `public` schema
+-- (Supabase advisor lint 0014): in `public`, every extension function is an
+-- anon-callable RPC endpoint. traqr-db moved them on 2026-09-05 (migration 026,
+-- TD-1383); sessions already carry `extensions` on their search_path.
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;
 
 
 -- ============================================================================
@@ -574,7 +579,7 @@ RETURNS TABLE (
   source_tool VARCHAR
 )
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions  -- `<=>` lives in extensions (026 / TD-1383)
 AS $$
 BEGIN
   RETURN QUERY
@@ -651,7 +656,7 @@ RETURNS TABLE (
   source_tool VARCHAR
 )
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions  -- `<=>` lives in extensions (026 / TD-1383)
 AS $$
 BEGIN
   RETURN QUERY
@@ -758,7 +763,13 @@ RETURNS TABLE (
   mentions_count INTEGER
 )
 LANGUAGE plpgsql
-SET search_path = public
+-- 025 qualified the table but pinned search_path = '', under which the `<=>`
+-- operator cannot resolve either: 42883 "operator does not exist: public.vector
+-- <=> public.vector", probed live on traqr-db 2026-09-05 (TD-1383). `public,
+-- extensions` passes advisor lint 0011 (it flags only an UNSET search_path) and
+-- finds the operator before and after 026 moves vector to `extensions`. Keep the
+-- table qualified; never pin '' on a body that uses a vector/trgm operator.
+SET search_path = public, extensions
 AS $$
 BEGIN
   RETURN QUERY
@@ -766,7 +777,7 @@ BEGIN
     e.id, e.name, e.entity_type,
     1 - (e.embedding <=> p_embedding) AS similarity,
     e.mentions_count
-  FROM memory_entities e
+  FROM public.memory_entities e
   WHERE e.user_id = p_user_id
     AND e.is_archived = FALSE
     AND (p_entity_type IS NULL OR e.entity_type = p_entity_type)

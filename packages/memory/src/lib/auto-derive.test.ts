@@ -8,6 +8,7 @@
  */
 
 import { deriveCategory, deriveAll } from './auto-derive.js'
+import { MEMORY_CATEGORIES } from '../vectordb/types.js'
 
 let passed = 0
 let failed = 0
@@ -96,6 +97,41 @@ assertEq(
   deriveAll('substrate-invariant: the proxy is not the substrate').category,
   'gotcha',
 )
+
+// ============================================================
+console.log('\n--- TD-1334 sweep: the canonical category list ---')
+
+// MEMORY_CATEGORIES is now the single source every runtime check derives from
+// (six hand-maintained copies were removed: three dead, three derived). That
+// makes drift between copies unrepresentable, but it also makes THIS array the
+// one place a category can be silently dropped -- so pin the values.
+{
+  const expected = ['gotcha', 'pattern', 'fix', 'insight', 'question', 'preference', 'convention']
+  const actual = [...MEMORY_CATEGORIES]
+  if (actual.length === expected.length && expected.every((c, i) => actual[i] === c)) {
+    console.log('  PASS  MEMORY_CATEGORIES holds the 7 canonical categories, in order')
+    passed++
+  } else {
+    console.log(`  FAIL  MEMORY_CATEGORIES drifted (got [${actual}], expected [${expected}])`)
+    failed++
+  }
+
+  // deriveCategory must never invent a category outside the canonical list.
+  const samples = [
+    'substrate-invariant: the proxy is not the substrate',
+    'Sean prefers concise answers with no emojis',
+    'fixed the null deref in the parser by guarding the branch',
+    'what happens if the broker tape disagrees with the sheet?',
+  ]
+  const strays = samples.map((t) => deriveCategory(t)).filter((c) => !(MEMORY_CATEGORIES as readonly string[]).includes(c))
+  if (strays.length === 0) {
+    console.log('  PASS  deriveCategory only ever returns a canonical category')
+    passed++
+  } else {
+    console.log(`  FAIL  deriveCategory returned non-canonical: ${strays}`)
+    failed++
+  }
+}
 
 // ============================================================
 console.log(`\n${passed} passed, ${failed} failed`)

@@ -14,7 +14,7 @@ import { getUserId, getProjectId, getTableName, getMemoryConfig } from '../lib/c
 import { generateEmbedding, formatEmbeddingForPgVector } from '../lib/embeddings.js'
 import { rowToMemory, rowToSearchResult } from './converters.js'
 import type { MemoryRow, SearchResultRow } from './converters.js'
-import { ACCESS_LEVEL_MAX_CLASSIFICATION, exceedsClassificationCeiling } from './types.js'
+import { ACCESS_LEVEL_MAX_CLASSIFICATION, allowedClassifications, exceedsClassificationCeiling, MEMORY_EXPORT_COLUMNS, MEMORY_STATS_COLUMNS } from './types.js'
 import type {
   VectorDBProvider,
   Memory,
@@ -28,6 +28,7 @@ import type {
   MemoryClassification,
   MemoryAccessLevel,
   BrowseResult,
+  MemoryStatsRow,
 } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -326,9 +327,12 @@ export class PostgresVectorProvider implements VectorDBProvider {
 
   async exportAll(domainId?: string): Promise<MemoryExport[]> {
     const table = getTableName()
+    // TD-1018: explicit projection, NOT `SELECT *` — the row mapper below never
+    // reads `embedding`, so selecting it moved ~6 KB/row of vectors per call
+    // purely to discard it.
     const sql = domainId
-      ? `SELECT * FROM ${table} WHERE project_id = $1`
-      : `SELECT * FROM ${table}`
+      ? `SELECT ${MEMORY_EXPORT_COLUMNS} FROM ${table} WHERE project_id = $1`
+      : `SELECT ${MEMORY_EXPORT_COLUMNS} FROM ${table}`
     const rows = await query(sql, domainId ? [domainId] : [])
     return rows.map((row: any) => ({
       id: row.id,
@@ -352,6 +356,21 @@ export class PostgresVectorProvider implements VectorDBProvider {
       embeddingModelVersion: row.embedding_model_version,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+    }))
+  }
+
+  // TD-1018: the stats aggregators only need six columns. Going through
+  // `exportAll()` downloaded every embedding to compute counts.
+  async statsRows(): Promise<MemoryStatsRow[]> {
+    const table = getTableName()
+    const rows = await query(`SELECT ${MEMORY_STATS_COLUMNS} FROM ${table}`, [])
+    return rows.map((row: any) => ({
+      id: row.id,
+      category: row.category ?? undefined,
+      sourceType: row.source_type ?? undefined,
+      tags: row.tags || [],
+      isArchived: row.is_archived,
+      createdAt: row.created_at,
     }))
   }
 
@@ -598,6 +617,36 @@ export class PostgresVectorProvider implements VectorDBProvider {
   // ============================================================
   // UTILITY OPERATIONS
   // ============================================================
+
+  async browseDomainCounts(options?: { accessLevel?: MemoryAccessLevel, maxClassification?: MemoryClassification }): Promise<Record<string, number>> {
+    const table = getTableName()
+    const conditions = ['is_archived = false', 'is_forgotten = false']
+    const params: any[] = []
+
+    // Push the classification ceiling into the WHERE clause. Filtering after a
+    // GROUP BY is not an option — the aggregate has already counted the rows.
+    const allowed = allowedClassifications(options?.accessLevel, options?.maxClassification)
+    if (allowed) {
+      params.push(allowed)
+      // NULL is admitted deliberately: browse() filters these same rows through
+      // exceedsClassificationCeiling, which reads a missing classification as
+      // 'public'. Counting NULL differently would let the counts and the rows
+      // disagree about the same corpus. (Note rowToMemory hydrates NULL to
+      // 'internal' instead — that divergence is pre-existing and NOT settled here;
+      // this method's contract is only to agree with browse().)
+      conditions.push(`(classification IS NULL OR classification = ANY($${params.length}))`)
+    }
+
+    const rows = await query(
+      `SELECT domain, COUNT(*)::int AS n FROM ${table}
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY domain ORDER BY n DESC`,
+      params,
+    )
+    const counts: Record<string, number> = {}
+    for (const r of rows as any[]) counts[r.domain || 'unknown'] = r.n
+    return counts
+  }
 
   async browse(options?: { domain?: string, category?: string, limit?: number, accessLevel?: MemoryAccessLevel, maxClassification?: MemoryClassification }): Promise<BrowseResult[]> {
     const table = getTableName()

@@ -22,6 +22,7 @@ import {
   getVectorDB,
   createRelationship,
   supersedeMemory,
+  RETRIEVAL_CONFIDENCE_FLOOR,
 } from '@traqr/memory'
 import type { MemoryInput, MemoryCategory, MemoryClassification, MemoryAccessLevel, SearchOptions } from '@traqr/memory'
 
@@ -31,6 +32,10 @@ import type { MemoryInput, MemoryCategory, MemoryClassification, MemoryAccessLev
 
 const categoryEnum = z.string().describe('Suggested: gotcha, pattern, fix, insight, question, preference, convention. Any string accepted — the system learns your taxonomy.')
 const controlledTagEnum = z.enum(['critical', 'important', 'nice-to-know', 'evergreen', 'active', 'stale-risk', 'from-incident', 'from-decision', 'from-observation'])
+// Shared by memory_store / memory_enhance / memory_correct. Named rather than
+// inlined per-tool: TD-1221 was a write path that simply LACKED this parameter,
+// and a per-tool copy is how one write path drifts out of having it again.
+const domainEnum = z.enum(['sean', 'traqr', 'tooling', 'universal', 'nooktraqr', 'pokotraqr', 'poketraqr', 'milestraqr', 'jiggy'])
 
 /**
  * How much of memory_purge's pre-deletion export is echoed into the tool response.
@@ -60,6 +65,93 @@ function toSummaryResult(r: any) {
   }
 }
 
+/** One capture's triage outcome, as much of it as the headline needs. */
+export interface PulseOutcome {
+  zone?: string
+  deduplicated?: boolean
+  merged?: boolean
+}
+
+/**
+ * The `memory_pulse` headline — what actually happened to the caller's text (TD-1334 half a).
+ *
+ * ## Why this was rewritten
+ *
+ * The old line was `Captured N, merged M | Zones: x noop, y new, z borderline`. **Every number
+ * in it was arithmetically correct**, and it was misread five separate times: #4309, twice on
+ * 2026-08-30, once on 08-31, and again on 09-02 — that last one AFTER #4317 had fixed the
+ * destructive half, by an agent who had just read this ticket. Five independent readers is not
+ * five careless readers. It is a wrong vocabulary, and #4317 predicted the fifth in as many
+ * words: *"it should be decided here rather than re-discovered a fifth time."*
+ *
+ * Two words did the damage, and they fail in the SAME direction — both understate what was
+ * written, which is the flattering direction for a store that has lost text before (TD-1069):
+ *
+ * | word | what it means | how it reads |
+ * | -- | -- | -- |
+ * | `merged M` | `action: 'extended'` — **stored your new row** AND retired an older one | M of your captures were absorbed into something else and your text is gone |
+ * | `y new` | `zones.add`, the **triage band** | y rows were written |
+ *
+ * `stored` (band `add`), `extended` and `related` (both band `borderline`) all insert a row, so
+ * `0 new, 3 borderline` printed over three fresh inserts. `deduplicated` is the ONLY outcome
+ * where the caller's text was not written, and it already has its own loud line.
+ *
+ * So: report the write outcome first, and keep the band as a clearly-labelled secondary.
+ *
+ * ⚠️ **This deliberately does NOT rename the `merged` FIELD.** That is the taste call #4317 left
+ * open, and it breaks every reader of the HTTP route's response shape. This is the half that
+ * needs no permission: nothing parses this string (swept 2026-09-02 — the only other hits are
+ * prose in `docs/claude/proxy-invariant.md` and this file's own comments), it is prose for the
+ * agent that just called.
+ *
+ * Pure and exported so the wording is testable without a DB or an OpenAI round-trip — the same
+ * reason #4317 extracted `interpretBorderlineResponse()`, after the defect it fixed survived 150
+ * days behind an unreachable code path.
+ */
+export function formatPulseHeadline(successful: PulseOutcome[]): string {
+  const stored = successful.filter((r) => !r?.deduplicated).length
+  const superseded = successful.filter((r) => r?.merged).length
+  const notStored = successful.filter((r) => r?.deduplicated).length
+  const bands = {
+    noop: successful.filter((r) => r?.zone === 'noop').length,
+    add: successful.filter((r) => r?.zone === 'add').length,
+    borderline: successful.filter((r) => r?.zone === 'borderline').length,
+  }
+  const head =
+    `Stored ${stored} new row(s)` +
+    (superseded > 0
+      ? ` — ${superseded} of them ALSO retired an older memory (your text WAS stored, not absorbed)`
+      : '') +
+    (notStored > 0 ? ` · ${notStored} NOT stored` : '')
+  return (
+    `${head}\n` +
+    `Triage bands — how each capture was CLASSIFIED, not whether it stored: ` +
+    `${bands.noop} noop, ${bands.add} add, ${bands.borderline} borderline. ` +
+    `A borderline capture usually DOES store, so a 0 under "add" is not a 0 rows written.`
+  )
+}
+
+export interface PulseIdOutcome {
+  index: number
+  zone?: string
+  merged?: boolean
+  existingId?: string
+  memory?: { id?: string }
+}
+
+/**
+ * The `IDs:` line of a memory_pulse response. On a supersede (`merged`) it also names the row
+ * that was RETIRED (TD-1334, 2026-09-23): the headline said "1 of them ALSO retired an older
+ * memory" without saying which, so a caller whose fuller record had just dropped out of search
+ * had to guess candidates and `memory_read` each one to find it.
+ */
+export function formatPulseIds(successful: PulseIdOutcome[]): string | null {
+  const idParts = successful
+    .filter((r) => r?.memory?.id)
+    .map((r) => `#${r.index + 1}=${r.memory!.id} (${r.zone})` + (r.merged && r.existingId ? ` retired ${r.existingId}` : ''))
+  return idParts.length > 0 ? `IDs: ${idParts.join(' · ')}` : null
+}
+
 /**
  * TD-1144 — register a tool whose argument object REJECTS unknown top-level keys.
  *
@@ -68,8 +160,10 @@ function toSummaryResult(r: any) {
  * of rejecting it, and the two consequences are both silent:
  *
  *   - `memory_pulse.captures` carries `.default([])`, so a caller that sends `memories:`
- *     gets `Captured 0, merged 0` — success-shaped TOTAL data loss. That is TD-1069,
+ *     gets an all-zeros summary — success-shaped TOTAL data loss. That is TD-1069,
  *     which recurred verbatim as TD-1144 nine days after TD-1069 was marked Done.
+ *     (The summary then read `Captured 0, merged 0`; TD-1334 rewrote that headline, and
+ *     the empty-array branch is still called out by its own warning further down.)
  *   - `accessLevel` is optional on every read tool, so a typo'd key silently means
  *     "no classification ceiling". The TD-810/883/884/885/887 arc enforces the ceiling
  *     once the parameter ARRIVES; nothing enforced that it arrives.
@@ -120,11 +214,12 @@ export function registerTools(server: McpServer) {
       // validation error. summary stays a short search-result label; DB column is varchar(500).
       summary: z.string().transform((s) => (s.length > 120 ? s.slice(0, 117) + '...' : s)).optional().describe('Override auto-summary (clipped to 120 chars if longer)'),
       category: categoryEnum.optional().describe('Override auto-category'),
-      domain: z.enum(['sean', 'traqr', 'tooling', 'universal', 'nooktraqr', 'pokotraqr', 'poketraqr', 'milestraqr', 'jiggy']).optional()
+      domain: domainEnum.optional()
         .describe('Override auto-domain (sean, traqr, tooling, universal, app name)'),
       topic: z.string().optional().describe('Override auto-topic'),
       tags: z.array(controlledTagEnum).optional().describe('Override auto-tags'),
-      confidence: z.number().min(0).max(1).default(0.6).describe('0-1. Default 0.6 — raise to 0.8+ only for facts you are confident about. Bad context is worse than no context.'),
+      confidence: z.number().min(0).max(1).default(RETRIEVAL_CONFIDENCE_FLOOR)
+        .describe('0-1. Confidence is a flat MULTIPLIER on retrieval rank, not a caveat: search orders by similarity * confidence, so a value below 0.7 makes a memory unreachable even on its own verbatim text (measured: 0.60 ranks 109th, past the deepest 100-row pool). Do NOT lower it to express doubt — that deletes the memory from search rather than qualifying it. Put the caveat in the CONTENT instead (the content is what gets embedded, so it is the only place a caveat reaches the agent that retrieves the row). Raise to 0.9+ for verified facts.'),
       sourceReliability: z.enum(['direct-user', 'deliberate-store', 'granola-single', 'granola-multi', 'inferred', 'auto-derived']).optional()
         .describe('How trustworthy is the source? direct-user (the user said it) > deliberate-store > granola-single (one-speaker meeting transcript) > granola-multi (multi-speaker transcript, speaker confusion risk) > inferred > auto-derived'),
       classification: z.enum(['public', 'internal', 'confidential', 'restricted']).optional()
@@ -188,7 +283,11 @@ export function registerTools(server: McpServer) {
           ...(accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : {}),
         }
         let results = await searchMemoriesV2(query, options)
-        // Post-filter by domain (not in RPC)
+        // Post-filter by domain. The v2 RPC DOES return `domain` (verified against
+        // pg_get_function_result on traqr-db 2026-09-05) — TD-775 added it in migration
+        // 014_search_memories_return_domain.sql. The filter is a narrowing pass, not a
+        // workaround for a missing column; the old "(not in RPC)" note was stale and read
+        // as though this filter could only ever return zero rows.
         if (domain) {
           results = results.filter((r: any) => r.domain === domain)
         }
@@ -231,11 +330,20 @@ export function registerTools(server: McpServer) {
     {
       content: z.string().max(50000).describe('New observation or detail to add'),
       context: z.string().optional().describe('Why this matters or when it applies'),
+      // TD-1221: this tool had NO overrides at all — not even category/tags — so
+      // every field was re-derived from prose. deriveDomain is a first-match-wins
+      // cascade whose rule #1 is /\bsean\b/, and enhancement prose routinely names
+      // Sean, so 59% of this tool's output landed in `sean` against ~11% for the
+      // write paths that expose an override. Parity with memory_store.
+      domain: domainEnum.optional().describe('Override auto-domain — pass the domain of the knowledge being extended, not the domain of the prose'),
+      topic: z.string().optional().describe('Override auto-topic'),
+      category: categoryEnum.optional().describe('Override auto-category'),
+      tags: z.array(controlledTagEnum).optional().describe('Override auto-tags'),
     },
-    async ({ content, context }) => {
+    async ({ content, context, domain, topic, category, tags }) => {
       try {
         const fullContent = context ? `${content}\n\nContext: ${context}` : content
-        const derived = deriveAll(fullContent, { sourceTool: 'mcp-enhance' })
+        const derived = deriveAll(fullContent, { domain, topic, category, tags, sourceTool: 'mcp-enhance' })
         const input: MemoryInput = {
           content: fullContent,
           summary: derived.summary as string,
@@ -251,7 +359,9 @@ export function registerTools(server: McpServer) {
         }
         const result = await triageAndStore(input)
         return {
-          content: [{ type: 'text' as const, text: `Enhanced [${derived.domain}/${derived.category}]: ${derived.summary} (zone: ${result.zone})` }],
+          // TD-1221 acceptance #3: echo the chosen domain/topic and whether it was
+          // supplied or guessed, so a wrong auto-derive is visible at the call site.
+          content: [{ type: 'text' as const, text: `Enhanced [${derived.domain}/${derived.category}] topic=${derived.topic} (domain ${domain ? 'explicit' : 'auto-derived'}): ${derived.summary} (zone: ${result.zone})` }],
         }
       } catch (err) { return errorResult('memory_enhance', err) }
     },
@@ -270,18 +380,20 @@ export function registerTools(server: McpServer) {
     async ({ domain, category, accessLevel }) => {
       try {
         const db = getVectorDB()
-        const data = await db.browse({ domain, category, ...(accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : {}) })
+        const ceiling = accessLevel ? { accessLevel: accessLevel as MemoryAccessLevel } : {}
 
         if (!domain && !category) {
-          // Return domain counts
-          const counts: Record<string, number> = {}
-          for (const row of data) {
-            const d = row.domain || 'unknown'
-            counts[d] = (counts[d] || 0) + 1
-          }
+          // Corpus-wide counts, NOT a tally of browse()'s page. browse() is capped
+          // at 20 rows by contract, so counting what it returned reported 6 jiggy
+          // memories against 5,868 real ones — and dropped `sean` (2,060) and
+          // `tooling` (816) entirely, because neither happened to own one of the
+          // 20 newest rows. An agent asking "is this domain mapped?" was told the
+          // corpus was empty.
+          const counts = await db.browseDomainCounts(ceiling)
           return { content: [{ type: 'text' as const, text: JSON.stringify({ domains: counts }, null, 2) }] }
         }
 
+        const data = await db.browse({ domain, category, ...ceiling })
         const summaries = data.map((r) => ({
           id: r.id,
           summary: r.summary || r.content?.slice(0, 100),
@@ -347,7 +459,7 @@ export function registerTools(server: McpServer) {
         // documented BATCH path for the same captures, so the divergence meant
         // "batch it" quietly downgraded provenance and security tier.
         confidence: z.number().min(0).max(1).optional()
-          .describe('0-1 (default 0.6). Raise to 0.8+ only for facts you are confident about.'),
+          .describe('0-1 (default 0.7 = the retrieval floor). A flat multiplier on search rank — below 0.7 the memory cannot be retrieved even on its own text. Express doubt in the CONTENT (the embedded text), never by lowering this. Raise to 0.9+ for verified facts.'),
         sourceReliability: z.enum(['direct-user', 'deliberate-store', 'granola-single', 'granola-multi', 'inferred', 'auto-derived']).optional()
           .describe('How trustworthy is the source? direct-user > deliberate-store > granola-single > granola-multi > inferred > auto-derived'),
         classification: z.enum(['public', 'internal', 'confidential', 'restricted']).optional()
@@ -378,7 +490,7 @@ export function registerTools(server: McpServer) {
                 tags: [...(derived.tags as string[] || []), 'pulse', ...(slot ? [`slot:${slot}`] : [])],
                 sourceType: 'session',
                 sourceProject: sourceProject || 'default',
-                confidence: cap.confidence ?? 0.6,
+                confidence: cap.confidence ?? RETRIEVAL_CONFIDENCE_FLOOR,
                 domain: derived.domain as string,
                 topic: derived.topic as string,
                 memoryType: derived.memoryType as any,
@@ -428,24 +540,24 @@ export function registerTools(server: McpServer) {
         const successful = captureResults.filter((r: any) => r?.zone !== 'error')
         const errored = captureResults.length - successful.length
         const deduplicated = successful.filter((r: any) => r?.deduplicated).length
-        const zones = {
-          noop: successful.filter((r: any) => r?.zone === 'noop').length,
-          add: successful.filter((r: any) => r?.zone === 'add').length,
-          borderline: successful.filter((r: any) => r?.zone === 'borderline').length,
-        }
 
         const parts: string[] = []
-        parts.push(`Captured ${successful.filter((r: any) => !r?.deduplicated).length}, merged ${successful.filter((r: any) => r?.merged).length} | Zones: ${zones.noop} noop, ${zones.add} new, ${zones.borderline} borderline`)
+        parts.push(formatPulseHeadline(successful as PulseOutcome[]))
         // Echo stored IDs — without them a same-session correction cannot complete the
         // archive-supersede protocol (fresh captures lag the search index by minutes, so
         // the just-stored row is unfindable; micro-frictions 7/20, twice in one session).
         // On a noop/merge the id is the EXISTING memory's — exactly the row a correction targets.
-        const idParts = successful
-          .filter((r: any) => r?.memory?.id)
-          .map((r: any) => `#${r.index + 1}=${r.memory.id} (${r.zone})`)
-        if (idParts.length > 0) parts.push(`IDs: ${idParts.join(' · ')}`)
+        const ids = formatPulseIds(successful as PulseIdOutcome[])
+        if (ids) parts.push(ids)
         // Surface the two paths that previously read as a silent "Captured 0":
-        if (deduplicated > 0) parts.push(`Deduplicated: ${deduplicated} capture(s) matched an existing memory and were not re-stored (expected, not a failure).`)
+        // TD-1334: this line used to end "(expected, not a failure)". Measured false on
+        // 2026-08-31: a 3-capture batch reported `Captured 1, merged 1 | Deduplicated: 2`,
+        // and read-back showed BOTH deduplicated captures had been absorbed into
+        // semantically UNRELATED memories (a 13-day-old Life-OS doc note, and another
+        // slot's ticket note from 3 minutes earlier), whose `last_validated` was then
+        // restamped. The content was gone and the reassurance said not to look.
+        // A dedup MAY be correct — but it is unverified, and only the caller can grade it.
+        if (deduplicated > 0) parts.push(`Deduplicated: ${deduplicated} capture(s) matched an existing memory and were NOT stored — the id shown above is that EXISTING row, not your text. The match is unverified: read it back (memory_read is free) and confirm it actually covers what you wrote. If it does not, re-store via memory_store.`)
         if (errored > 0) parts.push(`WARNING: ${errored} capture(s) FAILED to store (embedding/triage error) and were NOT saved — retry, or fall back to memory_store. See server logs for the cause.`)
         if (dropped > 0) parts.push(`WARNING: ${dropped} capture(s) dropped — batch limit is ${MAX_CAPTURES}. Send multiple pulse calls for larger batches.`)
         if (tooShort > 0) parts.push(`Filtered: ${tooShort} capture(s) skipped (content < 20 chars)`)
@@ -531,11 +643,17 @@ export function registerTools(server: McpServer) {
       reason: z.string().describe('Why the original was wrong and what changed'),
       category: categoryEnum.optional().describe('Override auto-category for corrected memory'),
       tags: z.array(controlledTagEnum).optional().describe('Override auto-tags'),
+      // TD-1221: without these the corrected memory inherited NOTHING from the one
+      // it supersedes — domain/topic were re-derived from prose that is *about* a
+      // correction. Default is now inherit-from-the-superseded-memory; these
+      // override that in turn.
+      domain: domainEnum.optional().describe('Override the domain. Default: inherit from the memory being corrected'),
+      topic: z.string().optional().describe('Override the topic. Default: inherit from the memory being corrected'),
       confidence: z.number().min(0).max(1).default(0.9),
       accessLevel: z.enum(['exploration', 'standard', 'privileged', 'admin']).optional()
         .describe('Agent access tier. Gates the read of the memory being corrected: an over-tier target redacts as not-found (TD-883/884 parity). Default: no ceiling.'),
     },
-    async ({ wrongMemoryId, correctedContent, reason, category, tags, confidence, accessLevel }) => {
+    async ({ wrongMemoryId, correctedContent, reason, category, tags, domain, topic, confidence, accessLevel }) => {
       try {
         // 1. Verify the wrong memory exists.
         // TD-887: thread the classification ceiling into the read. memory_correct
@@ -552,8 +670,21 @@ export function registerTools(server: McpServer) {
           return { content: [{ type: 'text' as const, text: `Memory ${wrongMemoryId} not found. Cannot correct a non-existent memory.` }] }
         }
 
-        // 2. Store the corrected version
-        const derived = deriveAll(correctedContent, { category, tags, sourceTool: 'mcp-correct' })
+        // 2. Store the corrected version.
+        // TD-1221 — resolution order is explicit-override > inherited > derived, and it
+        // is threaded THROUGH deriveAll rather than applied to `input` afterwards on
+        // purpose: the response below echoes `derived.domain`, so patching only `input`
+        // would store the inherited domain while REPORTING the derived one — replacing a
+        // silent bug with a lying one. Resolving here keeps the store and the echo the
+        // same value by construction. (deriveAll uses `override || derive()`, so an
+        // undefined on both arms falls through to derivation exactly as before.)
+        const derived = deriveAll(correctedContent, {
+          category,
+          tags,
+          domain: domain ?? wrongMemory.domain,
+          topic: topic ?? wrongMemory.topic,
+          sourceTool: 'mcp-correct',
+        })
         const input: MemoryInput = {
           content: correctedContent,
           summary: derived.summary as string,
@@ -587,9 +718,14 @@ export function registerTools(server: McpServer) {
         return {
           content: [{
             type: 'text' as const,
+            // TD-1221 acceptance #3: name the domain/topic actually stored, and where
+            // they came from. The drift survived because the caller was never told
+            // which domain was chosen — an inherit that silently failed would look
+            // identical to one that worked.
             text: `Corrected memory ${wrongMemoryId}.\n` +
-              `Old: ${wrongMemory.summary || '(no summary)'}\n` +
-              `New: [${derived.domain}/${derived.category}] ${derived.summary}\n` +
+              `Old: [${wrongMemory.domain || '(none)'}/${wrongMemory.topic || '(none)'}] ${wrongMemory.summary || '(no summary)'}\n` +
+              `New: [${derived.domain}/${derived.category}] topic=${derived.topic} ${derived.summary}\n` +
+              `Domain: ${derived.domain} (${domain ? 'explicit override' : wrongMemory.domain ? 'inherited from the corrected memory' : 'derived — the superseded memory had none'})\n` +
               `Reason: ${reason}\n` +
               `New memory ID: ${correctedMemory.id}`,
           }],

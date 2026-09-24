@@ -13,7 +13,64 @@
  */
 
 import OpenAI from 'openai'
+import { createTimeoutFetch } from './client.js'
 import { redactForEmbedding } from './pii-detection.js'
+
+// ---------------------------------------------------------------------------
+// Deadlines (TD-1218, second leg)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every embedding call needs its own deadline, and this is the leg the 1815s
+ * incident actually ran through.
+ *
+ * #3631 bounded the Supabase transport and reported the stack was no longer
+ * able to hang. It is one of two legs. `SupabaseVectorProvider.search()`
+ * (`vectordb/supabase.ts:147`) calls `generateEmbedding(query)` BEFORE it issues
+ * any Supabase request, so a `memory_search` / `memory_context` is
+ * embed-then-query and only the second half was bounded.
+ *
+ * The arithmetic is why this is the likely root cause rather than a second
+ * theoretical gap: the live provider is OpenAI (no EMBEDDING_PROVIDER is set
+ * and OPENAI_API_KEY is present, so `getEmbeddingProvider()` auto-detects it),
+ * and the OpenAI SDK v4 defaults are `timeout = 600000` and `maxRetries = 2`
+ * (`node_modules/openai/core.js:138`). Three attempts of 10 minutes is 1800s;
+ * add retry backoff and it is ~1815s. The harness aborted the 8/13 call at
+ * **1815 seconds**. That is not a coincidence — it is the SDK's own ceiling
+ * being reached, and #3631's 15s Supabase deadline could never have fired on it.
+ *
+ * So the deadline here is the one that binds. Worst case per embedding is now
+ * `timeout × 2 attempts` (~30s) rather than 1800s.
+ */
+const DEFAULT_EMBEDDING_TIMEOUT_MS = 15_000
+
+/**
+ * One retry, not the SDK's two. A transient 429/5xx still recovers, but the
+ * worst case stays inside a turn instead of consuming it — a bounded loud
+ * failure beats an unbounded silent one, which is the whole lesson of TD-1218.
+ */
+const EMBEDDING_MAX_RETRIES = 1
+
+export function getEmbeddingTimeoutMs(): number {
+  const raw = process.env.TRAQR_EMBEDDING_TIMEOUT_MS
+  if (raw === undefined || raw === '') return DEFAULT_EMBEDDING_TIMEOUT_MS
+  const n = Number(raw)
+  // 0 / negative / NaN mean "unset", never "no timeout" — same rule as the
+  // memory deadline, for the same reason: a bad override must not silently
+  // restore hang-forever.
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_EMBEDDING_TIMEOUT_MS
+}
+
+/** Deadline-bounded fetch for the embedding/rerank legs. */
+export function embeddingFetch(): typeof fetch {
+  return createTimeoutFetch(getEmbeddingTimeoutMs(), fetch, {
+    leg: 'embedding',
+    envVar: 'TRAQR_EMBEDDING_TIMEOUT_MS',
+    guidance:
+      'The embedding provider did not answer, so the query was never vectorised and no search ' +
+      'ran at all (TD-1218): treat any prior-art check that hit this as NOT PERFORMED.',
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,7 +114,14 @@ class OpenAIEmbeddingProvider implements EmbeddingProvider {
         'Get your API key from https://platform.openai.com/api-keys'
       )
     }
-    this.client = new OpenAI({ apiKey, baseURL: process.env.OPENAI_BASE_URL })
+    // TD-1218 — the SDK defaults to timeout 600000 / maxRetries 2, i.e. a
+    // 1800s ceiling on ONE embedding call. That ceiling is the 1815s hang.
+    this.client = new OpenAI({
+      apiKey,
+      baseURL: process.env.OPENAI_BASE_URL,
+      timeout: getEmbeddingTimeoutMs(),
+      maxRetries: EMBEDDING_MAX_RETRIES,
+    })
     return this.client
   }
 
@@ -116,7 +180,8 @@ class GeminiEmbeddingProvider implements EmbeddingProvider {
       throw new Error('GOOGLE_API_KEY not set. Required when EMBEDDING_PROVIDER=gemini. Get one at https://aistudio.google.com')
     }
     const truncated = text.slice(0, 8191 * 4)
-    const response = await fetch(
+    // TD-1218 — bare `fetch` has no response deadline; see embeddingFetch().
+    const response = await embeddingFetch()(
       `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:embedContent?key=${apiKey}`,
       {
         method: 'POST',
@@ -236,7 +301,8 @@ class OllamaEmbeddingProvider implements EmbeddingProvider {
 
   async generate(text: string): Promise<EmbeddingResult> {
     const truncated = text.slice(0, 8191 * 4)
-    const response = await fetch(`${this.baseUrl}/api/embed`, {
+    // TD-1218 — bare `fetch` has no response deadline; see embeddingFetch().
+    const response = await embeddingFetch()(`${this.baseUrl}/api/embed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: this.model, input: truncated }),
@@ -264,7 +330,8 @@ class OllamaEmbeddingProvider implements EmbeddingProvider {
   async generateBatch(texts: string[]): Promise<EmbeddingResult[]> {
     // Ollama supports batch via array input
     const truncated = texts.map(t => t.slice(0, 8191 * 4))
-    const response = await fetch(`${this.baseUrl}/api/embed`, {
+    // TD-1218 — bare `fetch` has no response deadline; see embeddingFetch().
+    const response = await embeddingFetch()(`${this.baseUrl}/api/embed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: this.model, input: truncated }),

@@ -7,14 +7,29 @@
  */
 
 // Memory categories for organizing learnings
-export type MemoryCategory =
-  | 'gotcha'      // Common pitfalls and mistakes to avoid
-  | 'pattern'     // Reusable patterns that work well
-  | 'fix'         // Bug fixes and solutions
-  | 'insight'     // General insights and learnings
-  | 'question'    // Open questions still being explored
-  | 'preference'  // Coding style, design choices, how the developer likes things done
-  | 'convention'  // Project rules, naming patterns, file structure conventions
+/**
+ * The canonical category list. Every runtime check derives from this array.
+ * Do not hand-maintain a second copy.
+ *
+ * TD-1334: the borderline ACTION list lived in four hand-maintained places,
+ * one was missed, and a valid verdict was rejected as malformed for 150 days.
+ * When that was found, THIS list had six copies in this package. A copy typed
+ * `MemoryCategory[]` catches an INVALID value at compile time but is silent
+ * about a MISSING one — and missing is the direction that bit us.
+ *
+ *   gotcha      Common pitfalls and mistakes to avoid
+ *   pattern     Reusable patterns that work well
+ *   fix         Bug fixes and solutions
+ *   insight     General insights and learnings
+ *   question    Open questions still being explored
+ *   preference  Coding style, design choices, how the developer likes things done
+ *   convention  Project rules, naming patterns, file structure conventions
+ */
+export const MEMORY_CATEGORIES = [
+  'gotcha', 'pattern', 'fix', 'insight', 'question', 'preference', 'convention',
+] as const
+
+export type MemoryCategory = (typeof MEMORY_CATEGORIES)[number]
 
 // Source types for tracking where memories came from
 export type MemorySourceType =
@@ -73,6 +88,27 @@ export function exceedsClassificationCeiling(
   const rank = CLASSIFICATION_RANK[(classification ?? 'public') as MemoryClassification]
   if (rank === undefined) return true // unknown classification → fail closed
   return rank > CLASSIFICATION_RANK[ceiling]
+}
+
+// The set-shaped twin of exceedsClassificationCeiling, for callers that must push
+// the ceiling DOWN into the query instead of filtering rows after the fact.
+//
+// A row-by-row filter is fine when you already hold the rows; it is wrong for an
+// aggregate, where the count has to exclude over-tier rows the caller never sees.
+// Returns undefined for "no ceiling" (count everything) so the caller can skip the
+// predicate entirely. Fails closed the same way its twin does: an unknown
+// classification string is absent from this list, so it is never counted.
+export function allowedClassifications(
+  accessLevel?: MemoryAccessLevel,
+  maxClassification?: MemoryClassification,
+): MemoryClassification[] | undefined {
+  const ceiling: MemoryClassification | undefined =
+    maxClassification ??
+    (accessLevel ? ACCESS_LEVEL_MAX_CLASSIFICATION[accessLevel] : undefined)
+  if (!ceiling) return undefined
+  const max = CLASSIFICATION_RANK[ceiling]
+  return (Object.keys(CLASSIFICATION_RANK) as MemoryClassification[])
+    .filter((c) => CLASSIFICATION_RANK[c] <= max)
 }
 
 // Retention policies for data lifecycle (Glasswing TD-716)
@@ -251,6 +287,33 @@ export interface MemoryExport {
   lastCitedAt?: string
 }
 
+// TD-1018: the exact column set `exportAll`'s row mapper reads. Named here so
+// both drivers project it instead of `SELECT *`. The point is what it OMITS —
+// `embedding` is a 1536-dim vector (~6 KB/row) that no mapper field consumes,
+// so `SELECT *` was moving ~74 MB of vectors per call to be discarded.
+export const MEMORY_EXPORT_COLUMNS = [
+  'id', 'content', 'summary', 'category', 'tags', 'context_tags',
+  'source_type', 'source_ref', 'source_project', 'original_confidence',
+  'last_validated', 'related_to', 'is_contradiction', 'is_archived',
+  'archive_reason', 'durability', 'expires_at', 'embedding_model',
+  'embedding_model_version', 'created_at', 'updated_at',
+].join(', ')
+
+// TD-1018: the six fields the stats aggregators actually read. `getMemoryStats`
+// and `getDetailedStats` used to call `exportAll()` — a full table download —
+// to compute counts. Measured before the fix: 74 calls, 28 s mean, 392,679
+// disk blocks read.
+export interface MemoryStatsRow {
+  id: string
+  category?: string
+  sourceType?: string
+  tags: string[]
+  isArchived: boolean
+  createdAt: string
+}
+
+export const MEMORY_STATS_COLUMNS = 'id, category, source_type, tags, is_archived, created_at'
+
 // Domain for isolating memories by project
 export interface MemoryDomain {
   id: string
@@ -292,6 +355,9 @@ export interface VectorDBProvider {
   // Bulk operations
   exportAll(domainId?: string): Promise<MemoryExport[]>
   importBulk(memories: MemoryExport[], domainId: string): Promise<number>
+  // TD-1018: narrow projection for the stats aggregators, so counting rows
+  // does not download every row's embedding.
+  statsRows(): Promise<MemoryStatsRow[]>
 
   // Domain management
   createDomain(name: string, description?: string, userId?: string): Promise<MemoryDomain>
@@ -325,6 +391,10 @@ export interface VectorDBProvider {
 
   // Utility operations (abstracted from direct client calls)
   browse(options?: { domain?: string, category?: string, limit?: number, accessLevel?: MemoryAccessLevel, maxClassification?: MemoryClassification }): Promise<BrowseResult[]>
+  // Domain counts over the WHOLE corpus, not over a page of it. Separate from
+  // browse() on purpose: browse() is paged by contract, and counting its page
+  // is what made memory_browse report 6 jiggy memories against 5,868 real ones.
+  browseDomainCounts(options?: { accessLevel?: MemoryAccessLevel, maxClassification?: MemoryClassification }): Promise<Record<string, number>>
   forget(id: string): Promise<void>
   createRelationship(sourceId: string, targetId: string, edgeType: string, metadata?: Record<string, unknown>): Promise<string | null>
   countEntityMentions(name: string, userId: string): Promise<number>

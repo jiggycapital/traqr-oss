@@ -14,7 +14,18 @@ import OpenAI from 'openai'
 // Types
 // ---------------------------------------------------------------------------
 
-export type BorderlineAction = 'add' | 'update' | 'correct' | 'noop'
+/**
+ * The single source of truth for borderline actions.
+ *
+ * TD-1334: this used to be three hand-maintained lists — the type union, the
+ * response-schema enum, and the runtime validator's allowlist. #1223 added
+ * 'correct' to the first two and missed the third, so for 150 days a valid
+ * CORRECT verdict was rejected as a malformed response. Deriving all three
+ * from one array makes that class of drift unrepresentable.
+ */
+export const BORDERLINE_ACTIONS = ['add', 'update', 'correct', 'noop'] as const
+
+export type BorderlineAction = (typeof BORDERLINE_ACTIONS)[number]
 
 export interface BorderlineDecision {
   action: BorderlineAction
@@ -53,7 +64,7 @@ function getClient(): OpenAI {
 
 const LABELS = ['MEMORY_A', 'MEMORY_B', 'MEMORY_C']
 
-function buildPrompt(newContent: string, existing: MaskedMemory[], memoryType: string): string {
+export function buildPrompt(newContent: string, existing: MaskedMemory[], memoryType: string): string {
   const typeGuidance = {
     fact: 'Facts have one truth. If the new memory contradicts an existing fact, UPDATE.',
     preference: 'Preferences change over time. If the new memory expresses a different preference on the same topic, UPDATE.',
@@ -88,7 +99,7 @@ Respond with JSON only.`
 // JSON Schema for structured output
 // ---------------------------------------------------------------------------
 
-const RESPONSE_SCHEMA = {
+export const RESPONSE_SCHEMA = {
   type: 'json_schema' as const,
   json_schema: {
     name: 'borderline_decision',
@@ -96,7 +107,7 @@ const RESPONSE_SCHEMA = {
     schema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['add', 'update', 'correct', 'noop'] },
+        action: { type: 'string', enum: [...BORDERLINE_ACTIONS] },
         target: { type: ['string', 'null'], description: 'Label of the existing memory to update (e.g., MEMORY_A). Null for add/noop.' },
         reasoning: { type: 'string', description: 'Brief explanation of the decision.' },
       },
@@ -109,6 +120,51 @@ const RESPONSE_SCHEMA = {
 // ---------------------------------------------------------------------------
 // Core Decision Function
 // ---------------------------------------------------------------------------
+
+/**
+ * Turn a parsed LLM response into a decision, or null if it is unusable.
+ *
+ * Split out of `borderlineDecision` so these rules are reachable by a test
+ * without an OpenAI round-trip — the TD-1334 defect lived here and survived
+ * 150 days precisely because the only way to exercise it was over the network.
+ *
+ * Returning null means "the LLM did not answer", and the caller then falls back
+ * to a length heuristic that has NOT read the two texts against each other. So
+ * rejecting a VALID verdict here is not a neutral degradation: it is how a
+ * correction ends up scored on which text is longer.
+ */
+export function interpretBorderlineResponse(parsed: any): BorderlineDecision | null {
+  if (!parsed || typeof parsed !== 'object') return null
+
+  if (!(BORDERLINE_ACTIONS as readonly string[]).includes(parsed.action)) return null
+
+  const target =
+    typeof parsed.target === 'string' && parsed.target ? parsed.target : undefined
+
+  // Validate the target label for every action that acts ON an existing memory.
+  // 'correct' belongs here because it ARCHIVES that target — an unrecognised
+  // label would otherwise silently resolve to the nearest neighbour upstream.
+  if ((parsed.action === 'update' || parsed.action === 'correct') && target) {
+    if (!LABELS.includes(target)) return null
+  }
+
+  // A CORRECT naming no target would archive the nearest neighbour on a guess.
+  // Degrade to ADD instead: storing alongside is never data loss.
+  const action: BorderlineAction =
+    parsed.action === 'correct' && !target ? 'add' : parsed.action
+
+  const edgeType: BorderlineDecision['edgeType'] =
+    action === 'update' || action === 'correct' ? 'updates' :
+    action === 'add' ? 'related' :
+    null
+
+  return {
+    action,
+    target,
+    edgeType,
+    reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : '',
+  }
+}
 
 /**
  * Ask GPT-4o-mini to classify a borderline memory.
@@ -134,28 +190,7 @@ export async function borderlineDecision(
     const content = response.choices[0]?.message?.content
     if (!content) return null
 
-    const parsed = JSON.parse(content)
-
-    // Validate action
-    if (!['add', 'update', 'noop'].includes(parsed.action)) return null
-
-    // Validate target label if update
-    if (parsed.action === 'update' && parsed.target) {
-      if (!LABELS.includes(parsed.target)) return null
-    }
-
-    // Map action to edge type
-    const edgeType: BorderlineDecision['edgeType'] =
-      parsed.action === 'update' ? 'updates' :
-      parsed.action === 'add' ? 'related' :
-      null
-
-    return {
-      action: parsed.action,
-      target: parsed.target || undefined,
-      edgeType,
-      reasoning: parsed.reasoning || '',
-    }
+    return interpretBorderlineResponse(JSON.parse(content))
   } catch (err) {
     console.warn('[borderline] LLM decision failed, falling back to heuristic:', err instanceof Error ? err.message : err)
     return null

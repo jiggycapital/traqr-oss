@@ -153,13 +153,9 @@ curl -s --max-time 3 -X POST "{{PROJECT_API_BASE}}/control-center/state" \
 ```
 {{/IF_CONTROL_CENTER}}
 
-{{#IF_DAEMON}}**Clear active plan** (so Guardian's pre-merge check doesn't block):
-```bash
-SLOT_NAME=$(basename $(pwd))
-BODY=$(jq -nc --arg s "$SLOT_NAME" '{slotName:$s}')
-curl -s --max-time 5 -X POST "{{PROJECT_API_BASE}}/orchestrate/complete-plan" \
-  -H "Content-Type: application/json" -d "$BODY" > /dev/null &
-```
+{{#IF_DAEMON}}**Active plan:** nothing to clear — `plan:slot:*:active` has had no writer since TD-843, and
+Guardian reads planned files from Linear comments (`verifyPlanIntegrity`, pr-scanning.ts). The old
+`orchestrate/complete-plan` POST had 404'd since the 2026-03-21 platform split (TD-1391).
 {{/IF_DAEMON}}
 
 **Push:**

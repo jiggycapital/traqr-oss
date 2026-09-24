@@ -42,6 +42,16 @@
 -- EXECUTES the function (a string-only signature check would miss a 42804).
 -- ============================================================================
 
+-- ⚠️ ATOMICITY IS LOAD-BEARING, so this file opens its own transaction rather
+-- than trusting the applier to. The header above promises the trailing guard
+-- "fails the migration here instead of silently degrading every memory_search
+-- to []" — but a RAISE inside a DO block unwinds only that block. Outside an
+-- explicit transaction the DROP and CREATE have already autocommitted by the
+-- time the guard runs, so a 42804 leaves the BROKEN function installed with the
+-- working one already dropped: the guard reports the exact degradation it was
+-- written to prevent, on the RPC the fleet's entire recall path reads.
+BEGIN;
+
 -- Return-type changes require a drop (CREATE OR REPLACE cannot alter the
 -- RETURNS TABLE column set). Signature matches migration 013 exactly.
 DROP FUNCTION IF EXISTS search_memories(
@@ -196,3 +206,5 @@ END $$;
 
 INSERT INTO _traqr_migrations (name) VALUES ('014_search_memories_return_domain.sql')
 ON CONFLICT DO NOTHING;
+
+COMMIT;

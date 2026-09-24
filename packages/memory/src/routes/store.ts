@@ -14,7 +14,6 @@ import { CLASSIFICATION_RANK } from '../vectordb/types.js'
 
 const VALID_CLASSIFICATIONS: MemoryClassification[] = ['public', 'internal', 'confidential', 'restricted']
 
-const VALID_CATEGORIES: MemoryCategory[] = ['gotcha', 'pattern', 'fix', 'insight', 'question', 'preference', 'convention']
 const VALID_SOURCE_TYPES = ['pr', 'manual', 'extracted', 'bootstrap', 'advisor_session', 'plan', 'web_research', 'session', 'codebase_analysis']
 const VALID_DURABILITIES = ['permanent', 'temporary', 'session']
 
@@ -41,8 +40,9 @@ app.post('/', async (c) => {
       return c.json({ success: false, error: `sourceType must be one of: ${VALID_SOURCE_TYPES.join(', ')}` }, 400)
     }
 
-    // Accept any category string — the system learns the user's taxonomy
-    // VALID_CATEGORIES are suggestions for auto-derive, not restrictions
+    // Accept any category string — the system learns the user's taxonomy.
+    // Categories are suggestions for auto-derive, never restrictions, so this
+    // route deliberately runs NO category allowlist (TD-1334 sweep).
 
     if (body.confidence !== undefined) {
       const conf = Number(body.confidence)

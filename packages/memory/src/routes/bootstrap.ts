@@ -11,8 +11,9 @@
 import { Hono } from 'hono'
 import { storeWithDedup } from '../lib/memory.js'
 import type { MemoryCategory } from '../vectordb/types.js'
+import { MEMORY_CATEGORIES } from '../vectordb/types.js'
 
-const VALID_CATEGORIES: MemoryCategory[] = ['gotcha', 'pattern', 'fix', 'insight', 'question', 'preference', 'convention']
+const VALID_CATEGORIES: MemoryCategory[] = [...MEMORY_CATEGORIES]
 
 interface BootstrapSection {
   content: string

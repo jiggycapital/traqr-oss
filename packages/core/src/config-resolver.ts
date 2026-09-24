@@ -38,7 +38,7 @@ export interface ProjectRegistryEntry {
   repoPath: string;
   /** Absolute path to the project's worktrees directory */
   worktreesPath: string;
-  /** Display name, e.g. "NookTraqr" */
+  /** Display name, e.g. "My App" */
   displayName: string;
   /** 2-char alias prefix for shell aliases, e.g. "nk" */
   aliasPrefix: string;

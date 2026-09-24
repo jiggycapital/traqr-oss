@@ -234,7 +234,7 @@ Display what you found:
 
 Ask for the new app's identity:
 ```
-AskUserQuestion: "App name (slug, e.g. 'pokotraqr')"
+AskUserQuestion: "App name (slug, e.g. 'my-app')"
 AskUserQuestion: "Display name" (default: app name)
 AskUserQuestion: "Slack channel prefix (2-3 chars)" (default: first 2 chars of slug)
 ```
@@ -2268,8 +2268,8 @@ Present the remaining manual steps. **Skip services that were fully provisioned 
    LINEAR_CHANNEL_PREFIX_MAP — append "<ticket-prefix>:<channel-prefix>"
 
    Example (adding a second project alongside Traqr):
-     TRAQR_REPO_PROJECT_MAP="jiggycapital/traqr:nk:NTQ,jiggycapital/other-project:td:TD"
-     LINEAR_CHANNEL_PREFIX_MAP="NTQ:nk,TD:td"
+     TRAQR_REPO_PROJECT_MAP="your-org/your-app:ya:YAP,your-org/second-app:sa:SAP"
+     LINEAR_CHANNEL_PREFIX_MAP="YAP:ya,SAP:sa"
 
    Update in both .env.local and your hosting provider (e.g., Vercel).
 ```

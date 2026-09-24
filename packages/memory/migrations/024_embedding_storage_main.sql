@@ -1,0 +1,70 @@
+-- 024_embedding_storage_main.sql
+-- Take `traqr_memories.embedding` out of TOAST for all NEWLY-WRITTEN tuples.
+--
+-- WHY (TD-1018 step 1 of 3 — Sean's work order, sean_asks #243 answered 2026-08-12:
+-- "leave Micro, prioritise the Lane-2 is_latest/tags index-and-query-shape work")
+-- ---------------------------------------------------------------------------
+-- 96.1% of `search_memories`' entire buffer traffic is detoasting this one column
+-- (measured 2026-08-22: 81,655 buffers touching `embedding` vs 3,222 on the
+-- identical query that never reads it — 78,433 buffers, ~6.4 per row).
+--
+-- The cost is per-row TOAST *index descents*, not bytes. That is why the obvious
+-- fix failed: `halfvec(1536)` halves the payload (TOAST 187 MB -> 54 MB) and moves
+-- buffers by 32 out of 81,655 — 0.04%. Halving the chunks (4->2) leaves the descent
+-- untouched, and the descent dominates. Byte-count was the wrong model of the cost.
+--
+-- Measured, same 13,575-row set, four variants (2026-08-22, EXPLAIN ANALYZE BUFFERS):
+--   vector(1536)  TOASTed   (production) : 81,655 buffers, 15,415 ms
+--   halfvec(1536) TOASTed   (branch b)   : 81,623 buffers,  5,699 ms
+--   vector(1536)  STORAGE MAIN           : 13,576 buffers,  5,368 ms   <-- this file
+--   halfvec(1536) STORAGE MAIN           :  6,790 buffers,    265 ms
+-- SET STORAGE MAIN is worth 6.0x ON ITS OWN with ZERO precision change. halfvec is
+-- a multiplier on top of it, not a fix by itself — and its precision cost against
+-- THIS corpus is unmeasured, so it stays out of this migration (TD-1018 step 3).
+--
+-- WHY MAIN AND NOT PLAIN: `vector(1536)` is 6,152 bytes and a tuple must fit ~8,160.
+-- PLAIN would forbid out-of-line storage outright and fail the insert on any row
+-- whose other columns do not fit the ~2,008-byte remainder. MAIN keeps the embedding
+-- inline *by preference* and still permits out-of-line as a last resort, so it
+-- cannot fail a write.
+--
+-- WHY THE PAGE BUDGET WORKS (measured on production 2026-08-31, 17,354 rows):
+-- `content` is p50 958 B, p90 1,825 B, p99 3,387 B, max 11,047 B — 10.4% of rows
+-- exceed the 2,008-byte remainder. Those rows still keep the embedding inline,
+-- because `embedding` is the ONLY column on this table with storage EXTERNAL;
+-- every other wide column (`content`, the three `search_vector*` tsvectors, all the
+-- varchars) is EXTENDED. Postgres evicts EXTERNAL/EXTENDED attributes largest-first
+-- and only touches MAIN attributes as a final pass, so the eviction order protects
+-- the embedding and spills `content`/tsvectors instead — which is the desired trade:
+-- the ranking hot path reads `embedding` for every candidate row and `content` only
+-- for the returned page.
+--
+-- SCOPE — THIS FILE DOES NOT REWRITE EXISTING ROWS. `SET STORAGE` governs only
+-- newly-written tuples, so this is metadata-only, instant, and NOT the 12x win by
+-- itself; it is the free, no-rewrite half. Existing rows stay TOASTed until a
+-- VACUUM FULL / pg_repack (TD-1018 step 2, a maintenance-window action that takes
+-- ACCESS EXCLUSIVE for its duration and is deliberately NOT bundled here).
+-- The intermediate state is safe and monitorable: heap grows at roughly the
+-- new-row rate (~208 rows/day x 6 KB ~= 1.3 MB/day) while TOAST stays put.
+--
+-- lock_timeout: ALTER TABLE ... SET STORAGE is metadata-only but still acquires
+-- ACCESS EXCLUSIVE. On a live fleet that can queue behind an in-flight
+-- memory_search and stall every writer behind it. Fail fast instead of queueing —
+-- re-run on timeout, it is idempotent.
+--
+-- APPLIED to prod (traqr-db) on 2026-08-31 by Feature2 /bethesda, Lane-2 consult
+-- logged at Decisions/2026-08-31-td-1018-step-1-set-storage-main.md.
+-- This file is the durable record + rollback.
+-- ---------------------------------------------------------------------------
+
+SET lock_timeout = '3s';
+
+ALTER TABLE public.traqr_memories
+  ALTER COLUMN embedding SET STORAGE MAIN;
+
+-- ROLLBACK (restores production's pre-2026-08-31 state; also metadata-only, and
+-- likewise applies only to tuples written after it runs — rows already inlined
+-- stay inline until a rewrite):
+--   SET lock_timeout = '3s';
+--   ALTER TABLE public.traqr_memories
+--     ALTER COLUMN embedding SET STORAGE EXTERNAL;

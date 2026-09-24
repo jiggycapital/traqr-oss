@@ -12,6 +12,7 @@ import { getSourceProject } from '../lib/learning-extractor.js'
 import { passesIngestionGate } from '../lib/quality-gate.js'
 import { deriveAll } from '../lib/auto-derive.js'
 import type { MemoryInput, MemoryCategory } from '../vectordb/types.js'
+import { MEMORY_CATEGORIES } from '../vectordb/types.js'
 
 const MAX_CAPTURES = 5
 const MAX_SEARCH_RESULTS = 5
@@ -20,9 +21,7 @@ const MIN_CAPTURE_LENGTH = 20
 const SNIPPET_LENGTH = 150
 const DEDUP_THRESHOLD = 0.75
 
-const VALID_CATEGORIES: MemoryCategory[] = [
-  'gotcha', 'pattern', 'fix', 'insight', 'question', 'preference', 'convention',
-]
+const VALID_CATEGORIES: MemoryCategory[] = [...MEMORY_CATEGORIES]
 
 interface CaptureInput {
   content: string
@@ -130,8 +129,18 @@ app.post('/', async (c) => {
             limit: searchLimit,
             similarityThreshold: 0.35,
           }).catch((err) => {
-            console.warn('[pulse] Search failed:', err)
-            return []
+            // Swallowing the throw is deliberate: the captures beside this have
+            // already stored, and a 500 here would invite the caller to re-send
+            // them. But the failure must be REPORTED (TD-1385): `return []` made a
+            // dead DB / statement timeout / 42P01 render byte-identically to a
+            // verified zero-match search. Same contract as memory_pulse (TD-1069)
+            // and memory_search/memory_context (#4519): a failed search never
+            // claims a verified empty.
+            console.warn('[pulse] Search failed (captures unaffected):', err)
+            return {
+              failed: true as const,
+              error: err instanceof Error ? err.message : String(err),
+            }
           })
         : Promise.resolve([]),
 
@@ -163,16 +172,26 @@ app.post('/', async (c) => {
       (r) => r && r.deduplicated && !r.merged
     ).length
 
-    const formattedSearch = searchQuery
-      ? searchResults.map((r) => ({
-          shortCode: `MEM-${r.id.slice(0, 6)}`,
-          snippet:
-            r.content.length > SNIPPET_LENGTH
-              ? r.content.slice(0, SNIPPET_LENGTH - 3) + '...'
-              : r.content,
-          score: Math.round(r.relevanceScore * 100) / 100,
-        }))
-      : undefined
+    // Three distinct states, three distinct renderings (mirrors memory_pulse):
+    //   not requested -> no `searchResults`, no `searchFailed`
+    //   verified empty -> `searchResults: []`
+    //   FAILED         -> no `searchResults`; `searchFailed: true` + `searchError`
+    // The failed state omits `searchResults` rather than sending `[]` beside the
+    // flag: a caller that does not know about the flag would otherwise read the
+    // `[]` as a verified empty — the exact lie this fixes.
+    const searchFailure =
+      searchQuery && !Array.isArray(searchResults) ? searchResults : null
+    const formattedSearch =
+      searchQuery && Array.isArray(searchResults)
+        ? searchResults.map((r) => ({
+            shortCode: `MEM-${r.id.slice(0, 6)}`,
+            snippet:
+              r.content.length > SNIPPET_LENGTH
+                ? r.content.slice(0, SNIPPET_LENGTH - 3) + '...'
+                : r.content,
+            score: Math.round(r.relevanceScore * 100) / 100,
+          }))
+        : undefined
 
     const updated = updateResults.filter(Boolean).length
 
@@ -192,6 +211,9 @@ app.post('/', async (c) => {
       ...(droppedCount > 0 ? { dropped: droppedCount, batchLimit: MAX_CAPTURES } : {}),
       ...(filteredCount > 0 ? { filtered: filteredCount } : {}),
       ...(formattedSearch ? { searchResults: formattedSearch } : {}),
+      ...(searchFailure
+        ? { searchFailed: true, searchError: searchFailure.error }
+        : {}),
     })
   } catch (error) {
     console.error('[pulse] Error:', error)

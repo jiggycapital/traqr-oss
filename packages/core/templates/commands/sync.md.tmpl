@@ -147,16 +147,13 @@ Expected commit: <hash>
 {{RAQR_HR}}
 ```
 
-{{#IF_TIER_1+}}### 6. Clear Sync Flags
+{{#IF_DAEMON}}### 6. Sync Flags
 
-```bash
-curl -s -X POST "{{MEMORY_API_BASE}}/orchestrate/sync-complete" \
-  -H "Content-Type: application/json" \
-  -d '{"slots": [<synced slots>], "commitSha": "<hash>"}'
-```
-
-Not critical — self-heals within 30 seconds.
-{{/IF_TIER_1+}}
+No flag to clear: the daemon verifies each slot is at origin/main and clears `syncNeeded` itself
+(`checkAndClearStaleSyncFlags`, slot-sync.ts, every `daemon.intervals.syncCheck` — 5 min default;
+Guardian's `syncAllSlots` repeats it post-merge). The old `orchestrate/sync-complete` POST had 404'd
+since the 2026-03-21 platform split (TD-1391).
+{{/IF_DAEMON}}
 
 ---
 

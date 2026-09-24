@@ -2,8 +2,8 @@
  * Canonical PR-merge ticket-closer (TD-791).
  *
  * The ONE extractor every auto-close path imports — Guardian's post-merge
- * lifecycle (`packages/daemon`) and the NookTraqr GitHub webhook routes
- * (`apps/nooktraqr/.../webhooks/github`, `.../internal/github-webhook`). Before
+ * lifecycle (`packages/daemon`) and the app-side GitHub webhook routes
+ * (`apps/<app>/.../webhooks/github`, `.../internal/github-webhook`). Before
  * this consolidation each path carried its own copy with a DIFFERENT body gate
  * (the classic "derive, don't copy" hazard): the daemon used a leading-directive
  * gate while the webhook used a looser keyword-anywhere-on-line gate. Same PR
@@ -21,7 +21,7 @@
  *            parens; a parenthesized ID is a relational cite like
  *            `revert(…): … (#2097 masked PTQ-97)` or `feat: … (TD-870 follow-up)`).
  *   Branch — every ticket ID closes. Branch names are auto-generated from the
- *            ticket (e.g. `seanfitzsimons/td-792-…`) and are high-signal.
+ *            ticket (e.g. `yourname/td-792-…`) and are high-signal.
  *   Body   — a ticket ID closes ONLY if its line is a closing DIRECTIVE: it
  *            begins (after optional list/quote/emphasis markers) with a closing
  *            keyword (Closes / Fixes / Resolves) that directly introduces an ID,
@@ -42,7 +42,7 @@
  * The first fix (TD-792 / PR #1720) narrowed "any prose mention" to "any line
  * containing a closing keyword as a word" — but that STILL false-closed, because a
  * keyword can appear mid-sentence on an ID's line. Verified regression: PR #1722
- * (jiggy webhook) merged 13:37Z with `Closes: none` and a heading "⚠️ Inert until
+ * (the webhook path) merged 13:37Z with `Closes: none` and a heading "⚠️ Inert until
  * wired — does NOT close `TD-793`"; the word "close" on that line closed TD-793 at
  * 13:37:31Z — the exact failure class #1720 set out to kill. This gate (the second
  * fix, TD-797 / PR #1728) requires the keyword to be a LEADING DIRECTIVE that
@@ -99,11 +99,11 @@ export function extractClosableTicketIds(
     //      optional `#<PR>` /ship prefix) contributes NO title IDs. A revert undoes
     //      work, so any ID it names is context — and an auto-generated revert title
     //      carries the ORIGINAL PR's ticket ID outside parens (e.g.
-    //      `revert(nooktraqr): NTQ-1028 — merge user_profiles (#2104)`), so a re-close
+    //      `revert(app): NTQ-1028 — merge user_profiles (#2104)`), so a re-close
     //      would wrongly mark Done the very ticket the revert is undoing.
     //   2. A title ID inside PARENTHESES does not close. The `/ship` convention always
     //      places the closing ticket OUTSIDE parens (parens hold the commit scope like
-    //      `(poketraqr)`), so a parenthesized ID is a relational cite —
+    //      `(app)`), so a parenthesized ID is a relational cite —
     //      `revert(…): … (#2097 masked PTQ-97)`, `feat: … (TD-870 follow-up)`. These
     //      false-closed the OPEN PTQ-97 (and re-closed already-Done TD-870 / TD-836)
     //      on 2026-06-19 — the new proxy TD-795 predicted, the failures TD-873 filed.

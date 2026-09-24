@@ -10,6 +10,7 @@
 import { getMemoryClient, getUserId, getProjectId, getTableName } from '../lib/client.js'
 import { generateEmbedding, formatEmbeddingForPgVector } from '../lib/embeddings.js'
 import { rowToMemory, rowToSearchResult } from './converters.js'
+import { logSwallowedDbError } from '../lib/db-errors.js'
 import type { MemoryRow, SearchResultRow } from './converters.js'
 import type {
   VectorDBProvider,
@@ -24,8 +25,9 @@ import type {
   BrowseResult,
   MemoryClassification,
   MemoryAccessLevel,
+  MemoryStatsRow,
 } from './types.js'
-import { ACCESS_LEVEL_MAX_CLASSIFICATION, CLASSIFICATION_RANK, exceedsClassificationCeiling } from './types.js'
+import { ACCESS_LEVEL_MAX_CLASSIFICATION, CLASSIFICATION_RANK, exceedsClassificationCeiling, MEMORY_EXPORT_COLUMNS, MEMORY_STATS_COLUMNS } from './types.js'
 import { encrypt, isEncryptionEnabled } from '../lib/encryption.js'
 
 export class SupabaseVectorProvider implements VectorDBProvider {
@@ -446,7 +448,10 @@ export class SupabaseVectorProvider implements VectorDBProvider {
   async exportAll(domainId?: string): Promise<MemoryExport[]> {
     const client = getMemoryClient()
 
-    let query = (client.from(getTableName()) as any).select('*')
+    // TD-1018: explicit projection, NOT `select('*')` — the row mapper below
+    // never reads `embedding`, so selecting it moved ~6 KB/row of vectors
+    // (~74 MB across the table) per call purely to discard it.
+    let query = (client.from(getTableName()) as any).select(MEMORY_EXPORT_COLUMNS)
 
     if (domainId) {
       query = query.eq('project_id', domainId)
@@ -483,6 +488,27 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       updatedAt: row.updated_at,
       domainName: undefined,
       userEmail: undefined,
+    }))
+  }
+
+  // TD-1018: the stats aggregators only need six columns. Going through
+  // `exportAll()` downloaded every embedding to compute counts.
+  async statsRows(): Promise<MemoryStatsRow[]> {
+    const client = getMemoryClient()
+    const { data, error } = await (client.from(getTableName()) as any).select(MEMORY_STATS_COLUMNS)
+
+    if (error) {
+      console.error('[VectorDB] Error reading stats rows:', error)
+      throw new Error(`Failed to read stats rows: ${error.message}`)
+    }
+
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      category: row.category ?? undefined,
+      sourceType: row.source_type ?? undefined,
+      tags: row.tags || [],
+      isArchived: row.is_archived,
+      createdAt: row.created_at,
     }))
   }
 
@@ -631,6 +657,7 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       .eq('is_archived', false)
       .limit(1)
       .maybeSingle()
+    if (error) logSwallowedDbError('findEntityByName (memory_entities select)', error)
     if (error || !data) return null
     return data
   }
@@ -645,6 +672,7 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       .eq('is_archived', false)
       .limit(1)
       .maybeSingle()
+    if (error) logSwallowedDbError('findEntityByNameFuzzy (memory_entities select)', error)
     if (error || !data) return null
     return data
   }
@@ -658,6 +686,7 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       p_threshold: threshold,
       p_limit: 1,
     })
+    if (error) logSwallowedDbError('findEntityByEmbedding (search_entities RPC)', error)
     if (error || !data || data.length === 0) return null
     return data[0]
   }
@@ -728,6 +757,7 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       .select('id')
       .eq('user_id', getUserId())
       .eq('is_archived', false)
+    if (error) logSwallowedDbError('orphaned-entity scan (memory_entities select)', error)
     if (error || !data) return []
 
     const orphaned: string[] = []
@@ -756,6 +786,41 @@ export class SupabaseVectorProvider implements VectorDBProvider {
   // ============================================================
   // UTILITY OPERATIONS (abstracted from direct client calls)
   // ============================================================
+
+  async browseDomainCounts(options?: { accessLevel?: MemoryAccessLevel, maxClassification?: MemoryClassification }): Promise<Record<string, number>> {
+    const client = getMemoryClient()
+    const PAGE = 1000
+    const MAX_PAGES = 500 // 500k rows of headroom; see the throw below
+
+    // PostgREST cannot GROUP BY without an RPC, so the count is assembled here from
+    // a two-column projection (no content, no embedding) paged to exhaustion. The
+    // ceiling is applied with the SAME predicate browse() uses, so the counts and
+    // the rows can never disagree about what a caller is allowed to see.
+    const counts: Record<string, number> = {}
+    for (let page = 0; ; page++) {
+      if (page >= MAX_PAGES) {
+        // A partial tally that LOOKS complete is the exact defect this method
+        // exists to fix, so refuse to return one.
+        throw new Error(
+          `browseDomainCounts: corpus exceeds ${MAX_PAGES * PAGE} rows; refusing to return a partial count`,
+        )
+      }
+      const { data, error } = await (client.from(getTableName()) as any)
+        .select('domain, classification')
+        .eq('is_archived', false)
+        .eq('is_forgotten', false)
+        .range(page * PAGE, page * PAGE + PAGE - 1)
+      if (error) throw new Error(error.message)
+      const rows = (data || []) as { domain: string | null, classification?: MemoryClassification }[]
+      for (const r of rows) {
+        if (exceedsClassificationCeiling(r.classification, options?.accessLevel, options?.maxClassification)) continue
+        const d = r.domain || 'unknown'
+        counts[d] = (counts[d] || 0) + 1
+      }
+      if (rows.length < PAGE) break
+    }
+    return counts
+  }
 
   async browse(options?: { domain?: string, category?: string, limit?: number, accessLevel?: MemoryAccessLevel, maxClassification?: MemoryClassification }): Promise<BrowseResult[]> {
     const client = getMemoryClient()
@@ -879,6 +944,7 @@ export class SupabaseVectorProvider implements VectorDBProvider {
       p_name: name,
       p_user_id: userId,
     })
+    if (error) logSwallowedDbError('countEntityMentions (count_entity_mentions RPC)', error)
     if (error || data === null || data === undefined) return 0
     return typeof data === 'number' ? data : 0
   }

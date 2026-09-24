@@ -20,6 +20,7 @@ import { readFileSync, readdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { selectForwardMigrations } from './lib/migration-files.js'
+import { resolveMigrationTarget } from './lib/migration-target.js'
 
 const MIGRATIONS_TABLE = '_traqr_migrations'
 
@@ -31,6 +32,19 @@ async function migrate() {
     console.error('Missing required env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY')
     process.exit(1)
   }
+
+  // Verify WHICH database this is before writing anything. Every other guard in
+  // this file protects the contents of the run; none of them help if the
+  // connection points at the wrong project. See lib/migration-target.ts.
+  const target = resolveMigrationTarget({
+    supabaseUrl,
+    expectedRef: process.env.TRAQR_MEMORY_DB_REF,
+  })
+  if (!target.ok) {
+    console.error(target.reason)
+    process.exit(1)
+  }
+  console.log(`Target project: ${target.ref}`)
 
   const client = createClient(supabaseUrl, supabaseKey)
 
@@ -67,8 +81,13 @@ async function migrate() {
     .select('name')
 
   if (trackingError) {
-    console.error(`Cannot read ${MIGRATIONS_TABLE}: ${trackingError.message}`)
-    console.error('Create the exec_sql RPC, or paste .traqr/schema.sql into the Supabase SQL Editor.')
+    console.error(`Cannot read ${MIGRATIONS_TABLE} on project ${target.ref}: ${trackingError.message}`)
+    // Naming the verified target matters here: this advice creates schema, and
+    // before the target guard existed it was printed just as readily when the
+    // connection pointed at an unrelated database — where following it would
+    // have provisioned the entire memory store in the wrong place.
+    console.error(`Confirm ${target.ref} is the intended memory store, then create the exec_sql RPC`)
+    console.error('or paste .traqr/schema.sql into its Supabase SQL Editor.')
     process.exit(1)
   }
 

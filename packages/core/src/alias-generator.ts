@@ -7,7 +7,7 @@
  *
  * Usage:
  *   generateAliasFile(config, { isPrimary: true })
- *   → writes ~/.traqr/aliases/nooktraqr.sh
+ *   → writes ~/.traqr/aliases/myapp.sh
  */
 
 import * as fs from 'fs';
@@ -628,49 +628,11 @@ export function generateAliasContent(
   // ================================================================
   if (config.guardian?.enabled) {
     lines.push('# =============================================================================');
-    lines.push('# Daemon Control (Two-Process Architecture)');
+    lines.push('# Daemon Control (Guardian)');
     lines.push('# =============================================================================');
-    lines.push('# Run each in its own terminal tab for independent restart/monitoring.');
     lines.push('# Exit code 75 = "code changed, pull + restart"');
     lines.push('# Exit code 0  = clean shutdown (Ctrl+C), stop');
     lines.push('# Any other    = crash, restart after 10s');
-    lines.push('');
-
-    // orchestrator()
-    lines.push('orchestrator() {');
-    lines.push(`    printf '\\e]0;Orchestrator\\a'`);
-    lines.push(`    printf '\\e]1;Orchestrator\\a'`);
-    lines.push('    echo ""');
-    lines.push(`    echo -e "  \${_C_BCYAN}Orchestrator\${_C_RESET}"`);
-    lines.push(`    echo -e "  \${_C_DIM}Task claiming · execution · Slack · plans\${_C_RESET}"`);
-    lines.push('    echo -e "  ${_C_DIM}────────────────────────────────────────────${_C_RESET}"');
-    lines.push('    echo ""');
-    lines.push(`    cd "$${P}_MAIN"`);
-    lines.push('    while true; do');
-    lines.push('        npx tsx scripts/orchestrator.ts --watch');
-    lines.push('        local exit_code=$?');
-    lines.push('        if [ "$exit_code" -eq 75 ]; then');
-    lines.push('            echo ""');
-    lines.push('            echo -e "  ${_C_BYELLOW}Code updated → pulling + restarting...${_C_RESET}"');
-    lines.push('            git pull --rebase origin main');
-    lines.push('            sleep 2');
-    lines.push('            echo -e "  ${_C_BCYAN}Restarting Orchestrator...${_C_RESET}"');
-    lines.push('            echo ""');
-    lines.push('        elif [ "$exit_code" -eq 0 ]; then');
-    lines.push('            echo ""');
-    lines.push('            echo -e "  ${_C_DIM}Orchestrator stopped cleanly.${_C_RESET}"');
-    lines.push('            break');
-    lines.push('        else');
-    lines.push('            echo ""');
-    lines.push('            echo -e "  ${_C_RED}Orchestrator crashed${_C_RESET} ${_C_DIM}(exit $exit_code)${_C_RESET} → restarting in 10s..."');
-    lines.push('            sleep 10');
-    lines.push('            echo -e "  ${_C_BCYAN}Restarting Orchestrator...${_C_RESET}"');
-    lines.push('            echo ""');
-    lines.push('        fi');
-    lines.push('    done');
-    lines.push(`    printf '\\e]0;Orchestrator - stopped\\a'`);
-    lines.push(`    printf '\\e]1;Orchestrator - stopped\\a'`);
-    lines.push('}');
     lines.push('');
 
     // guardian()
@@ -714,28 +676,6 @@ export function generateAliasContent(
     lines.push(`alias daemon-status='curl -s "\${TRAQR_API_BASE:-${apiBase}}/daemon/status" | jq .'`);
     lines.push('');
   }
-
-  // ================================================================
-  // Dashboard function (Raqr TUI — works from any directory)
-  // ================================================================
-  lines.push('# =============================================================================');
-  lines.push('# Raqr TUI Dashboard (Rust binary)');
-  lines.push('# =============================================================================');
-  lines.push('');
-  lines.push('dashboard() {');
-  lines.push(`    printf '\\e]0;Raqr Dashboard\\a'`);
-  lines.push(`    printf '\\e]1;Raqr Dashboard\\a'`);
-  lines.push(`    local _raqr_url="\${TRAQR_API_BASE:-${apiBase}}"`)
-  lines.push('    _raqr_url="${_raqr_url%/api}"');  // strip trailing /api if present
-  lines.push('    RAQR_API_URL="$_raqr_url" ~/.traqr/bin/raqr "$@"');
-  lines.push('    local slot=""');
-  for (const s of slots) {
-    lines.push(`    [[ "$(pwd)" == *"${s.name}"* ]] && slot="${s.name}"`);
-  }
-  lines.push(`    printf '\\e]0;%s\\a' "\${slot:-terminal}"`);
-  lines.push(`    printf '\\e]1;%s\\a' "\${slot:-terminal}"`);
-  lines.push('}');
-  lines.push('');
 
   return lines.join('\n') + '\n';
 }

@@ -49,6 +49,16 @@
 -- params at the END so existing named-param callers are unaffected.
 -- ============================================================================
 
+-- ⚠️ ATOMICITY IS LOAD-BEARING, so this file opens its own transaction rather
+-- than trusting the applier to. Guard (2) below is a live SECURITY assertion —
+-- it RAISEs when the classification filter does not bite — but a RAISE inside a
+-- DO block unwinds only that block. Outside an explicit transaction the DROP and
+-- CREATE have already autocommitted, so "the filter leaks at exploration tier"
+-- would be REPORTED while the unverified function stays installed and the
+-- previous definition is already gone. A security guard that cannot undo its
+-- own subject is an alarm, not a gate.
+BEGIN;
+
 -- Return-type + signature change requires a drop (CREATE OR REPLACE cannot alter
 -- the RETURNS TABLE column set). DROP signature matches the CURRENT live def.
 DROP FUNCTION IF EXISTS search_memories_cross_project(
@@ -238,3 +248,5 @@ END $$;
 
 INSERT INTO _traqr_migrations (name) VALUES ('016_cross_project_classification.sql')
 ON CONFLICT DO NOTHING;
+
+COMMIT;

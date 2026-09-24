@@ -113,6 +113,8 @@ export type {
 export {
   searchMemoriesV2,
   reciprocalRankFusion,
+  EXACT_ID_RECALL_POOL,
+  RETRIEVAL_CONFIDENCE_FLOOR,
 } from './lib/retrieval.js'
 export type {
   SearchV2Options,

@@ -6,6 +6,8 @@
  * Graceful degradation: returns null if COHERE_API_KEY not set or on any error.
  */
 
+import { embeddingFetch } from './embeddings.js'
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -53,7 +55,12 @@ export async function cohereRerank(
   if (documents.length === 0) return null
 
   try {
-    const response = await fetch('https://api.cohere.com/v2/rerank', {
+    // TD-1218 — bare `fetch` has no response deadline. Unlike the embed leg,
+    // a timeout here is genuinely safe to swallow: the catch below falls back
+    // to the RRF scores the caller already has, so the search still returns
+    // real results rather than an empty set. What it must NOT do is hang,
+    // because this stage sits on the same hot path as the 1815s incident.
+    const response = await embeddingFetch()('https://api.cohere.com/v2/rerank', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,

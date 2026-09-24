@@ -263,7 +263,7 @@ export function deriveLinearTeamConfig(
   appSlug: string,
 ): { teamKey: string; ticketPrefix: string; labels: Array<{ name: string; color: string }> } {
   // Derive a 3-letter ticket prefix from the app slug
-  // e.g. "pokotraqr" → "PKT", "jiggycapital" → "JIG"
+  // e.g. "myapp" → "MYA", "storefront" → "STO"
   const ticketPrefix = appSlug
     .replace(/[^a-zA-Z]/g, '')
     .toUpperCase()

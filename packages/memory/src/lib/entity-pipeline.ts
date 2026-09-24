@@ -15,6 +15,7 @@ import type { VectorDBProvider } from '../vectordb/types.js'
 import { getUserId } from './client.js'
 import { extractEntityCandidates, type EntityCandidate } from './auto-derive.js'
 import { generateEmbedding, formatEmbeddingForPgVector } from './embeddings.js'
+import { logSwallowedDbError } from './db-errors.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -179,7 +180,18 @@ async function countMentions(name: string): Promise<number> {
   try {
     const db = getVectorDB()
     return await db.countEntityMentions(name, getUserId())
-  } catch {
+  } catch (err) {
+    // TD-902's OTHER caller. Migration 020's header named BOTH swallow sites —
+    // `vectordb/supabase.ts` and `vectordb/postgres.ts` — and only the supabase one
+    // was instrumented. This catch is the shared consumer of both, so logging HERE
+    // covers every provider: the postgres path throws (raw `pool.query`) and lands
+    // here, and if supabase-js ever throws instead of resolving `{error}`, this
+    // catch would otherwise silently undo the supabase.ts instrumentation.
+    //
+    // The 0 is load-bearing: it feeds MENTION_THRESHOLD, so a structurally dead
+    // count_entity_mentions makes EVERY entity fail the documented 3+ promotion
+    // check — exactly the defect TD-902 named. Fail-open is kept; only the silence goes.
+    logSwallowedDbError('countMentions (count_entity_mentions, shared consumer)', err)
     return 0
   }
 }

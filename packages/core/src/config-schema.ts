@@ -47,7 +47,7 @@ export interface DaemonConfig {
     poll: number;
     /** Supabase task queue poll interval (default: 30s) */
     taskPoll: number;
-    /** Guardian merge loop interval (default: 30s) */
+    /** Guardian merge loop interval (default: 60s) */
     guardian: number;
     /** Slack question check interval (default: 60s) */
     question: number;
@@ -59,7 +59,7 @@ export interface DaemonConfig {
     trafficCheck: number;
     /** Health check interval when idle (default: 30min) */
     healthCheck: number;
-    /** Slot sync check interval (default: 30s) */
+    /** Slot sync check interval (default: 5min) */
     syncCheck: number;
     /** Agent heartbeat interval (default: 60s) */
     heartbeat: number;
@@ -470,9 +470,9 @@ export interface TraqrConfig {
   version: '1.0.0' | '2.0.0';
 
   project: {
-    /** Lowercase slug, e.g. "jiggycapital" */
+    /** Lowercase slug, e.g. "myapp" */
     name: string;
-    /** Display name, e.g. "Jiggy Capital" */
+    /** Display name, e.g. "My App" */
     displayName: string;
     /** Short description */
     description: string;
@@ -480,7 +480,7 @@ export interface TraqrConfig {
     repoPath: string;
     /** Absolute path to worktrees directory */
     worktreesPath: string;
-    /** GitHub org/repo, e.g. "sean/jiggycapital" */
+    /** GitHub org/repo, e.g. "your-org/myapp" */
     ghOrgRepo: string;
     /** Framework detected (nextjs, node, python, rust, go, unknown) */
     framework?: string;
@@ -540,19 +540,19 @@ export interface TraqrConfig {
     analysis: number;
   };
 
-  /** Short prefix for shell commands, e.g. "jiggy" -> jiggy-slots */
+  /** Short prefix for shell commands, e.g. "myapp" -> myapp-slots */
   prefix: string;
 
   /** 2-char alias prefix for multi-project shell aliases, e.g. "nk" -> nk1, nkc1 */
   aliasPrefix?: string;
 
-  /** KV key namespace prefix for multi-project isolation, e.g. "nooktraqr" */
+  /** KV key namespace prefix for multi-project isolation, e.g. "myapp" */
   kvPrefix?: string;
 
-  /** Env var for authorized push, e.g. "JIGGYCAPITAL_SHIP_AUTHORIZED" */
+  /** Env var for authorized push, e.g. "MYAPP_SHIP_AUTHORIZED" */
   shipEnvVar: string;
 
-  /** Session marker prefix, e.g. "jiggycapital" -> /tmp/jiggycapital-session-*.json */
+  /** Session marker prefix, e.g. "myapp" -> /tmp/myapp-session-*.json */
   sessionPrefix: string;
 
   /** Co-author line for commits, e.g. "Claude Opus 4.6" */
@@ -562,7 +562,7 @@ export interface TraqrConfig {
   memory?: {
     /** Memory provider: 'supabase' (full pgvector), 'local' (CLAUDE.md only), 'none' */
     provider: 'supabase' | 'local' | 'none';
-    /** Memory API base URL, e.g. "https://nooktraqr.com/api" */
+    /** Memory API base URL, e.g. "https://myapp.com/api" */
     apiBase?: string;
     /** Project slug in memory system */
     projectSlug?: string;
@@ -574,7 +574,7 @@ export interface TraqrConfig {
 
   /** Obsidian vault configuration */
   vault?: {
-    /** Absolute path to Obsidian vault root (e.g., '/Users/sean/Documents/Obsidian Vault') */
+    /** Absolute path to Obsidian vault root (e.g., '/Users/you/Documents/Obsidian Vault') */
     path: string;
     /** Folder names for PARA-style promotion workflow (defaults shown) */
     inboxFolder?: string;      // default: '00 Inbox'
@@ -644,7 +644,7 @@ export interface TraqrConfig {
     linearTeamMap?: Record<string, string>;
     /** Map of team key → Slack channel prefix, e.g. { NTQ: "nk", TRQ: "trq" } */
     channelPrefixMap?: Record<string, string>;
-    /** Project ticket prefix for PR body parsing, e.g. "NTQ" for NookTraqr */
+    /** Project ticket prefix for PR body parsing, e.g. "MYA" for My App */
     ticketPrefix?: string;
     /** Enable plan-dispatch workflow */
     planDispatch?: boolean;
@@ -674,7 +674,7 @@ export interface TraqrConfig {
   notifications?: {
     /** Slack integration level */
     slackLevel: 'none' | 'basic' | 'standard' | 'full';
-    /** Channel prefix for per-project channels (e.g., 'nk' for NookTraqr) */
+    /** Channel prefix for per-project channels (e.g., 'ma' for My App) */
     slackChannelPrefix?: string;
     /** Slack channel for PR notifications / merge buttons */
     slackDeployChannel?: string;
@@ -777,13 +777,13 @@ export interface TraqrConfig {
   monorepo?: {
     /** Whether this project is a monorepo with multiple apps */
     enabled: boolean;
-    /** Directories containing apps (e.g. ['apps/nooktraqr', 'apps/platform']) */
+    /** Directories containing apps (e.g. ['apps/myapp', 'apps/platform']) */
     appDirs: string[];
     /** Per-app configuration overrides */
     apps: Record<string, {
       /** Human-readable app name */
       displayName: string;
-      /** App directory relative to monorepo root (e.g. 'apps/pokotraqr') */
+      /** App directory relative to monorepo root (e.g. 'apps/myapp') */
       appDir: string;
       /** Port offset for slot allocation (e.g. 0=3001, 1000=4001 for feature1) */
       portOffset: number;
@@ -791,9 +791,9 @@ export interface TraqrConfig {
       auth?: { provider: 'firebase' | 'supabase' | 'clerk' | 'custom' | 'none' };
       /** Framework override for this app */
       framework?: string;
-      /** Workspace dependencies (e.g. ['@traqr/core', '@pokotraqr/data']) */
+      /** Workspace dependencies (e.g. ['@traqr/core', '@myorg/data']) */
       workspaceDeps?: string[];
-      /** Companion data package name (e.g. '@pokotraqr/data') */
+      /** Companion data package name (e.g. '@myorg/data') */
       companionPackage?: string;
       /** Per-app Linear team ID (discovered or created during sub-app init) */
       linearTeamId?: string;
@@ -845,7 +845,7 @@ export interface TraqrConfig {
     enabled: boolean;
     /** Phase-1 policy: try free transcript sources before paid transcription (podcast.md Phase 1) */
     transcriptFirst?: boolean;
-    /** Sean's curated feed list — one entry per subscribed show */
+    /** Curated feed list — one entry per subscribed show */
     feeds: Array<{
       /** /podcast arg slug, e.g. 'acquired' | 'pmt' | 'trapdraw' | 'dwarkesh' */
       slug: string;

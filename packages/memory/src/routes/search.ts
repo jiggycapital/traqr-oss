@@ -12,7 +12,6 @@ import type { MemoryCategory, MemoryClassification, MemoryAccessLevel, MemoryDur
 const VALID_CLASSIFICATIONS: MemoryClassification[] = ['public', 'internal', 'confidential', 'restricted']
 const VALID_ACCESS_LEVELS: MemoryAccessLevel[] = ['exploration', 'standard', 'privileged', 'admin']
 
-const VALID_CATEGORIES: MemoryCategory[] = ['gotcha', 'pattern', 'fix', 'insight', 'question', 'preference', 'convention']
 const MAX_LIMIT = 50
 const DEFAULT_LIMIT = 10
 const DEFAULT_THRESHOLD = 0.35

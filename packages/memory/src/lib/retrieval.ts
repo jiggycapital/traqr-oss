@@ -12,7 +12,7 @@
 import { getVectorDB } from '../vectordb/index.js'
 import { generateEmbedding, formatEmbeddingForPgVector } from './embeddings.js'
 import { cohereRerank } from './rerank.js'
-import { CLASSIFICATION_RANK, ACCESS_LEVEL_MAX_CLASSIFICATION } from '../vectordb/types.js'
+import { CLASSIFICATION_RANK, ACCESS_LEVEL_MAX_CLASSIFICATION, allowedClassifications } from '../vectordb/types.js'
 import type {
   MemorySearchResult,
   SearchOptions,
@@ -169,12 +169,11 @@ export function allowedClassificationsForCeiling(
   accessLevel?: MemoryAccessLevel,
   maxClassification?: MemoryClassification,
 ): MemoryClassification[] | undefined {
-  const ceiling = resolveClassificationCeiling(accessLevel, maxClassification)
-  if (!ceiling) return undefined
-  const ceilingRank = CLASSIFICATION_RANK[ceiling]
-  return (Object.keys(CLASSIFICATION_RANK) as MemoryClassification[]).filter(
-    (cls) => CLASSIFICATION_RANK[cls] <= ceilingRank,
-  )
+  // Delegates to the copy in vectordb/types.ts. That module is the one BOTH the
+  // providers and this layer can import without a cycle (retrieval → vectordb/index
+  // → postgres), so the providers cannot import this function — which is how the
+  // second copy got written in the first place. One implementation, imported twice.
+  return allowedClassifications(accessLevel, maxClassification)
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +186,45 @@ export function allowedClassificationsForCeiling(
  * over-fetch is unchanged), so conceptual queries pay nothing.
  */
 export const EXACT_ID_RECALL_POOL = 100
+
+/**
+ * The confidence below which a memory cannot retrieve ITSELF.
+ *
+ * `search_memories` orders by `relevance_score = similarity * current_confidence
+ * * citationBoost`, not by similarity — and for a fresh row `current_confidence`
+ * IS `original_confidence` (calculate_current_confidence decays from it, and
+ * decay is ~0 at age 0). So confidence is a flat multiplier on rank, unbounded
+ * below: a 0.5-confidence row must clear 1.8x the similarity of a 0.9-confidence
+ * row to outrank it, which is impossible above similarity ~0.55.
+ *
+ * Measured 2026-09-14 against the live corpus (11,654 candidate rows) by querying
+ * rows with their OWN embedding — a perfect self-match, similarity 1.0000, rank 1
+ * of 11,654 on similarity alone. Rank by relevance_score:
+ *
+ *     confidence 0.50 -> rank 340, 477     confidence 0.70 -> rank 1
+ *     confidence 0.60 -> rank 109          confidence 0.85 -> rank 1
+ *                                          confidence 0.90 -> rank 1
+ *                                          confidence 1.00 -> rank 1
+ *
+ * The candidate pool is `limit * 2`, capped by EXACT_ID_RECALL_POOL above at 100.
+ * So 0.60 (rank 109) is already outside the DEEPEST pool the system can request:
+ * a row written at 0.60 is unreachable on its own verbatim text, at any limit.
+ *
+ * This is a FLOOR, not a quality bar. Express low trust in the CONTENT — it is
+ * the embedded text, so it is the one place a caveat actually reaches the agent
+ * that retrieves the row. Never express it by lowering confidence, which does not
+ * caveat a memory, it deletes it from retrieval.
+ *
+ * NOT via `sourceReliability`: that field is declared on MemoryInput and accepted
+ * by the memory-MCP tool schemas, but no provider writes it and traqr_memories has
+ * no column for it (verified 2026-09-14 — zero references in postgres.ts,
+ * supabase.ts and converters.ts, and it is absent from the INSERT column list).
+ * It is silently discarded on every write. Tracked as TD-1456.
+ *
+ * NOTE: the cliff is a property of THIS corpus's confidence distribution, so it
+ * drifts. The durable fix (bounding the multiplier's influence) is TD-1455.
+ */
+export const RETRIEVAL_CONFIDENCE_FLOOR = 0.7
 
 /** All-caps function words a caps-typing user might use — never a ticker/acronym. */
 const ACRONYM_STOPWORDS = new Set([
@@ -316,6 +354,12 @@ export async function searchMemoriesV2(
   // fakeProvider — otherwise its "0 over-tier rows across every path" assertion
   // passes blind to the new path, and a classification leak ships green.
   let semanticFullResults: MemorySearchResult[] = []
+  // TD-796 (the design half, unshipped since #1744): a strategy that ERRORED is
+  // recorded, not just logged. A per-strategy catch is still right — one dead leg
+  // must not kill a search the others can answer (TD-894) — but it must not be the
+  // whole story, because with one strategy "it failed" and "it found nothing" then
+  // render identically. See the total-failure check below.
+  const strategyErrors: unknown[] = []
   const strategyResults: StrategyResult[] = [
     await provider
       .search(query, {
@@ -332,9 +376,37 @@ export async function searchMemoriesV2(
       })
       .catch((err) => {
         console.warn('[retrieval] Semantic search failed:', err)
+        strategyErrors.push(err)
         return { strategy: 'semantic', items: [] }
       }),
   ]
+
+  // 3.5 TD-796: EVERY strategy errored → the DB never answered the question. The
+  // old code returned [] here, which is byte-identical to "no memory matches" —
+  // that is how a fleet-wide traqr-db outage renders in every agent's Phase 0 as a
+  // calm `total: 0` (2026-09-04: 5+ hours, six slots, orient reduced to warning
+  // humans to distrust the number). `console.warn` goes to the MCP server's stderr,
+  // which no agent reads.
+  //
+  // Throwing is safe because it defeats no handler — it REACHES the ones already
+  // written: memory_search + memory_pulse catch it into errorResult (memory-mcp
+  // tools.ts), routes/search.ts returns HTTP 500 with the message, and cli/verify.ts
+  // wants the throw. All four previously received a silent empty array instead.
+  // Same shape DevOps1 shipped for @traqr/kv the same night in #4517: re-raise the
+  // timeout rather than let it fold into a "key absent" answer.
+  if (strategyErrors.length > 0 && strategyErrors.length === strategyResults.length) {
+    const first = strategyErrors[0]
+    const detail = first instanceof Error ? first.message : String(first)
+    const unavailable = new Error(
+      `Memory search unavailable: all ${strategyResults.length} retrieval strategy(ies) failed. ` +
+        `This is a FAILURE, not an empty result set — do not read it as "no memories match". ` +
+        `Cause: ${detail}`,
+    )
+    // Assigned rather than passed as `new Error(msg, { cause })` — that overload
+    // needs lib ES2022 and this package targets lower; tsc rejects the 2-arg form.
+    ;(unavailable as Error & { cause?: unknown }).cause = first
+    throw unavailable
+  }
 
   // 4. Score via RRF — with a single strategy this is a rank-monotonic
   // pass-through of the semantic order; kept as the scoring contract.

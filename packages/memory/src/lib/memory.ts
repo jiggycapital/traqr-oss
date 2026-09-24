@@ -17,6 +17,7 @@ import type {
   MemorySearchResult,
   MemoryUpdate,
   MemoryExport,
+  MemoryStatsRow,
   SearchOptions,
   MemoryCategory,
   MemoryAccessLevel,
@@ -53,6 +54,34 @@ export type TriageAction = 'skipped' | 'stored' | 'extended' | 'related' | 'meta
 export interface TriageOptions {
   noopThreshold?: number  // default 0.90
   addThreshold?: number   // default 0.60
+  retireThreshold?: number // default DEFAULT_RETIRE_THRESHOLD (0.80)
+  /** Test seam: replaces the LLM borderline call. Production never passes it. */
+  decide?: typeof borderlineDecision
+}
+
+/**
+ * TD-1334 — the similarity a borderline match must reach before triage may RETIRE it.
+ *
+ * Three paths retire the existing row: the LLM's UPDATE (invalidate/supersede), its CORRECT
+ * (archive + supersede), and the length heuristic's "new is longer" branch. Below this floor
+ * each one now stores the new row beside the old with a `related` edge instead.
+ *
+ * Measured on traqr-db 2026-09-23 over 30 days of `mcp-pulse` writes: 666 rows retired, 620 of
+ * them (93%) by a match under 0.80, 461 under 0.75. A hand-graded sample of 15 across three
+ * bands: under 0.70, 0 of 5 were the same claim (a sell-application population note retired by
+ * a decimal-precision note; a JGC-518 fix ARCHIVED as "corrected" by an unrelated lesson);
+ * 0.70–0.80, at most 1 of 5; 0.80+, 4 of 5 were genuine re-statements (an IBKR sleeve refresh
+ * 8/24 → 8/26, ma_50 re-described). Two notes about one subject in one vocabulary land in
+ * 0.60–0.80 without being one claim, and the LLM verdict alone does not separate them.
+ *
+ * The asymmetry sets the direction: a wrongly kept row is still found, dated, next to its
+ * successor; a wrongly retired row drops out of search with nothing to say it went.
+ * Deliberate corrections have their own path (`memory_correct`), which this does not touch.
+ */
+export const DEFAULT_RETIRE_THRESHOLD = 0.80
+
+export function mayRetire(similarity: number, opts: TriageOptions = {}): boolean {
+  return similarity >= (opts.retireThreshold ?? DEFAULT_RETIRE_THRESHOLD)
 }
 
 export interface TriageResult {
@@ -188,11 +217,30 @@ export async function triageAndStore(
   const labelToId = new Map(existing.slice(0, 3).map((m, i) => [LABELS[i], m.id]))
 
   // Try LLM decision, fall back to heuristic on any failure
-  const decision = await borderlineDecision(input.content, maskedMemories, memType)
+  const decide = options.decide ?? borderlineDecision
+  const decision = await decide(input.content, maskedMemories, memType)
+  // The floor grades the row a verdict would RETIRE, never the top match: the LLM may name
+  // MEMORY_B/C, and `existing` is ranked by relevance_score, so a target's own similarity can sit
+  // on either side of best's. The heuristic fallback below only ever retires `best`.
+  const targetId = decision?.target ? labelToId.get(decision.target) || best.id : best.id
+  const targetSimilarity = existing.find(m => m.id === targetId)?.similarity ?? similarity
+
+  if (decision && (decision.action === 'update' || decision.action === 'correct') && !mayRetire(targetSimilarity, options)) {
+    // TD-1334: a destructive verdict below the retire floor keeps both rows (see mayRetire).
+    const memory = await storeMemory({ ...input, precomputedEmbedding: embeddingStr })
+    const relId = await createRelationship(memory.id, targetId, 'related', targetSimilarity, {
+      retireDeclined: decision.action,
+      retireThreshold: options.retireThreshold ?? DEFAULT_RETIRE_THRESHOLD,
+    })
+    return {
+      memory, zone: 'borderline', action: 'related', similarity,
+      matchedMemoryId: targetId, relationshipId: relId ?? undefined,
+      deduplicated: false, merged: false, existingId: targetId,
+    }
+  }
 
   if (decision) {
     // LLM decided — execute the action
-    const targetId = decision.target ? labelToId.get(decision.target) || best.id : best.id
 
     if (decision.action === 'update') {
       // Store new + type-aware invalidation of target
@@ -202,7 +250,7 @@ export async function triageAndStore(
       } else if (memType === 'preference') {
         await supersedeMemory(targetId)
       }
-      const relId = await createRelationship(memory.id, targetId, 'updates', similarity)
+      const relId = await createRelationship(memory.id, targetId, 'updates', targetSimilarity)
       return {
         memory, zone: 'borderline', action: 'extended', similarity,
         matchedMemoryId: targetId, relationshipId: relId ?? undefined,
@@ -215,7 +263,7 @@ export async function triageAndStore(
       const memory = await storeMemory({ ...input, precomputedEmbedding: embeddingStr })
       await archiveMemory(targetId, `corrected: ${decision.reasoning}`.slice(0, 500))
       await supersedeMemory(targetId)
-      const relId = await createRelationship(memory.id, targetId, 'updates', similarity, {
+      const relId = await createRelationship(memory.id, targetId, 'updates', targetSimilarity, {
         correctionReason: decision.reasoning,
         correctedAt: new Date().toISOString(),
       })
@@ -256,7 +304,7 @@ export async function triageAndStore(
   const newLen = input.content.length
   const oldLen = best.content.length
 
-  if (newLen > oldLen * 1.2) {
+  if (newLen > oldLen * 1.2 && mayRetire(similarity, options)) {
     const memory = await storeMemory({ ...input, precomputedEmbedding: embeddingStr })
     if (memType === 'fact') await invalidateMemory(best.id)
     else if (memType === 'preference') await supersedeMemory(best.id)
@@ -270,16 +318,26 @@ export async function triageAndStore(
   }
 
   if (oldLen > newLen * 1.2) {
+    // TD-1334: deliberately NO `validateMemory` here.
+    //
+    // Reaching this branch means the LLM did not answer, so nothing has read the
+    // two texts against each other — the only signal is that the existing content
+    // is longer. That is not evidence the existing memory is still true, and
+    // `db.validate()` writes `last_validated = NOW()`, which is the store's record
+    // that it IS. Stamping it here is how a correction refreshed the very claim it
+    // was disproving, and a shorter correction is the common shape.
+    //
+    // The tag merge stays: `db.update()` touches `updated_at` only, never
+    // `last_validated`, so it records the write without asserting the truth.
     const newTags = (input.tags || []).filter(t => !best.tags.includes(t))
-    if (newTags.length > 0) {
-      await updateMemory(best.id, {
-        tags: [...best.tags, ...newTags],
-        changeReason: 'Triage zone 3 (heuristic fallback): metadata merge',
-      })
-    }
-    const validated = await validateMemory(best.id)
+    const memory = newTags.length > 0
+      ? await updateMemory(best.id, {
+          tags: [...best.tags, ...newTags],
+          changeReason: 'Triage zone 3 (heuristic fallback): metadata merge',
+        })
+      : best
     return {
-      memory: validated, zone: 'borderline', action: 'metadata_updated', similarity,
+      memory, zone: 'borderline', action: 'metadata_updated', similarity,
       matchedMemoryId: best.id, deduplicated: true, merged: false, existingId: best.id,
     }
   }
@@ -412,7 +470,9 @@ export async function getMemoryStats(): Promise<{
   archived: number
 }> {
   const db = getVectorDB()
-  const all = await db.exportAll()
+  // TD-1018: statsRows(), not exportAll() — this function returns three counts
+  // and used to download every row's 1536-dim embedding to produce them.
+  const all = await db.statsRows()
 
   const stats = {
     total: all.length,
@@ -587,7 +647,9 @@ export interface DetailedStats {
 
 export async function getDetailedStats(): Promise<DetailedStats> {
   const db = getVectorDB()
-  const all = await db.exportAll()
+  // TD-1018: statsRows(), not exportAll(). The loop below reads exactly six
+  // fields; exportAll() fetched ~40 columns including the embedding.
+  const all = await db.statsRows()
 
   const now = Date.now()
   const day = 24 * 60 * 60 * 1000
@@ -602,8 +664,8 @@ export async function getDetailedStats(): Promise<DetailedStats> {
     recentCount: { last24h: 0, last7d: 0, last30d: 0 },
   }
 
-  let oldest: MemoryExport | null = null
-  let newest: MemoryExport | null = null
+  let oldest: MemoryStatsRow | null = null
+  let newest: MemoryStatsRow | null = null
 
   for (const memory of all) {
     if (memory.isArchived) {

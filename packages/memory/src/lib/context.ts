@@ -99,6 +99,12 @@ function classifyDomain(content: string): string {
 interface TimedSearchResult {
   results: MemorySearchResult[]
   timing: { query: string; ms: number }
+  /**
+   * TD-796: did this search FAIL (vs. genuinely return nothing)? A real field,
+   * not a `(FAILED)` suffix on `timing.query` — callers must not have to parse a
+   * label to learn whether the number they are about to trust was measured at all.
+   */
+  failed: boolean
 }
 
 // TD-796: every priming search used to give up on the FIRST throw and return [],
@@ -142,6 +148,7 @@ export async function timedSearch(
           query: attempt > 1 ? `${label} (retry ${attempt - 1})` : label,
           ms: Date.now() - start,
         },
+        failed: false,
       }
     } catch (error) {
       lastError = error
@@ -157,6 +164,7 @@ export async function timedSearch(
   return {
     results: [],
     timing: { query: `${label} (FAILED)`, ms: Date.now() - start },
+    failed: true,
   }
 }
 
@@ -185,7 +193,7 @@ export async function assembleSessionContext(
           similarityThreshold: 0.4,
           ...securityOpts,
         })
-      : Promise.resolve({ results: [], timing: { query: 'task-relevant (skipped)', ms: 0 } }),
+      : Promise.resolve({ results: [], timing: { query: 'task-relevant (skipped)', ms: 0 }, failed: false }),
 
     filesExpected && filesExpected.length > 0
       ? timedSearch('gotchas', filesExpected.join(' '), {
@@ -260,6 +268,10 @@ export async function assembleSessionContext(
   }))
 
   const searchTimings = searches.map((s) => s.timing)
+  // TD-796: how many of the priming searches never got an answer. memory_context
+  // returns ONLY promptContext (TD-889 capped the payload), so this count is the
+  // ONLY way the `(FAILED)` labels in searchTimings can reach an agent at all.
+  const failedSearches = searches.filter((s) => s.failed).length
 
   // Fire-and-forget: track which memories were returned
   if (allResults.length > 0) {
@@ -277,6 +289,8 @@ export async function assembleSessionContext(
     voiceTraits,
     identity,
     taskDescription,
+    failedSearches,
+    totalSearches: searches.length,
   })
 
   return {
@@ -306,10 +320,14 @@ interface FormatParams {
   voiceTraits: MemoryWithShortCode[]
   identity: MemoryWithShortCode[]
   taskDescription?: string
+  failedSearches?: number
+  totalSearches?: number
 }
 
 function formatPromptContext(params: FormatParams): string {
   const { principles, taskRelevant, gotchas, preferences, voiceTraits, identity, taskDescription } = params
+  const failedSearches = params.failedSearches ?? 0
+  const totalSearches = params.totalSearches ?? 0
   const lines: string[] = []
 
   const HARD_CAP = 15
@@ -441,7 +459,23 @@ function formatPromptContext(params: FormatParams): string {
 
   lines.push('='.repeat(50))
   const total = principles.length + taskRelevant.length + gotchas.length + preferences.length + voiceTraits.length + identity.length
-  lines.push(`Total: ${total} learnings loaded from vector DB`)
+  // TD-796: a count assembled from searches that FAILED is a floor, not a total.
+  // Unqualified, `Total: 0` reads as "the corpus is silent on this" — the exact
+  // misread that let a 5-hour traqr-db outage look like an empty DB to six slots
+  // on 2026-09-04. Say so ON the number, not in a log nobody reads.
+  if (failedSearches > 0) {
+    lines.push(
+      `Total: ${total} learnings loaded from vector DB ` +
+        `(DEGRADED — ${failedSearches}/${totalSearches} searches FAILED)`,
+    )
+    lines.push(
+      `WARNING: ${failedSearches} of ${totalSearches} priming searches did not reach the vector DB. ` +
+        `This context is INCOMPLETE and the count above is a FLOOR, not a total — absence here is NOT ` +
+        `evidence of absence. Check traqr-db health before concluding no memory exists.`,
+    )
+  } else {
+    lines.push(`Total: ${total} learnings loaded from vector DB`)
+  }
 
   return lines.join('\n')
 }

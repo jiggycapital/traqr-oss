@@ -12,6 +12,7 @@ import OpenAI from 'openai'
 import { storeWithDedup, searchMemories } from './memory.js'
 import { passesQualityGate } from './quality-gate.js'
 import type { MemoryCategory } from '../vectordb/types.js'
+import { MEMORY_CATEGORIES } from '../vectordb/types.js'
 
 function getOpenAIClient(): OpenAI | null {
   const apiKey = process.env.OPENAI_API_KEY
@@ -138,9 +139,7 @@ Respond with JSON only:
 // Validation & Quality Gate
 // ============================================================
 
-const VALID_CATEGORIES: MemoryCategory[] = [
-  'gotcha', 'pattern', 'fix', 'insight', 'question', 'preference', 'convention',
-]
+const VALID_CATEGORIES: MemoryCategory[] = [...MEMORY_CATEGORIES]
 
 function isValidLearning(l: unknown): l is ExtractedLearning {
   if (typeof l !== 'object' || l === null) return false
@@ -196,8 +195,10 @@ async function shouldSkipExtraction(searchText: string): Promise<boolean> {
       console.error(`[learning-extractor] Preflight dedup: ${existing.length} memories at >0.8 similarity, skipping extraction`)
       return true
     }
-  } catch {
-    // If search fails, proceed with extraction
+  } catch (err) {
+    // If search fails, proceed with extraction — but say so (TD-1385): a silent
+    // catch here made a dead DB indistinguishable from "no near-duplicates".
+    console.warn('[learning-extractor] Preflight dedup search failed, proceeding with extraction:', err)
   }
   return false
 }
