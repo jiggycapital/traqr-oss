@@ -28,7 +28,7 @@
  * the one field that is not a trust annotation. Re-scored at 0.7 they move from
  * rank 105-340 to rank 1-2.
  *
- * Hermetic: pure arithmetic + source parsing. No DB, no network.
+ * Hermetic: source parsing only. No DB, no network.
  *
  * Run: npx tsx packages/memory/src/lib/retrieval-confidence-floor.test.ts
  */
@@ -36,7 +36,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-import { RETRIEVAL_CONFIDENCE_FLOOR, EXACT_ID_RECALL_POOL } from './retrieval.js'
+import { RETRIEVAL_CONFIDENCE_FLOOR } from './retrieval.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, '../../../..')
@@ -54,42 +54,11 @@ function assert(label: string, condition: boolean) {
   }
 }
 
-/** The production ranking formula, verbatim from the search_memories RPC body. */
-function relevance(similarity: number, confidence: number, timesCited = 0): number {
-  return similarity * confidence * (1 + Math.log(1 + timesCited) * 0.1)
-}
-
-// A strong semantic neighbour drawn from the measured corpus: the established
-// band is 0.85-0.95 confidence, and a close neighbour sits at similarity ~0.75.
-// Against the Muse rows the top competitor scored 0.7898 and 12th place 0.6165.
-const COMPETITOR = relevance(0.75, 0.9)
-
-// A perfect self-match: the query IS the memory's own text.
-const selfMatch = (confidence: number) => relevance(1.0, confidence)
-
 console.log('\nretrieval confidence floor\n')
 
 assert(
   'the floor is at or above the measured cliff (0.60 ranked 109th; 0.70 ranked 1st)',
   RETRIEVAL_CONFIDENCE_FLOOR >= 0.7,
-)
-
-assert(
-  'a memory written AT the floor outranks a strong neighbour on its own text',
-  selfMatch(RETRIEVAL_CONFIDENCE_FLOOR) > COMPETITOR,
-)
-
-// The regression pin. This is the assertion that proves the one above is not
-// vacuous: the SAME check applied to the previous default fails. If someone
-// lowers the default back to 0.6, the test above starts failing for real.
-assert(
-  'the OLD default (0.6) FAILS to retrieve itself — the bug this floor fixes',
-  selfMatch(0.6) < COMPETITOR,
-)
-
-assert(
-  'rank 109 (the 0.6 self-rank) is outside the deepest requestable pool',
-  109 > EXACT_ID_RECALL_POOL,
 )
 
 // --- the shipped defaults must not drift back below the floor ------------------

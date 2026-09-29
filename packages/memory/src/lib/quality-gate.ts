@@ -6,10 +6,9 @@
  *   Layer 2: Universal specificity (16 domain-agnostic markers)
  *   Layer 3: Code-specific boost (6 additive code markers)
  *
- * Three gate modes:
+ * Two gate modes:
  *   - Strict gate: LLM extraction pipeline (≥3 markers, ≥80 chars, confidence ≥0.85)
  *   - Ingestion gate: MCP tools / agent writes (≥2 markers, ≥30 chars)
- *   - Light gate: Life Import bulk (≥20 chars, banned phrases only)
  *
  * ADR: [[MCP Redesign — Quality Gate v2]]
  */
@@ -168,23 +167,6 @@ export function passesIngestionGate(content: string): QualityGateResult {
 
   if (countSpecificityMarkers(content) < 2) {
     return { passes: false, reason: 'Content lacks specificity — include at least 2 of: file paths, function names, code refs, concrete decisions, or rationale' }
-  }
-
-  return { passes: true }
-}
-
-// ============================================================
-// Light Gate — Life Import bulk ingestion
-// ============================================================
-
-export function passesLightGate(content: string): QualityGateResult {
-  if (content.length < 20) {
-    return { passes: false, reason: 'Content too short (min 20 chars)' }
-  }
-
-  const hasBannedPhrase = BANNED_PHRASES.some(r => r.test(content))
-  if (hasBannedPhrase) {
-    return { passes: false, reason: 'Content contains generic/advisory phrasing' }
   }
 
   return { passes: true }

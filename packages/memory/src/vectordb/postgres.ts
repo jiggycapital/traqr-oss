@@ -74,6 +74,8 @@ export function resetPostgresPool(): void {
  * is the regression guard for the TD-810 commit-2 leak, where search() passed
  * only 8 args and the DB defaulted p_max_classification to 'restricted'
  * (= show-all). Mirrors resetPostgresPool(); never reached by production code.
+ *
+ * @internal Kept as the TD-810 leak guard's injection point; no live DB in tests.
  */
 export function setPostgresPool(pool: any): void {
   _pool = pool

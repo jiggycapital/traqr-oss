@@ -5,7 +5,7 @@
  * Run: npx ts-node packages/memory/src/lib/quality-gate.test.ts
  */
 
-import { passesIngestionGate, passesLightGate, passesQualityGate } from './quality-gate.js'
+import { passesIngestionGate, passesQualityGate } from './quality-gate.js'
 
 let passed = 0
 let failed = 0
@@ -105,40 +105,6 @@ assert(
 assert(
   'Fluff: "The approach demonstrates a preference for clean architecture"',
   passesIngestionGate('The approach demonstrates a preference for clean architecture').passes,
-  false
-)
-
-// ============================================================
-// Light Gate — MUST PASS
-// ============================================================
-console.log('\n--- Light Gate: MUST PASS ---')
-
-assert(
-  'Casual content: "I had pasta for dinner last night"',
-  passesLightGate('I had pasta for dinner last night').passes,
-  true
-)
-
-assert(
-  'Short but valid: "This is a valid memory entry"',
-  passesLightGate('This is a valid memory entry').passes,
-  true
-)
-
-// ============================================================
-// Light Gate — MUST FAIL
-// ============================================================
-console.log('\n--- Light Gate: MUST FAIL ---')
-
-assert(
-  'Too short: "hi"',
-  passesLightGate('hi').passes,
-  false
-)
-
-assert(
-  'Banned phrase: "Remember to always be careful with authentication"',
-  passesLightGate('Remember to always be careful with authentication').passes,
   false
 )
 
