@@ -1,5 +1,6 @@
 /**
- * triageAndStore may RETIRE an existing row only at or above the retire floor (TD-1334).
+ * triageAndStore may RETIRE an existing row, or DISCARD the new one, only at or above the retire
+ * floor (TD-1334).
  *
  * The defect, measured on traqr-db 2026-09-23: over 30 days `memory_pulse` retired 666 rows,
  * 93% of them through a borderline match under 0.80 similarity, and a hand-graded sample under
@@ -82,9 +83,11 @@ const retiredAnything = (r: Recorder) => r.invalidated.length + r.superseded.len
 
 async function main() {
   console.log('\n--- the floor itself ---')
-  assert('default floor is 0.80', DEFAULT_RETIRE_THRESHOLD === 0.80)
-  assert('0.80 may retire (inclusive)', mayRetire(0.80))
-  assert('0.7999 may not', !mayRetire(0.7999))
+  // 0.90 is the noop threshold, so by default no borderline match retires (raised 2026-10-03).
+  assert('default floor is 0.90', DEFAULT_RETIRE_THRESHOLD === 0.90)
+  assert('0.90 may retire (inclusive)', mayRetire(0.90))
+  assert('0.8999 may not', !mayRetire(0.8999))
+  assert('0.86, the band the 10-03 losses came from, may not', !mayRetire(0.86))
   assert('an explicit retireThreshold overrides the default', mayRetire(0.65, { retireThreshold: 0.6 }))
 
   for (const action of ['update', 'correct'] as const) {
@@ -103,7 +106,12 @@ async function main() {
     {
       const rec = install(0.86, LONG, 'fact')
       const res = await triageAndStore(input(SHORT), { decide: verdict(action) })
-      assert(`${action} at 0.86: the existing row IS retired`, retiredAnything(rec) && res.merged === true)
+      assert(`${action} at 0.86, default floor: nothing retired, stored as related`, !retiredAnything(rec) && res.action === 'related')
+    }
+    {
+      const rec = install(0.86, LONG, 'fact')
+      const res = await triageAndStore(input(SHORT), { decide: verdict(action), retireThreshold: 0.80 })
+      assert(`${action} at 0.86 with a 0.80 floor: the existing row IS retired`, retiredAnything(rec) && res.merged === true)
     }
   }
 
@@ -115,7 +123,7 @@ async function main() {
       const rec = installRows([
         row('mem-a', 0.86, LONG, 'fact'), row('mem-b', 0.70, LONG, 'fact'), row('mem-c', 0.62, LONG, 'fact'),
       ])
-      const res = await triageAndStore(input(SHORT), { decide: verdict(action, 'MEMORY_C') })
+      const res = await triageAndStore(input(SHORT), { decide: verdict(action, 'MEMORY_C'), retireThreshold: 0.80 })
       assert(`${action} on C (0.62) under A (0.86): nothing retired`, !retiredAnything(rec) && res.merged === false)
       assert(
         `${action} on C: the declined edge points at C and carries C's own similarity`,
@@ -127,23 +135,35 @@ async function main() {
     {
       // relevance_score order: A leads on citations while B is the closer text.
       const rec = installRows([row('mem-a', 0.78, LONG, 'fact'), row('mem-b', 0.84, LONG, 'fact')])
-      const res = await triageAndStore(input(SHORT), { decide: verdict(action, 'MEMORY_B') })
+      const res = await triageAndStore(input(SHORT), { decide: verdict(action, 'MEMORY_B'), retireThreshold: 0.80 })
       const retired = [...rec.invalidated, ...rec.superseded, ...rec.archived]
       assert(`${action} on B (0.84) under A (0.78): B is retired, A is not`, retired.includes('mem-b') && !retired.includes('mem-a') && res.merged === true)
       assert(`${action} on B: the updates edge carries B's similarity`, rec.edges[0]?.target === 'mem-b' && rec.edges[0]?.metadata.confidence === 0.84)
     }
   }
 
-  console.log('\n--- LLM ADD / NOOP are untouched by the floor ---')
+  console.log('\n--- LLM ADD is untouched by the floor ---')
   {
     const rec = install(0.68, LONG, 'fact')
     const res = await triageAndStore(input(SHORT), { decide: verdict('add') })
     assert('add at 0.68 stores alongside, retires nothing', rec.stored === 1 && !retiredAnything(rec) && res.action === 'related')
   }
+
+  // NOOP discards the NEW text. Every swallowed capture reported on TD-1334 sat at 0.65-0.76.
+  console.log('\n--- LLM NOOP discards the capture only at or above the floor ---')
   {
     const rec = install(0.68, LONG, 'fact')
     const res = await triageAndStore(input(SHORT), { decide: verdict('noop') })
-    assert('noop at 0.68 still dedupes (floor only gates retirement)', rec.stored === 0 && res.deduplicated === true)
+    assert('noop at 0.68: the new row IS stored', rec.stored === 1 && res.deduplicated === false && res.action === 'related')
+    assert(
+      'noop at 0.68: the edge records the declined verdict',
+      rec.edges.length === 1 && rec.edges[0].type === 'related' && rec.edges[0].metadata.retireDeclined === 'noop',
+    )
+  }
+  {
+    const rec = install(0.86, LONG, 'fact')
+    const res = await triageAndStore(input(SHORT), { decide: verdict('noop'), retireThreshold: 0.80 })
+    assert('noop at 0.86 with a 0.80 floor: deduped, nothing stored', rec.stored === 0 && res.deduplicated === true)
   }
 
   console.log('\n--- heuristic fallback (LLM unavailable), new text longer ---')
@@ -156,7 +176,25 @@ async function main() {
   {
     const rec = install(0.86, SHORT, 'fact')
     const res = await triageAndStore(input(LONG), { decide: noVerdict })
-    assert('longer-new at 0.86: old row invalidated as before', rec.invalidated.includes(EXISTING_ID) && res.merged === true)
+    assert('longer-new at 0.86, default floor: old row NOT invalidated', !retiredAnything(rec) && res.merged === false)
+  }
+  {
+    const rec = install(0.86, SHORT, 'fact')
+    const res = await triageAndStore(input(LONG), { decide: noVerdict, retireThreshold: 0.80 })
+    assert('longer-new at 0.86 with a 0.80 floor: old row invalidated', rec.invalidated.includes(EXISTING_ID) && res.merged === true)
+  }
+
+  console.log('\n--- heuristic fallback (LLM unavailable), old text longer ---')
+  {
+    // Nothing has read the two texts against each other, and a shorter correction is the common shape.
+    const rec = install(0.68, LONG, 'fact')
+    const res = await triageAndStore(input(SHORT), { decide: noVerdict })
+    assert('shorter-new at 0.68: the new row IS stored as related', rec.stored === 1 && res.action === 'related' && res.deduplicated === false)
+  }
+  {
+    const rec = install(0.86, LONG, 'fact')
+    const res = await triageAndStore(input(SHORT), { decide: noVerdict, retireThreshold: 0.80 })
+    assert('shorter-new at 0.86 with a 0.80 floor: deduped, nothing stored', rec.stored === 0 && res.deduplicated === true)
   }
 
   resetVectorDB()

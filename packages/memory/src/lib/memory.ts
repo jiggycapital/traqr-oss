@@ -54,7 +54,7 @@ export type TriageAction = 'skipped' | 'stored' | 'extended' | 'related' | 'meta
 export interface TriageOptions {
   noopThreshold?: number  // default 0.90
   addThreshold?: number   // default 0.60
-  retireThreshold?: number // default DEFAULT_RETIRE_THRESHOLD (0.80)
+  retireThreshold?: number // default DEFAULT_RETIRE_THRESHOLD (0.90)
   /** Test seam: replaces the LLM borderline call. Production never passes it. */
   decide?: typeof borderlineDecision
 }
@@ -63,8 +63,16 @@ export interface TriageOptions {
  * TD-1334 — the similarity a borderline match must reach before triage may RETIRE it.
  *
  * Three paths retire the existing row: the LLM's UPDATE (invalidate/supersede), its CORRECT
- * (archive + supersede), and the length heuristic's "new is longer" branch. Below this floor
- * each one now stores the new row beside the old with a `related` edge instead.
+ * (archive + supersede), and the length heuristic's "new is longer" branch. Two more discard
+ * the NEW text: the LLM's NOOP and the heuristic's "old is longer" branch. Below this floor
+ * all five store the new row beside the old with a `related` edge instead.
+ *
+ * The discards were gated on 2026-10-04. Every swallowed capture reported on TD-1334 had sat
+ * between 0.65 and 0.76 (re-stored text vs the row that absorbed it): a CTAS print grade
+ * absorbed by an FSLY 8-K note, a FIX newsroom gotcha by an Alpha Vantage rate limit, and two
+ * root-cause writeups by unrelated Life-OS and TD-1018 notes. Each matched row also had its
+ * `lastValidated` restamped. A discard is the worse loss: a retired row keeps its history,
+ * while a discarded capture is never written anywhere.
  *
  * Measured on traqr-db 2026-09-23 over 30 days of `mcp-pulse` writes: 666 rows retired, 620 of
  * them (93%) by a match under 0.80, 461 under 0.75. A hand-graded sample of 15 across three
@@ -74,11 +82,18 @@ export interface TriageOptions {
  * 8/24 → 8/26, ma_50 re-described). Two notes about one subject in one vocabulary land in
  * 0.60–0.80 without being one claim, and the LLM verdict alone does not separate them.
  *
+ * Raised from 0.80 to 0.90 on 2026-10-03, which equals the noop threshold, so a borderline
+ * match no longer retires anything by default. Above 0.80 the losses kept coming: three slots
+ * reported distinct facts retired at 0.81–0.88 on 10-03, and a hand-graded sample of 10 rows
+ * still hidden at 0.80–0.90 held 7 distinct facts (a buy-list cohort map retired by another
+ * analysis of the same list, a batch take retired by the refinements that cite it). With
+ * feature1's 4 of 5 that's 8 of 15 lossy, so similarity doesn't separate this band either.
+ *
  * The asymmetry sets the direction: a wrongly kept row is still found, dated, next to its
  * successor; a wrongly retired row drops out of search with nothing to say it went.
  * Deliberate corrections have their own path (`memory_correct`), which this does not touch.
  */
-export const DEFAULT_RETIRE_THRESHOLD = 0.80
+export const DEFAULT_RETIRE_THRESHOLD = 0.90
 
 export function mayRetire(similarity: number, opts: TriageOptions = {}): boolean {
   return similarity >= (opts.retireThreshold ?? DEFAULT_RETIRE_THRESHOLD)
@@ -225,8 +240,9 @@ export async function triageAndStore(
   const targetId = decision?.target ? labelToId.get(decision.target) || best.id : best.id
   const targetSimilarity = existing.find(m => m.id === targetId)?.similarity ?? similarity
 
-  if (decision && (decision.action === 'update' || decision.action === 'correct') && !mayRetire(targetSimilarity, options)) {
+  if (decision && decision.action !== 'add' && !mayRetire(targetSimilarity, options)) {
     // TD-1334: a destructive verdict below the retire floor keeps both rows (see mayRetire).
+    // NOOP is destructive too: it discards the NEW text, which leaves no history row at all.
     const memory = await storeMemory({ ...input, precomputedEmbedding: embeddingStr })
     const relId = await createRelationship(memory.id, targetId, 'related', targetSimilarity, {
       retireDeclined: decision.action,
@@ -317,7 +333,7 @@ export async function triageAndStore(
     }
   }
 
-  if (oldLen > newLen * 1.2) {
+  if (oldLen > newLen * 1.2 && mayRetire(similarity, options)) {
     // TD-1334: deliberately NO `validateMemory` here.
     //
     // Reaching this branch means the LLM did not answer, so nothing has read the
